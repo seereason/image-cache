@@ -19,7 +19,7 @@ Library
                    Appraisal.Image
                    Appraisal.ImageCache
                    Appraisal.ImageFile
-  Other-Modules:   Appraisal.Utils.ErrorWithIO
+  		   Appraisal.Utils.ErrorWithIO
                    Appraisal.Utils.Files
                    Appraisal.Utils.Prelude
                    Appraisal.Utils.Pretty
