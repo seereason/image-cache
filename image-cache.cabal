@@ -1,0 +1,47 @@
+Name:           image-cache
+Version:        0.1
+License:        AllRightsReserved
+Copyright:      (c) 2014, SeeReason Partners LLC
+Author:         David Fox <dsf@seereason.com>
+Maintainer:     David Fox <dsf@seereason.com>
+Homepage:       http://src.seereason.com/image-cache
+Synopsis:       Support for image file processing and caching
+Cabal-version:  >= 1.8
+build-type:     Custom
+
+Library
+  GHC-Options: -Wall -fno-warn-name-shadowing
+  -- CPP-Options: -DLAZYIMAGES
+  Extensions: CPP, NoImplicitPrelude
+  Exposed-modules: Appraisal.Cache
+                   Appraisal.Exif
+                   Appraisal.File
+                   Appraisal.Image
+                   Appraisal.ImageCache
+                   Appraisal.ImageFile
+  Other-Modules:   Appraisal.Utils.ErrorWithIO
+                   Appraisal.Utils.Files
+                   Appraisal.Utils.Prelude
+                   Appraisal.Utils.Pretty
+  Build-Depends:
+    acid-state,
+    base >= 4,
+    binary,
+    bytestring,
+    containers,
+    data-lens,
+    directory,
+    hslogger,
+    ListLike >= 4,
+    mtl,
+    network-uri,
+    pretty,
+    process,
+    process-listlike >= 0.9,
+    pureMD5,
+    regex-compat,
+    safecopy,
+    syb,
+    unix,
+    Unixutils,
+    utf8-string
