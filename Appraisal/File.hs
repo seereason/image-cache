@@ -10,6 +10,7 @@
 -- location based on the file's checksum.
 module Appraisal.File
     ( module Network.URI
+    , ImageCacheTop(..)
     , Checksum
     , File(..)
     , FileSource(..)
@@ -27,7 +28,6 @@ module Appraisal.File
     , addMessage
     ) where
 
-import Appraisal.Config (Paths(images))
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO, io, catch, logExceptionM,
                                     readCreateProcessWithExitCode')
 import Appraisal.Utils.Files (writeFileReadable, makeReadableAndClose)
@@ -54,6 +54,8 @@ import System.Process.ByteString ()
 import System.Process.String ()
 import System.Unix.FilePath ((<++>))
 
+newtype ImageCacheTop = ImageCacheTop {images :: FilePath}
+
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
 -- store the original ByteString if that is all we began
@@ -77,8 +79,7 @@ instance Pretty Doc File where
     pretty (File _ cksum _) = text ("File(" <> show cksum <> ")")
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI :: Paths a =>
-               a		-- ^ The home directory of the cache
+fileFromURI :: ImageCacheTop		-- ^ The home directory of the cache
             -> String		-- ^ The URI to retrieve
             -> ErrorWithIO (File, P.ByteString)
 fileFromURI ver uri =
@@ -92,8 +93,7 @@ fileFromURI ver uri =
          _ -> logExceptionM "Appraisal.File.fileFromURI" $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 
 -- |Read the contents of a local path into a File.
-fileFromPath :: Paths a =>
-                a       	-- ^ The home directory of the cache
+fileFromPath :: ImageCacheTop       	-- ^ The home directory of the cache
              -> FilePath	-- ^ The local pathname to copy into the cache
              -> ErrorWithIO (File, P.ByteString)
 fileFromPath ver path =
@@ -102,8 +102,7 @@ fileFromPath ver path =
        return (file {fileSource = Just (ThePath path)}, bytes)
 
 -- | Move a file into the file cache and incorporate it into a File.
-fileFromFile :: Paths a =>
-                a       	-- ^ The home directory of the cache
+fileFromFile :: ImageCacheTop       	-- ^ The home directory of the cache
              -> FilePath	-- ^ The local pathname to copy into the cache
              -> ErrorWithIO File
 fileFromFile ver path = do
@@ -115,8 +114,7 @@ fileFromFile ver path = do
         renameFile path (fileCachePath ver file))
     return file
 
-fileFromCmd :: Paths a =>
-               a
+fileFromCmd :: ImageCacheTop
             -> String           -- ^ A shell command whose output becomes the contents of the file.
             -> ErrorWithIO File
 fileFromCmd ver cmd = do
@@ -130,8 +128,7 @@ fileFromCmd ver cmd = do
 -- | Build a file from the output of a command.  We use a temporary
 -- file to store the contents of the command while we checksum it to
 -- avoid reading the command's output into RAM.
-fileFromCmdViaTemp :: Paths a =>
-                      a
+fileFromCmdViaTemp :: ImageCacheTop
                    -> String           -- ^ A shell command whose output becomes the contents of the file.
                    -> ErrorWithIO File
 fileFromCmdViaTemp ver cmd = do
@@ -151,8 +148,7 @@ fileFromCmdViaTemp ver cmd = do
 -- |Turn the bytes in a ByteString into a File.  This is an IO operation
 -- because it saves the data into the local cache.  We use writeFileReadable
 -- because the files we create need to be read remotely by our backup program.
-fileFromBytes :: Paths a =>
-                 a        	-- ^ The home directory of the cache
+fileFromBytes :: ImageCacheTop        	-- ^ The home directory of the cache
               -> P.ByteString	-- ^ The bytes to store as the file's contents
               -> ErrorWithIO File
 fileFromBytes ver bytes =
@@ -168,8 +164,7 @@ fileFromBytes ver bytes =
 
 -- | Make sure a file is correctly installed in the cache, and if it
 -- isn't install it.
-cacheFile :: Paths a
-          => a                        -- ^ The home directory of the cache
+cacheFile :: ImageCacheTop                   -- ^ The home directory of the cache
           -> File                     -- ^ The file to verify
           -> P.ByteString             -- ^ Expected contents
           -> ErrorWithIO File
@@ -196,15 +191,13 @@ fileCacheURI cacheDirectoryURI file =
     cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> fileChksum file}
 
 -- |The full path name for the local cache of the file.
-fileCachePath :: Paths a
-              => a              -- ^ The home directory of the cache
+fileCachePath :: ImageCacheTop         -- ^ The home directory of the cache
               -> File		-- ^ The file whose path should be returned
               -> FilePath
 fileCachePath ver file = images ver <++> fileChksum file
 
 -- |Read and return the contents of the file from the cache.
-loadBytes :: Paths a
-          => a  		-- ^ The home directory of the cache
+loadBytes :: ImageCacheTop  		-- ^ The home directory of the cache
           -> File		-- ^ The file whose bytes should be loaded
           -> ErrorWithIO P.ByteString
 loadBytes home file =

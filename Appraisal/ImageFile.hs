@@ -19,9 +19,8 @@ module Appraisal.ImageFile
     , editImage
     ) where
 
-import Appraisal.Config (Paths)
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.File (File(..), fileCachePath, loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
+import Appraisal.File (ImageCacheTop(..), File(..), fileCachePath, loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
 import Appraisal.Image (PixmapShape(..), ImageCrop(..))
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO, io, catch, logExceptionM, ensureLink, readCreateProcess')
 import Appraisal.Utils.Prelude
@@ -70,21 +69,21 @@ extension GIF = ".gif"
 extension PNG = ".png"
 
 -- |Return the local pathname of an image file with an appropriate extension (e.g. .jpg).
-imageFilePath :: Paths a => a -> ImageFile -> FilePath
+imageFilePath :: ImageCacheTop -> ImageFile -> FilePath
 imageFilePath ver img = fileCachePath ver (imageFile img) ++ extension (imageFileType img)
 
-imageFileFromBytes :: Paths p => p -> ByteString -> ErrorWithIO ImageFile
+imageFileFromBytes :: ImageCacheTop -> ByteString -> ErrorWithIO ImageFile
 imageFileFromBytes top bs = fileFromBytes top bs >>= makeImageFile top
 
 -- | Find or create a cached image file from a URI.
-imageFileFromURI :: Paths p => p -> URI -> ErrorWithIO ImageFile
+imageFileFromURI :: ImageCacheTop -> URI -> ErrorWithIO ImageFile
 imageFileFromURI top uri = fileFromURI top (uriToString id uri "") >>= makeImageFile top . fst
 
-imageFileFromPath :: Paths p => p -> FilePath -> ErrorWithIO ImageFile
+imageFileFromPath :: ImageCacheTop -> FilePath -> ErrorWithIO ImageFile
 imageFileFromPath top path = fileFromPath top path >>= makeImageFile top . fst
 
 -- |Create an image file from a 'File'.
-makeImageFile :: Paths a => a -> File -> ErrorWithIO ImageFile
+makeImageFile :: ImageCacheTop -> File -> ErrorWithIO ImageFile
 makeImageFile ver file = logExceptionM "Appraisal.ImageFile.makeImageFile" $ do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     (getFileType path >>= imageFileFromType ver path file) `catch` handle
@@ -94,7 +93,7 @@ makeImageFile ver file = logExceptionM "Appraisal.ImageFile.makeImageFile" $ do
       handle e =
           logExceptionM "Appraisal.ImageFile.makeImageFile" $ fail $ "Failure making image file " ++ show file ++ ": " ++ show e
 
-imageFileFromType :: Paths p => p -> FilePath -> File -> ImageType -> ErrorWithIO ImageFile
+imageFileFromType :: ImageCacheTop -> FilePath -> File -> ImageType -> ErrorWithIO ImageFile
 imageFileFromType ver path file typ = do
   -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
   let cmd = case typ of
@@ -110,7 +109,7 @@ imageFileFromType ver path file typ = do
     ExitSuccess -> imageFileFromPnmfileOutput ver file typ out
     ExitFailure _ -> myerror $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
 
-imageFileFromPnmfileOutput :: Paths p => p -> File -> ImageType -> P.ByteString -> ErrorWithIO ImageFile
+imageFileFromPnmfileOutput :: ImageCacheTop -> File -> ImageType -> P.ByteString -> ErrorWithIO ImageFile
 imageFileFromPnmfileOutput ver file typ out =
         case matchRegex pnmFileRegex (P.toString out) of
           Just [width, height, _, maxval] ->
@@ -124,7 +123,7 @@ imageFileFromPnmfileOutput ver file typ out =
   where
       pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
 
-ensureExtensionLink :: Paths p => p -> File -> String -> ErrorWithIO ()
+ensureExtensionLink :: ImageCacheTop -> File -> String -> ErrorWithIO ()
 ensureExtensionLink ver file ext = ensureLink (fileChksum file) (fileCachePath ver file ++ ext)
 
 -- |Run @file -b@ and convert the output to an 'ImageType'.
@@ -153,7 +152,7 @@ imageFileArea image = imageFileWidth image * imageFileHeight image
 -- | Build a version of the image with its orientation fixed based on
 -- the EXIF orientation flag.  If the image is already upright it will
 -- return the original ImageFile.
-uprightImage :: Paths a => a -> ImageFile -> ErrorWithIO ImageFile
+uprightImage :: ImageCacheTop -> ImageFile -> ErrorWithIO ImageFile
 uprightImage ver orig = do
   bs <- loadBytes ver (imageFile orig)
   bs' <- io (normalizeOrientationCode (P.fromStrict bs))
@@ -161,7 +160,7 @@ uprightImage ver orig = do
 
 -- |Use a decoder, pnmscale, and an encoder to change the size of an
 -- |image file.  The new image inherits the home directory of the old.
-scaleImage :: (Paths a, RealFloat f) => f -> a -> ImageFile -> ErrorWithIO ImageFile
+scaleImage :: RealFloat f => f -> ImageCacheTop -> ImageFile -> ErrorWithIO ImageFile
 scaleImage scale _ orig | scale == 1.0 = return orig
 scaleImage scale ver orig = logExceptionM "Appraisal.ImageFile.scaleImage" $ do
     let cmd = pipe' [decoder, scaler, encoder]
@@ -186,7 +185,7 @@ scaleImage scale ver orig = logExceptionM "Appraisal.ImageFile.scaleImage" $ do
       buildImage file = makeImageFile ver file `catch` (\ e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)
 
 -- |Crop an image.
-editImage :: Paths a => ImageCrop -> a -> ImageFile -> ErrorWithIO ImageFile
+editImage :: ImageCrop -> ImageCacheTop -> ImageFile -> ErrorWithIO ImageFile
 editImage crop ver file = logExceptionM "Appraisal.ImageFile.editImage" $
     case commands of
       [] ->
