@@ -10,7 +10,7 @@ import System.Directory (removeFile)
 import qualified System.IO as IO
 import System.IO.Error (isDoesNotExistError)
 import System.Posix.Files (getFdStatus, fileMode, setFdMode, unionFileModes, ownerReadMode, groupReadMode, otherReadMode)
-import System.Posix.IO (handleToFd)
+import System.Posix.IO (handleToFd, closeFd)
 
 data UpdateResult = Unchanged | Created | Modified deriving (Eq, Ord, Read, Show)
 
@@ -65,9 +65,9 @@ writeFileReadable path bytes = do
 
 makeReadableAndClose :: IO.Handle -> IO ()
 makeReadableAndClose fp = do
-  -- This closes fp
+  -- This closes the handle (but not the fd)
   fd <- handleToFd fp
   mode <- fileMode <$> getFdStatus fd
   let mode' = foldr unionFileModes mode [ownerReadMode, groupReadMode, otherReadMode]
   setFdMode fd mode'
-
+  closeFd fd

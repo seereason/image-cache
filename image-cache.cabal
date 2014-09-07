@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.1
+Version:        0.1.1
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -8,6 +8,10 @@ Homepage:       http://src.seereason.com/image-cache
 Synopsis:       Support for image file processing and caching
 Cabal-version:  >= 1.8
 build-type:     Custom
+
+source-repository head
+  type:     git
+  location: https://github.com/seereason/image-cache
 
 Library
   GHC-Options: -Wall -fno-warn-name-shadowing
