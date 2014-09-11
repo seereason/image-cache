@@ -97,7 +97,7 @@ imageFileFromType :: ImageCacheTop -> FilePath -> File -> ImageType -> ErrorWith
 imageFileFromType ver path file typ = do
   -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
   let cmd = case typ of
-              JPEG -> pipe [proc "/usr/bin/djpeg" [path], proc "/usr/bin/pnmfile" []]
+              JPEG -> pipe [proc "/usr/bin/jpegtopnm" [path], proc "/usr/bin/pnmfile" []]
               PPM ->  (proc "/usr/bin/pnmfile" [])
               GIF -> pipe [proc "/usr/bin/giftopnm" [path], proc "/usr/bin/pnmfile" []]
               PNG -> pipe [proc "/usr/bin/pngtopnm" [path], proc "/usr/bin/pnmfile" []]
@@ -168,7 +168,7 @@ scaleImage scale ver orig = logExceptionM "Appraisal.ImageFile.scaleImage" $ do
     fileFromCmdViaTemp ver cmd >>= buildImage
     where
       decoder = case imageFileType orig of
-                  JPEG -> showCommandForUser "/usr/bin/djpeg" [path]
+                  JPEG -> showCommandForUser "/usr/bin/jpegtopnm" [path]
                   PPM -> showCommandForUser "cat" [path]
                   GIF -> showCommandForUser "/usr/bin/giftopnm" [path]
                   PNG -> showCommandForUser "/usr/bin/pngtopnm" [path]
@@ -221,7 +221,7 @@ editImage crop ver file = logExceptionM "Appraisal.ImageFile.editImage" $
       buildPipeline start (Nothing : ops) end = buildPipeline start ops end
       buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
       buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
-      convert JPEG PPM = [("/usr/bin/djpeg", [])]
+      convert JPEG PPM = [("/usr/bin/jpegtopnm", [])]
       convert GIF PPM = [("giftpnm", [])]
       convert PNG PPM = [("/usr/bin/pngtopnm", [])]
       convert PPM JPEG = [("/usr/bin/cjpeg", [])]
