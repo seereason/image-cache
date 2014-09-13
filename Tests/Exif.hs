@@ -8,7 +8,6 @@ import Data.ByteString.Lazy.Char8 (pack)
 import Data.Binary.Get (Get, runGet)
 import GHC.IO.Exception
 import GHC.Int (Int64)
-import Prelude
 import Test.HUnit
 
 test' :: Int -> ByteString -> (Either ErrorCall (Int, Int64, Bool)) -> Test

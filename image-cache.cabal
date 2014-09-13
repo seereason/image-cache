@@ -27,6 +27,7 @@ Library
                    Appraisal.Utils.Files
                    Appraisal.Utils.Prelude
                    Appraisal.Utils.Pretty
+                   Text.LaTeX.Packages.GraphicX
   Build-Depends:
     acid-state,
     base >= 4,
@@ -35,6 +36,7 @@ Library
     containers,
     data-lens,
     directory,
+    HaTeX,
     hslogger,
     ListLike >= 4,
     mtl,
@@ -46,6 +48,7 @@ Library
     regex-compat,
     safecopy,
     syb,
+    text,
     unix,
     Unixutils,
     utf8-string

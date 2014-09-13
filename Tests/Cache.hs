@@ -4,7 +4,6 @@ module Cache where
 
 import Appraisal.File (ImageCacheTop)
 import Appraisal.ImageCache (ImageCacheIO, ImageCacheMap, ImageCacheState, runImageCacheIO, fileCachePath')
-import Appraisal.Utils.UUID (fromString)
 import Control.Exception (bracket)
 import Control.Monad.Error
 import Data.Acid (openLocalStateFrom, closeAcidState)

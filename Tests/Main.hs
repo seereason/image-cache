@@ -3,6 +3,7 @@ module Main where
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO)
 import Cache (loadImageCache)
 import qualified Exif (tests)
+import qualified LaTeX
 import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
 import Test.HUnit (Test(TestList), runTestTT, Counts(errors, failures))
 
@@ -14,4 +15,4 @@ main =
          _ -> exitWith (ExitFailure 1)
 
 tests :: Test
-tests = Exif.tests
+tests = TestList [Exif.tests, LaTeX.tests]
