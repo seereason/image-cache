@@ -7,7 +7,8 @@ module Appraisal.Exif
 import Control.Exception (ErrorCall, try, evaluate)
 import Control.Monad (when)
 import Data.ByteString.Lazy (ByteString, pack, unpack, take, drop, concat)
-import Data.Binary.Get
+import Data.Binary.Get (getLazyByteString, Get, skip, bytesRead, runGet,
+                        getWord16be, getWord32be, getWord16le, getWord32le)
 import Data.Word (Word16, Word32)
 import GHC.Int (Int64)
 import Prelude hiding (take, drop, concat)
