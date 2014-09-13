@@ -33,7 +33,6 @@ import Data.Generics (Data, Typeable)
 import Data.Map as Map (fromList, insert, lookup, Map)
 import Data.Monoid (Monoid(mempty))
 import Data.SafeCopy (SafeCopy)
-import Appraisal.Utils.Prelude (Ord, ($), foldl, Maybe, maybe, return, map, zip, Eq, FilePath, IO)
 
 type CacheMap key val = Map key val
 

@@ -16,7 +16,7 @@ source-repository head
 Library
   GHC-Options: -Wall -fno-warn-name-shadowing
   -- CPP-Options: -DLAZYIMAGES
-  Extensions: CPP, NoImplicitPrelude
+  Extensions: CPP
   Exposed-modules: Appraisal.Cache
                    Appraisal.Exif
                    Appraisal.File
