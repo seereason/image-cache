@@ -21,6 +21,8 @@ import Data.Generics(Data, Typeable)
 import Data.Lens.Common (Lens, iso)
 import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
+import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
+import Text.LaTeX.Packages.GraphicX (IncludeGraphicsAttribute(Width), measure)
 
 -- |This can describe an image size in various ways.
 data ImageSize
@@ -137,24 +139,19 @@ inches sz =
                 (_, Points) -> 72.27
 
 -- | Return a LaTeX formatted size string for an image, e.g. width=3.0in
-latexSize :: PixmapShape a => a -> ImageSize -> String
-latexSize p sz = "width=" ++ latexWidth p sz
+latexSize :: PixmapShape a => a -> ImageSize -> IncludeGraphicsAttribute
+latexSize p sz = Width (measure (latexWidth p sz))
 
 -- | Return a LaTeX formatted size string for an image, e.g. width=3.0in
-latexWidth :: PixmapShape a => a -> ImageSize -> String
+latexWidth :: PixmapShape a => a -> ImageSize -> LaTeX.Measure
 latexWidth p sz =
     case dim sz of
-      TheWidth -> show (size sz) ++ unitName (units sz)
+      TheWidth -> unitsToMeasureCon (units sz) (size sz)
       _ -> latexWidth p (sz {dim = TheWidth, size = widthInInches p sz, units = Inches})
     where
-      {- dimension =
-          case dim sz of
-            TheHeight -> "height"
-            TheWidth -> "width"
-            _ -> fail $ "Unexpected dimension: " ++ show (dim sz) -}
-      unitName Inches = "in"
-      unitName Cm = "cm"
-      unitName Points = "pt"
+      unitsToMeasureCon Inches = LaTeX.In
+      unitsToMeasureCon Cm = LaTeX.Cm
+      unitsToMeasureCon Points = LaTeX.Pt
 
 $(deriveSafeCopy 1 'base ''ImageSize)
 $(deriveSafeCopy 0 'base ''Dimension)
