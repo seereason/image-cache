@@ -22,7 +22,7 @@ import Data.Lens.Common (Lens, iso)
 import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
-import Text.LaTeX.Packages.GraphicX (IncludeGraphicsAttribute(Width), measure)
+import Text.LaTeX.Packages.Graphicx (IGOption(IGWidth))
 
 -- |This can describe an image size in various ways.
 data ImageSize
@@ -139,8 +139,8 @@ inches sz =
                 (_, Points) -> 72.27
 
 -- | Return a LaTeX formatted size string for an image, e.g. width=3.0in
-latexSize :: PixmapShape a => a -> ImageSize -> IncludeGraphicsAttribute
-latexSize p sz = Width (measure (latexWidth p sz))
+latexSize :: PixmapShape a => a -> ImageSize -> IGOption
+latexSize p sz = IGWidth (latexWidth p sz)
 
 -- | Return a LaTeX formatted size string for an image, e.g. width=3.0in
 latexWidth :: PixmapShape a => a -> ImageSize -> LaTeX.Measure

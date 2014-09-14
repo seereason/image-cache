@@ -27,7 +27,6 @@ Library
                    Appraisal.Utils.Files
                    Appraisal.Utils.Prelude
                    Appraisal.Utils.Pretty
-                   Text.LaTeX.Packages.GraphicX
   Build-Depends:
     acid-state,
     base >= 4,
