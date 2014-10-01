@@ -52,3 +52,8 @@ Library
     unix,
     Unixutils,
     utf8-string
+
+Executable image-cache-tests
+  Hs-Source-Dirs: Tests
+  Main-Is: Main.hs
+  Build-Depends: base >= 4, image-cache, HUnit, mtl, acid-state, filepath, HaTeX, bytestring, binary, containers, text
