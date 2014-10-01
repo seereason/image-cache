@@ -40,7 +40,8 @@ import Network.URI (URI, uriToString)
 import Numeric (showFFloat)
 import System.Exit (ExitCode(..))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser, StdStream)
-import System.Process.ListLike (readCreateProcessWithExitCode, readCreateProcess)
+import System.Process.ByteString (readCreateProcessWithExitCode, readCreateProcess)
+import System.Process.ListLike (unStdoutWrapper)
 import Text.Regex (mkRegex, matchRegex)
 
 data ImageFile
@@ -129,7 +130,7 @@ ensureExtensionLink ver file ext = ensureLink (fileChksum file) (fileCachePath v
 -- |Run @file -b@ and convert the output to an 'ImageType'.
 getFileType :: FilePath -> ErrorWithIO ImageType
 getFileType path =
-    io (readCreateProcess (proc cmd args) P.empty) `catch` err >>= return . test
+    io (readCreateProcess (proc cmd args) P.empty) `catch` err >>= return . test . unStdoutWrapper
     where
       cmd = "file"
       args = ["-b", path]

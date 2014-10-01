@@ -49,9 +49,9 @@ import System.Exit (ExitCode(..))
 import System.IO (openBinaryTempFile)
 import System.Log.Logger (logM, Priority(DEBUG))
 import System.Process (proc, shell, showCommandForUser)
-import System.Process.ListLike (readCreateProcess)
-import System.Process.ByteString ()
-import System.Process.String ()
+import System.Process.String (readCreateProcess)
+import System.Process.ListLike (unStdoutWrapper)
+import System.Process.ListLike.StrictString ()
 import System.Unix.FilePath ((<++>))
 
 newtype ImageCacheTop = ImageCacheTop {images :: FilePath}
@@ -106,7 +106,7 @@ fileFromFile :: ImageCacheTop       	-- ^ The home directory of the cache
              -> FilePath	-- ^ The local pathname to copy into the cache
              -> ErrorWithIO File
 fileFromFile ver path = do
-    cksum <- take 32 <$> io (readCreateProcess (shell ("md5sum < " ++ showCommandForUser path [])) "")
+    cksum <- (take 32 . unStdoutWrapper) <$> io (readCreateProcess (shell ("md5sum < " ++ showCommandForUser path [])) "")
     let file = File { fileSource = Just (ThePath path)
                     , fileChksum = cksum
                     , fileMessages = [] }

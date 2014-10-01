@@ -14,6 +14,7 @@ source-repository head
   location: https://github.com/seereason/image-cache
 
 Library
+  Hs-Source-Dirs: .
   GHC-Options: -Wall -fno-warn-name-shadowing
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP
@@ -42,7 +43,7 @@ Library
     network-uri,
     pretty,
     process,
-    process-listlike >= 0.9,
+    process-extras >= 0.2.1,
     pureMD5,
     regex-compat,
     safecopy,
