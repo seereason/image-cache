@@ -24,10 +24,10 @@ import Appraisal.File (ImageCacheTop(..), File(..), fileCachePath, loadBytes, fi
 import Appraisal.Image (PixmapShape(..), ImageCrop(..))
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO, io, catch, logExceptionM, ensureLink, readCreateProcess')
 import Appraisal.Utils.Prelude
-import Appraisal.Utils.Pretty
 import Data.ByteString (ByteString)
 import Data.Generics (Data(..), Typeable)
 import Data.List (intercalate)
+import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import qualified Data.ByteString.Lazy as P (fromStrict, toStrict)
 #ifdef LAZYIMAGES
@@ -42,6 +42,7 @@ import System.Exit (ExitCode(..))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser, StdStream)
 import System.Process.ByteString (readCreateProcessWithExitCode, readCreateProcess)
 import System.Process.ListLike (unStdoutWrapper)
+import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import Text.Regex (mkRegex, matchRegex)
 
 data ImageFile
@@ -60,8 +61,8 @@ instance PixmapShape ImageFile where
     pixmapWidth = imageFileWidth
     pixmapMaxVal = imageFileMaxVal
 
-instance Pretty Doc ImageFile where
-    pretty (ImageFile f typ w h _mx) = text "ImageFile(" <> pretty f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
+instance Pretty ImageFile where
+    pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
 extension :: ImageType -> String
 extension JPEG = ".jpg"

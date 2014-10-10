@@ -29,7 +29,6 @@ import Appraisal.File (ImageCacheTop(..), fileCachePath)
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
 import Appraisal.ImageFile (ImageFile(imageFile), editImage, scaleImage, uprightImage)
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO)
-import Appraisal.Utils.Pretty (Doc, Pretty(pretty), text)
 import Control.Monad.Reader (MonadReader(ask), MonadTrans(lift), ReaderT, runReaderT)
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
@@ -37,6 +36,7 @@ import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.SafeCopy (base, deriveSafeCopy)
 import Appraisal.Utils.Prelude
+import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 data ImageKey
     = ImageOriginal ImageFile
@@ -45,11 +45,11 @@ data ImageKey
     | ImageUpright ImageKey
     deriving (Eq, Ord, Show, Typeable, Data)
 
-instance Pretty Doc ImageKey where
-    pretty (ImageOriginal x) = pretty x
-    pretty (ImageUpright x) = text "Upright (" <> pretty x <> text ")"
-    pretty (ImageCropped crop x) = text "Crop (" <> pretty crop <> text ") (" <> pretty x <> text ")"
-    pretty (ImageScaled size dpi x) = text "Scale (" <> pretty size <> text " @" <> text (show dpi) <> text "dpi) (" <> pretty x <> text ")"
+instance Pretty ImageKey where
+    pPrint (ImageOriginal x) = pPrint x
+    pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
+    pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
+    pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (show dpi) <> text "dpi) (" <> pPrint x <> text ")"
 
 $(deriveSafeCopy 1 'base ''ImageKey)
 

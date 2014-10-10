@@ -16,13 +16,13 @@ module Appraisal.Image
     ) where
 
 import Appraisal.Utils.Prelude
-import Appraisal.Utils.Pretty (Pretty(pretty), text, Doc)
 import Data.Generics(Data, Typeable)
 import Data.Lens.Common (Lens, iso)
 import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
 import Text.LaTeX.Packages.Graphicx (IGOption(IGWidth))
+import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 -- |This can describe an image size in various ways.
 data ImageSize
@@ -158,19 +158,19 @@ $(deriveSafeCopy 0 'base ''Dimension)
 $(deriveSafeCopy 0 'base ''Units)
 $(deriveSafeCopy 0 'base ''ImageCrop)
 
-instance Pretty Doc Dimension where
-    pretty TheHeight = text "h"
-    pretty TheWidth = text "w"
-    pretty TheArea = text "a"
-    pretty x = text (show x)
+instance Pretty Dimension where
+    pPrint TheHeight = text "h"
+    pPrint TheWidth = text "w"
+    pPrint TheArea = text "a"
+    pPrint x = text (show x)
 
-instance Pretty Doc Units where
-    pretty Inches = text "in"
-    pretty Cm = text "cm"
-    pretty Points = text "pt"
+instance Pretty Units where
+    pPrint Inches = text "in"
+    pPrint Cm = text "cm"
+    pPrint Points = text "pt"
 
-instance Pretty Doc ImageSize where
-    pretty (ImageSize d sz u) = pretty d <> text ("=" <> show sz <> " ") <> pretty u
+instance Pretty ImageSize where
+    pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> show sz <> " ") <> pPrint u
 
-instance Pretty Doc ImageCrop where
-    pretty (ImageCrop t b l r _) = text $ "crop (" <> show (b, l) <> " -> " <> show (t, r) <> ")"
+instance Pretty ImageCrop where
+    pPrint (ImageCrop t b l r _) = text $ "crop (" <> show (b, l) <> " -> " <> show (t, r) <> ")"

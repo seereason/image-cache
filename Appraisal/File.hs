@@ -32,7 +32,6 @@ import Appraisal.Utils.ErrorWithIO (ErrorWithIO, io, catch, logExceptionM,
                                     readCreateProcessWithExitCode')
 import Appraisal.Utils.Files (writeFileReadable, makeReadableAndClose)
 import Appraisal.Utils.Prelude
-import Appraisal.Utils.Pretty
 import Control.Applicative ((<$>))
 import qualified Data.ByteString.Lazy.Char8 as Lazy
 #ifdef LAZYIMAGES
@@ -42,6 +41,7 @@ import qualified Data.ByteString as P
 #endif
 import Data.Digest.Pure.MD5 (md5)
 import Data.Generics (Data(..), Typeable)
+import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
 import System.Directory (doesFileExist, renameFile)
@@ -53,6 +53,7 @@ import System.Process.String (readCreateProcess)
 import System.Process.ListLike (unStdoutWrapper)
 import System.Process.ListLike.StrictString ()
 import System.Unix.FilePath ((<++>))
+import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 newtype ImageCacheTop = ImageCacheTop {images :: FilePath}
 
@@ -75,8 +76,8 @@ data File
            , fileMessages :: [String]		-- ^ Messages received while manipulating the file
            } deriving (Show, Read, Eq, Ord, Data, Typeable)
 
-instance Pretty Doc File where
-    pretty (File _ cksum _) = text ("File(" <> show cksum <> ")")
+instance Pretty File where
+    pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI :: ImageCacheTop		-- ^ The home directory of the cache

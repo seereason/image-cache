@@ -14,7 +14,6 @@ module Appraisal.Utils.ErrorWithIO
     , readCreateProcessWithExitCode'
     ) where
 
-import Appraisal.Utils.Pretty
 import Control.Applicative ((<$>))
 import Control.Monad.Error (ErrorT(ErrorT, runErrorT))
 import Control.Monad.Trans (liftIO)
@@ -26,6 +25,7 @@ import System.Log.Logger (logM, Priority(DEBUG, ERROR))
 import qualified System.Posix.Files as F
 import System.Process
 import System.Process.ListLike (ListLikeLazyIO, readCreateProcessWithExitCode, readCreateProcess, unStdoutWrapper)
+import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 type ErrorWithIO = ErrorT IOError IO
 
@@ -59,17 +59,17 @@ ensureLink file path =
 
 readCreateProcessWithExitCode' :: ListLikeLazyIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
 readCreateProcessWithExitCode' p s =
-    logM "readCreateProcessWithExitCode" DEBUG (show (pretty p :: Doc)) >>
+    logM "readCreateProcessWithExitCode" DEBUG (show (pPrint p)) >>
     readCreateProcessWithExitCode p s
 
 readCreateProcess' :: ListLikeLazyIO a c => CreateProcess -> a -> IO a
 readCreateProcess' p s =
-    logM "readCreateProcess" DEBUG (show (pretty p :: Doc)) >>
+    logM "readCreateProcess" DEBUG (show (pPrint p)) >>
     unStdoutWrapper <$> readCreateProcess p s
 
-instance Pretty Doc CreateProcess where
-    pretty p = pretty (cmdspec p)
+instance Pretty CreateProcess where
+    pPrint p = pPrint (cmdspec p)
 
-instance Pretty Doc CmdSpec where
-    pretty (ShellCommand s) = text s
-    pretty (RawCommand path args) = text (showCommandForUser path args)
+instance Pretty CmdSpec where
+    pPrint (ShellCommand s) = text s
+    pPrint (RawCommand path args) = text (showCommandForUser path args)

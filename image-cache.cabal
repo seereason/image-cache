@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.1.1
+Version:        0.2
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -27,7 +27,6 @@ Library
                    Appraisal.Utils.ErrorWithIO
                    Appraisal.Utils.Files
                    Appraisal.Utils.Prelude
-                   Appraisal.Utils.Pretty
   Build-Depends:
     acid-state,
     base >= 4,
@@ -42,6 +41,7 @@ Library
     mtl,
     network-uri,
     pretty,
+    prettyclass,
     process,
     process-extras >= 0.2.1,
     pureMD5,
