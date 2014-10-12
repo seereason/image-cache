@@ -7,7 +7,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -35,7 +34,6 @@ import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.SafeCopy (base, deriveSafeCopy)
-import Appraisal.Utils.Prelude
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 data ImageKey

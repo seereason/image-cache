@@ -15,7 +15,6 @@ module Appraisal.Image
     , latexWidth
     ) where
 
-import Appraisal.Utils.Prelude
 import Data.Generics(Data, Typeable)
 import Data.Lens.Common (Lens, iso)
 import Data.Monoid ((<>))
@@ -83,7 +82,7 @@ widthInInches p s =
       TheWidth -> toInches (units s) (size s)
       TheHeight -> widthInInches p (s {dim = TheWidth, size = size s / r})
       TheArea -> widthInInches p (s {dim = TheWidth, size = sqrt (size s / r)})
-      _ -> myerror "Invalid dimension"
+      _ -> error "Invalid dimension"
     where
       r = h / w
       w = (fromInteger . toInteger . pixmapWidth $ p) :: Double
@@ -98,7 +97,7 @@ heightInInches p s =
       TheHeight -> toInches (units s) (size s)
       TheWidth -> heightInInches p (s {dim = TheHeight, size = size s / r})
       TheArea -> heightInInches p (s {dim = TheHeight, size = sqrt (size s / r)})
-      _ -> myerror "Invalid dimension"
+      _ -> error "Invalid dimension"
     where
       r = w / h
       w = (fromInteger . toInteger . pixmapWidth $ p) :: Double

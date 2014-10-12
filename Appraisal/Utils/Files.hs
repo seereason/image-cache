@@ -1,11 +1,11 @@
-{-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall #-}
 module Appraisal.Utils.Files where
 
-import Appraisal.Utils.Prelude hiding (readFile, writeFile)
 import Control.Applicative ((<$>))
 import Control.Exception as E (catch, IOException, try)
 import Data.ListLike hiding (foldr)
+import Prelude hiding (readFile)
 import System.Directory (removeFile)
 import qualified System.IO as IO
 import System.IO.Error (isDoesNotExistError)
@@ -21,7 +21,7 @@ updateFile path text =
     where
       maybeWrite :: Either IOException full -> IO UpdateResult
       maybeWrite (Left (e :: IOException)) | isDoesNotExistError e = writeFileReadable path text >> return Created
-      maybeWrite (Left e) = myerror ("updateFile: " ++ show e)
+      maybeWrite (Left e) = error ("updateFile: " ++ show e)
       maybeWrite (Right old) | old == text = return Unchanged
       maybeWrite (Right _old) =
           do --hPutStrLn stderr ("Old text: " ++ show old) >>
@@ -37,7 +37,7 @@ compareFile path text =
     where
       maybeWrite :: Either IOException full -> IO UpdateResult
       maybeWrite (Left (e :: IOException)) | isDoesNotExistError e = writeFileReadable path text >> return Created
-      maybeWrite (Left e) = myerror ("updateFile: " ++ show e)
+      maybeWrite (Left e) = error ("updateFile: " ++ show e)
       maybeWrite (Right old) | old == text = return Unchanged
       maybeWrite (Right _old) =
           do --hPutStrLn stderr ("Old text: " ++ show old) >>

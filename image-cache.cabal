@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.2
+Version:        0.3
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -26,7 +26,6 @@ Library
                    Appraisal.ImageFile
                    Appraisal.Utils.ErrorWithIO
                    Appraisal.Utils.Files
-                   Appraisal.Utils.Prelude
   Build-Depends:
     acid-state,
     base >= 4,

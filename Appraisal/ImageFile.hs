@@ -23,7 +23,6 @@ import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.File (ImageCacheTop(..), File(..), fileCachePath, loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
 import Appraisal.Image (PixmapShape(..), ImageCrop(..))
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO, io, catch, logExceptionM, ensureLink, readCreateProcess')
-import Appraisal.Utils.Prelude
 import Data.ByteString (ByteString)
 import Data.Generics (Data(..), Typeable)
 import Data.List (intercalate)
@@ -109,7 +108,7 @@ imageFileFromType ver path file typ = do
   (code, out, _err) <- io $ readCreateProcessWithExitCode cmd P.empty
   case code of
     ExitSuccess -> imageFileFromPnmfileOutput ver file typ out
-    ExitFailure _ -> myerror $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
+    ExitFailure _ -> error $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
 
 imageFileFromPnmfileOutput :: ImageCacheTop -> File -> ImageType -> P.ByteString -> ErrorWithIO ImageFile
 imageFileFromPnmfileOutput ver file typ out =
@@ -121,7 +120,7 @@ imageFileFromPnmfileOutput ver file typ out =
                                         , imageFileWidth = read width
                                         , imageFileHeight = read height
                                         , imageFileMaxVal = if maxval == "" then 1 else read maxval })
-          _ -> myerror $ "Unexpected output from pnmfile: " ++ show out
+          _ -> error $ "Unexpected output from pnmfile: " ++ show out
   where
       pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
 
@@ -138,7 +137,7 @@ getFileType path =
       err (e :: IOError) =
           logExceptionM "Appraisal.ImageFile.getFileType" $ fail ("getFileType Failure: " ++ showCommandForUser cmd args ++ " -> " ++ show e)
       test :: P.ByteString -> ImageType
-      test s = maybe (myerror $ "ImageFile.getFileType - Not an image: " ++ path ++ "(Ident string: " ++ show s ++ ")") id (foldr (testre (P.toString s)) Nothing tests)
+      test s = maybe (error $ "ImageFile.getFileType - Not an image: " ++ path ++ "(Ident string: " ++ show s ++ ")") id (foldr (testre (P.toString s)) Nothing tests)
       testre _ _ (Just result) = Just result
       testre s (re, typ) Nothing = maybe Nothing (const (Just typ)) (matchRegex re s)
       -- Any more?
@@ -232,7 +231,7 @@ editImage crop ver file = logExceptionM "Appraisal.ImageFile.editImage" $
       convert PNG x = [("pngtopnm", [])] ++ convert PPM x
       convert GIF x = [("/usr/bin/giftopnm", [])] ++ convert PPM x
       convert a b | a == b = []
-      convert a b = myerror $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
+      convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
       err e = logExceptionM "Appraisal.ImageFile.editImage" $ fail $ "editImage Failure: file=" ++ show file ++ ", error=" ++ show e
 
 pipeline :: [(String, [String])] -> P.ByteString -> IO P.ByteString
@@ -278,7 +277,7 @@ pipe2 a b =
        close_fds a == close_fds b &&
        create_group a == create_group b
     then a {cmdspec = ShellCommand (showCmdSpec (cmdspec a) ++ " | " ++ showCmdSpec (cmdspec b))}
-    else myerror $ "Pipeline of incompatible commands: " ++ show (a, b)
+    else error $ "Pipeline of incompatible commands: " ++ show (a, b)
 
 pipe' :: [String] -> String
 pipe' = intercalate " | "

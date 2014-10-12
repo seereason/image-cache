@@ -31,7 +31,6 @@ module Appraisal.File
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO, io, catch, logExceptionM,
                                     readCreateProcessWithExitCode')
 import Appraisal.Utils.Files (writeFileReadable, makeReadableAndClose)
-import Appraisal.Utils.Prelude
 import Control.Applicative ((<$>))
 import qualified Data.ByteString.Lazy.Char8 as Lazy
 #ifdef LAZYIMAGES
@@ -124,7 +123,7 @@ fileFromCmd ver cmd = do
     ExitSuccess ->
         do file <- fileFromBytes ver out
            return $ file {fileSource = Just (ThePath cmd)}
-    ExitFailure _ -> myerror $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
+    ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
 
 -- | Build a file from the output of a command.  We use a temporary
 -- file to store the contents of the command while we checksum it to
@@ -141,7 +140,7 @@ fileFromCmdViaTemp ver cmd = do
   (code, _out, _err) <- io (readCreateProcessWithExitCode' (shell cmd') P.empty)
   case code of
     ExitSuccess -> installFile tmp
-    ExitFailure _ -> myerror $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
+    ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
     where
       installFile :: FilePath -> ErrorWithIO File
       installFile tmp = fileFromFile ver tmp `catch` (\ e -> fail $ "fileFromCmdViaTemp - install failed: " ++ show e)
