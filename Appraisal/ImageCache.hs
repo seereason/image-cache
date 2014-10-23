@@ -5,6 +5,7 @@
 -- If the desired transformation is not in the cached it is produced
 -- and added.
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -27,7 +28,8 @@ import Appraisal.Cache (CacheState, MonadCache(..), runMonadCacheT)
 import Appraisal.File (ImageCacheTop(..), fileCachePath)
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
 import Appraisal.ImageFile (ImageFile(imageFile), editImage, scaleImage, uprightImage)
-import Appraisal.Utils.ErrorWithIO (ErrorWithIO)
+import Control.Exception (IOException)
+import Control.Monad.Error (MonadError)
 import Control.Monad.Reader (MonadReader(ask), MonadTrans(lift), ReaderT, runReaderT)
 import Control.Monad.Trans (MonadIO)
 import Data.Generics (Data, Typeable)
@@ -62,7 +64,7 @@ type ImageCacheIO p m = ReaderT p (ReaderT ImageCacheState m)
 runImageCacheIO :: ImageCacheIO ImageCacheTop m a -> ImageCacheTop -> ImageCacheState -> m a
 runImageCacheIO action p st = runMonadCacheT (runReaderT action p) st
 
-instance (MonadIO m, Functor m) => MonadCache ImageKey ImageFile (ImageCacheIO ImageCacheTop (ErrorWithIO m)) where
+instance (MonadError IOException m, MonadIO m, Functor m) => MonadCache ImageKey ImageFile (ImageCacheIO ImageCacheTop m) where
     askAcidState = lift ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do
