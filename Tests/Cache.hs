@@ -2,7 +2,7 @@ module Cache where
 
 -- | Load an image cache state
 
-import Appraisal.File (ImageCacheTop)
+import Appraisal.File (FileCacheTop)
 import Appraisal.ImageCache (ImageCacheIO, ImageCacheMap, ImageCacheState, runImageCacheIO, fileCachePath')
 import Control.Exception (bracket)
 import Control.Monad.Error
@@ -13,7 +13,7 @@ import System.FilePath ((</>))
 import Test.HUnit
 import Text.LaTeX (render)
 
-loadImageCache :: FilePath -> ImageCacheTop -> IO ImageCacheState
+loadImageCache :: FilePath -> FileCacheTop -> IO ImageCacheState
 loadImageCache top p =
     bracket (openLocalStateFrom (top </> "imageCache") (error $ "loadImageCache " ++ top </> "imageCache"))
             closeAcidState $ \ imageCache ->

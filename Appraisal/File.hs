@@ -10,7 +10,7 @@
 -- location based on the file's checksum.
 module Appraisal.File
     ( module Network.URI
-    , ImageCacheTop(..)
+    , FileCacheTop(..)
     , Checksum
     , File(..)
     , FileSource(..)
@@ -56,7 +56,7 @@ import System.Process.ListLike.StrictString ()
 import System.Unix.FilePath ((<++>))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
-newtype ImageCacheTop = ImageCacheTop {images :: FilePath}
+newtype FileCacheTop = FileCacheTop {images :: FilePath}
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -82,7 +82,7 @@ instance Pretty File where
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI :: (MonadError IOException m, MonadIO m) =>
-               ImageCacheTop		-- ^ The home directory of the cache
+               FileCacheTop		-- ^ The home directory of the cache
             -> String		-- ^ The URI to retrieve
             -> m (File, P.ByteString)
 fileFromURI ver uri =
@@ -97,7 +97,7 @@ fileFromURI ver uri =
 
 -- |Read the contents of a local path into a File.
 fileFromPath :: (MonadError IOException m, MonadIO m) =>
-                ImageCacheTop       	-- ^ The home directory of the cache
+                FileCacheTop       	-- ^ The home directory of the cache
              -> FilePath	-- ^ The local pathname to copy into the cache
              -> m (File, P.ByteString)
 fileFromPath ver path =
@@ -107,7 +107,7 @@ fileFromPath ver path =
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromFile :: (MonadError IOException m, MonadIO m, Functor m) =>
-                ImageCacheTop       	-- ^ The home directory of the cache
+                FileCacheTop       	-- ^ The home directory of the cache
              -> FilePath	-- ^ The local pathname to copy into the cache
              -> m File
 fileFromFile ver path = do
@@ -120,7 +120,7 @@ fileFromFile ver path = do
     return file
 
 fileFromCmd :: (MonadError IOException m, MonadIO m) =>
-               ImageCacheTop
+               FileCacheTop
             -> String           -- ^ A shell command whose output becomes the contents of the file.
             -> m File
 fileFromCmd ver cmd = do
@@ -135,7 +135,7 @@ fileFromCmd ver cmd = do
 -- file to store the contents of the command while we checksum it to
 -- avoid reading the command's output into RAM.
 fileFromCmdViaTemp :: (MonadError IOException m, MonadIO m, Functor m) =>
-                      ImageCacheTop
+                      FileCacheTop
                    -> String           -- ^ A shell command whose output becomes the contents of the file.
                    -> m File
 fileFromCmdViaTemp ver cmd = do
@@ -155,7 +155,7 @@ fileFromCmdViaTemp ver cmd = do
 -- because it saves the data into the local cache.  We use writeFileReadable
 -- because the files we create need to be read remotely by our backup program.
 fileFromBytes :: (MonadError IOException m, MonadIO m) =>
-                 ImageCacheTop        	-- ^ The home directory of the cache
+                 FileCacheTop        	-- ^ The home directory of the cache
               -> P.ByteString	-- ^ The bytes to store as the file's contents
               -> m File
 fileFromBytes ver bytes =
@@ -172,7 +172,7 @@ fileFromBytes ver bytes =
 -- | Make sure a file is correctly installed in the cache, and if it
 -- isn't install it.
 cacheFile :: (MonadError IOException m, MonadIO m) =>
-             ImageCacheTop                   -- ^ The home directory of the cache
+             FileCacheTop                   -- ^ The home directory of the cache
           -> File                     -- ^ The file to verify
           -> P.ByteString             -- ^ Expected contents
           -> m File
@@ -198,14 +198,14 @@ fileCacheURI cacheDirectoryURI file =
     cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> fileChksum file}
 
 -- |The full path name for the local cache of the file.
-fileCachePath :: ImageCacheTop         -- ^ The home directory of the cache
+fileCachePath :: FileCacheTop         -- ^ The home directory of the cache
               -> File		-- ^ The file whose path should be returned
               -> FilePath
 fileCachePath ver file = images ver <++> fileChksum file
 
 -- |Read and return the contents of the file from the cache.
 loadBytes :: (MonadError IOException m, MonadIO m) =>
-             ImageCacheTop  		-- ^ The home directory of the cache
+             FileCacheTop  		-- ^ The home directory of the cache
           -> File		-- ^ The file whose bytes should be loaded
           -> m P.ByteString
 loadBytes home file =
