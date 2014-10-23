@@ -14,6 +14,7 @@ module Appraisal.Cache
     , openValueCache
     , withValueCache
     , runMonadCacheT
+    , cacheMap
     , cacheLook
     , cacheInsert
 
@@ -89,6 +90,11 @@ cacheLook key = do
   st <- askAcidState
   liftIO $ query st (LookValue key)
 
+cacheMap :: MonadCache key val m => m (CacheMap key val)
+cacheMap = do
+  st <- askAcidState
+  liftIO $ query st LookMap
+
 initCacheMap :: Ord key => CacheMap key val
 initCacheMap = mempty
 
@@ -101,5 +107,5 @@ withValueCache :: (Ord key, Typeable key, SafeCopy key, Typeable val, SafeCopy v
 withValueCache path f = bracket (openValueCache path) createCheckpointAndClose $ f
 
 -- | Given the Paths and AcidState objects, Run an action in the CacheIO monad.
-runMonadCacheT :: ReaderT (CacheState key val) m a -> (CacheState key val) -> m a
+runMonadCacheT :: ReaderT (CacheState key val) m a -> CacheState key val -> m a
 runMonadCacheT action st = runReaderT action st

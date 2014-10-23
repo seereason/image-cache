@@ -10,6 +10,7 @@
 -- location based on the file's checksum.
 module Appraisal.File
     ( module Network.URI
+    , MonadFileCacheTop(fileCacheTop)
     , FileCacheTop(..)
     , Checksum
     , File(..)
@@ -33,6 +34,7 @@ import Appraisal.Utils.Files (writeFileReadable, makeReadableAndClose)
 import Control.Applicative ((<$>))
 import Control.Exception (IOException)
 import Control.Monad.Error (MonadError, catchError, throwError)
+import Control.Monad.Reader (ReaderT, ask)
 import Control.Monad.Trans (MonadIO, liftIO)
 import qualified Data.ByteString.Lazy.Char8 as Lazy
 #ifdef LAZYIMAGES
@@ -56,7 +58,13 @@ import System.Process.ListLike.StrictString ()
 import System.Unix.FilePath ((<++>))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
-newtype FileCacheTop = FileCacheTop {images :: FilePath}
+newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
+
+class Monad m => MonadFileCacheTop m where
+    fileCacheTop :: m FilePath
+
+instance Monad m => MonadFileCacheTop (ReaderT FileCacheTop m) where
+    fileCacheTop  = ask >>= \ (FileCacheTop x) -> return x
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -81,66 +89,62 @@ instance Pretty File where
     pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI :: (MonadError IOException m, MonadIO m) =>
-               FileCacheTop		-- ^ The home directory of the cache
-            -> String		-- ^ The URI to retrieve
+fileFromURI :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+               String		-- ^ The URI to retrieve
             -> m (File, P.ByteString)
-fileFromURI ver uri =
+fileFromURI uri =
     do let cmd = "curl"
            args = ["-s", uri]
        (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' (proc cmd args) P.empty
        case code of
          ExitSuccess ->
-             do file <- fileFromBytes ver bytes
+             do file <- fileFromBytes bytes
                 return (file {fileSource = Just (TheURI uri)}, bytes)
          _ -> logExceptionM "Appraisal.File.fileFromURI" $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 
 -- |Read the contents of a local path into a File.
-fileFromPath :: (MonadError IOException m, MonadIO m) =>
-                FileCacheTop       	-- ^ The home directory of the cache
-             -> FilePath	-- ^ The local pathname to copy into the cache
+fileFromPath :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+                FilePath	-- ^ The local pathname to copy into the cache
              -> m (File, P.ByteString)
-fileFromPath ver path =
+fileFromPath path =
     do bytes <- liftIO $ P.readFile path
-       file <- fileFromBytes ver bytes
+       file <- fileFromBytes bytes
        return (file {fileSource = Just (ThePath path)}, bytes)
 
 -- | Move a file into the file cache and incorporate it into a File.
-fileFromFile :: (MonadError IOException m, MonadIO m, Functor m) =>
-                FileCacheTop       	-- ^ The home directory of the cache
-             -> FilePath	-- ^ The local pathname to copy into the cache
+fileFromFile :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m, Functor m) =>
+                FilePath	-- ^ The local pathname to copy into the cache
              -> m File
-fileFromFile ver path = do
+fileFromFile path = do
     cksum <- (take 32 . unStdoutWrapper) <$> liftIO (readCreateProcess (shell ("md5sum < " ++ showCommandForUser path [])) "")
     let file = File { fileSource = Just (ThePath path)
                     , fileChksum = cksum
                     , fileMessages = [] }
-    liftIO (logM "fileFromFile" DEBUG ("renameFile " <> path <> " " <> fileCachePath ver file) >>
-            renameFile path (fileCachePath ver file))
+    dest <- fileCachePath file
+    liftIO (logM "fileFromFile" DEBUG ("renameFile " <> path <> " " <> dest) >>
+            renameFile path dest)
     return file
 
-fileFromCmd :: (MonadError IOException m, MonadIO m) =>
-               FileCacheTop
-            -> String           -- ^ A shell command whose output becomes the contents of the file.
+fileFromCmd :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+               String           -- ^ A shell command whose output becomes the contents of the file.
             -> m File
-fileFromCmd ver cmd = do
+fileFromCmd cmd = do
   (code, out, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
     ExitSuccess ->
-        do file <- fileFromBytes ver out
+        do file <- fileFromBytes out
            return $ file {fileSource = Just (ThePath cmd)}
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
 
 -- | Build a file from the output of a command.  We use a temporary
 -- file to store the contents of the command while we checksum it to
 -- avoid reading the command's output into RAM.
-fileFromCmdViaTemp :: (MonadError IOException m, MonadIO m, Functor m) =>
-                      FileCacheTop
-                   -> String           -- ^ A shell command whose output becomes the contents of the file.
+fileFromCmdViaTemp :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m, Functor m) =>
+                      String           -- ^ A shell command whose output becomes the contents of the file.
                    -> m File
-fileFromCmdViaTemp ver cmd = do
-  -- "images" is a misnomer, it should be "files".
-  (tmp, h) <- liftIO (openBinaryTempFile (images ver) "scaled")
+fileFromCmdViaTemp cmd = do
+  dir <- fileCacheTop
+  (tmp, h) <- liftIO (openBinaryTempFile dir "scaled")
   let cmd' = cmd ++ " > " ++ tmp
   liftIO (makeReadableAndClose h)
   -- io (hClose h)
@@ -149,41 +153,37 @@ fileFromCmdViaTemp ver cmd = do
     ExitSuccess -> installFile tmp
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
     where
-      installFile tmp = fileFromFile ver tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
+      installFile tmp = fileFromFile tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
 
 -- |Turn the bytes in a ByteString into a File.  This is an IO operation
 -- because it saves the data into the local cache.  We use writeFileReadable
 -- because the files we create need to be read remotely by our backup program.
-fileFromBytes :: (MonadError IOException m, MonadIO m) =>
-                 FileCacheTop        	-- ^ The home directory of the cache
-              -> P.ByteString	-- ^ The bytes to store as the file's contents
+fileFromBytes :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+                 P.ByteString	-- ^ The bytes to store as the file's contents
               -> m File
-fileFromBytes ver bytes =
-    do exists <- liftIO $ doesFileExist path
+fileFromBytes bytes =
+    do let file = File { fileSource = Nothing
+                       , fileChksum = md5' bytes
+                       , fileMessages = [] }
+       path <- fileCachePath file
+       exists <- liftIO $ doesFileExist path
        case exists of
          True -> return file
          False -> liftIO (writeFileReadable path bytes) >> return file
-    where
-      path = fileCachePath ver file
-      file = File { fileSource = Nothing
-                  , fileChksum = md5' bytes
-                  , fileMessages = [] }
 
 -- | Make sure a file is correctly installed in the cache, and if it
 -- isn't install it.
-cacheFile :: (MonadError IOException m, MonadIO m) =>
-             FileCacheTop                   -- ^ The home directory of the cache
-          -> File                     -- ^ The file to verify
+cacheFile :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+             File                     -- ^ The file to verify
           -> P.ByteString             -- ^ Expected contents
           -> m File
-cacheFile home file bytes =
-    (loadBytes home file >>= checkBytes) `catchError` reCache
+cacheFile file bytes = do
+  path <- fileCachePath file
+  (loadBytes file >>= checkBytes) `catchError` (\ _e -> liftIO (writeFileReadable path bytes) >> return file)
     where
-      path = fileCachePath home file
       checkBytes loaded = if loaded == bytes
                           then logExceptionM "Appraisal.File.cacheFile" $ fail "cacheFile - Checksum error"
                           else return file
-      reCache _e = liftIO (writeFileReadable path bytes) >> return file
 
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
@@ -198,18 +198,18 @@ fileCacheURI cacheDirectoryURI file =
     cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> fileChksum file}
 
 -- |The full path name for the local cache of the file.
-fileCachePath :: FileCacheTop         -- ^ The home directory of the cache
-              -> File		-- ^ The file whose path should be returned
-              -> FilePath
-fileCachePath ver file = images ver <++> fileChksum file
+fileCachePath :: MonadFileCacheTop m =>
+                 File		-- ^ The file whose path should be returned
+              -> m FilePath
+fileCachePath file = fileCacheTop >>= \ ver -> return $ ver <++> fileChksum file
 
 -- |Read and return the contents of the file from the cache.
-loadBytes :: (MonadError IOException m, MonadIO m) =>
-             FileCacheTop  		-- ^ The home directory of the cache
-          -> File		-- ^ The file whose bytes should be loaded
+loadBytes :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+             File		-- ^ The file whose bytes should be loaded
           -> m P.ByteString
-loadBytes home file =
-    do bytes <- liftIO (P.readFile (fileCachePath home file))
+loadBytes file =
+    do path <- fileCachePath file
+       bytes <- liftIO (P.readFile path)
        case md5' bytes == fileChksum file of
          True -> return bytes
          False -> logExceptionM "Appraisal.File.loadBytes" $ fail $ "Checksum mismatch: expected " ++ show (fileChksum file) ++ ", file contains " ++ show (md5' bytes)
