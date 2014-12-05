@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP, DeriveDataTypeable, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses,
-             OverloadedStrings, ScopedTypeVariables, TemplateHaskell, TypeFamilies #-}
+             ScopedTypeVariables, TemplateHaskell, TypeFamilies #-}
 {-# OPTIONS -Wall -fno-warn-orphans #-}
 -- |A data structure representing a local cache of a data file.  The
 -- cached file persists across runs of our application, and can be
@@ -52,9 +52,7 @@ import System.Exit (ExitCode(..))
 import System.IO (openBinaryTempFile)
 import System.Log.Logger (logM, Priority(DEBUG))
 import System.Process (proc, shell, showCommandForUser)
-import System.Process.String (readCreateProcess)
-import System.Process.ListLike (unStdoutWrapper)
-import System.Process.ListLike.StrictString ()
+import System.Process.ListLike (readCreateProcessWithExitCode)
 import System.Unix.FilePath ((<++>))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
@@ -116,7 +114,7 @@ fileFromFile :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m, Funct
                 FilePath	-- ^ The local pathname to copy into the cache
              -> m File
 fileFromFile path = do
-    cksum <- (take 32 . unStdoutWrapper) <$> liftIO (readCreateProcess (shell ("md5sum < " ++ showCommandForUser path [])) "")
+    cksum <- (\ (_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
     let file = File { fileSource = Just (ThePath path)
                     , fileChksum = cksum
                     , fileMessages = [] }

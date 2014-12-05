@@ -1,6 +1,14 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall #-}
-module Appraisal.Utils.Files where
+module Appraisal.Utils.Files
+    ( UpdateResult(..)
+    , updateFile
+    , compareFile
+    , replaceFile
+    , removeFileIfPresent
+    , writeFileReadable
+    , makeReadableAndClose
+    ) where
 
 import Control.Applicative ((<$>))
 import Control.Exception as E (catch, IOException, try)

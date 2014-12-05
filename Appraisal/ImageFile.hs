@@ -22,8 +22,8 @@ module Appraisal.ImageFile
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.File (MonadFileCacheTop, File(..), fileCachePath, loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
 import Appraisal.Image (PixmapShape(..), ImageCrop(..))
-import Appraisal.Utils.ErrorWithIO (logExceptionM, ensureLink, readCreateProcess')
-import Control.Exception (IOException)
+import Appraisal.Utils.ErrorWithIO (logExceptionM, ensureLink)
+import Control.Exception (catch, IOException, SomeException, throw)
 import Control.Monad.Error (MonadError, catchError)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.ByteString (ByteString)
@@ -41,9 +41,9 @@ import qualified Data.ByteString as P
 import Network.URI (URI, uriToString)
 import Numeric (showFFloat)
 import System.Exit (ExitCode(..))
+import System.Log.Logger (logM, Priority(ERROR))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser, StdStream)
-import System.Process.ByteString (readCreateProcessWithExitCode, readCreateProcess)
-import System.Process.ListLike (unStdoutWrapper)
+import System.Process.ListLike (readCreateProcessWithExitCode, readProcessWithExitCode, showCreateProcessForUser)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import Text.Regex (mkRegex, matchRegex)
 
@@ -133,7 +133,7 @@ ensureExtensionLink file ext = fileCachePath file >>= \ path -> ensureLink (file
 -- |Run @file -b@ and convert the output to an 'ImageType'.
 getFileType :: (MonadError IOException m, MonadIO m) => FilePath -> m ImageType
 getFileType path =
-    liftIO (readCreateProcess (proc cmd args) P.empty) `catchError` err >>= return . test . unStdoutWrapper
+    liftIO (readProcessWithExitCode cmd args P.empty) `catchError` err >>= return . test . (\ (_, out, _) -> out)
     where
       cmd = "file"
       args = ["-b", path]
@@ -209,37 +209,44 @@ editImage crop file = logExceptionM "Appraisal.ImageFile.editImage" $
       latexImageFileType PNG = PNG
       cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
               (0, 0, 0, 0) -> Nothing
-              (l, r, t, b) -> Just (PPM, ("pnmcut", ["-left", show l,
-                                                     "-right", show (w - r - 1),
-                                                     "-top", show t,
-                                                     "-bottom", show (h - b - 1)]), PPM)
+              (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
+                                                        "-right", show (w - r - 1),
+                                                        "-top", show t,
+                                                        "-bottom", show (h - b - 1)], PPM)
       rotate = case rotation crop of
-                 90 -> Just (JPEG, ("jpegtran", ["-rotate", "90"]), JPEG)
-                 180 -> Just (JPEG, ("jpegtran", ["-rotate", "180"]), JPEG)
-                 270 -> Just (JPEG, ("jpegtran", ["-rotate", "270"]), JPEG)
+                 90 -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
+                 180 -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
+                 270 -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
                  _ -> Nothing
       w = pixmapWidth file
       h = pixmapHeight file
-      buildPipeline :: ImageType -> [Maybe (ImageType, (String, [String]), ImageType)] -> ImageType -> [(String, [String])]
+      buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
       buildPipeline start [] end = convert start end
       buildPipeline start (Nothing : ops) end = buildPipeline start ops end
       buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
       buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
-      convert JPEG PPM = [("/usr/bin/jpegtopnm", [])]
-      convert GIF PPM = [("giftpnm", [])]
-      convert PNG PPM = [("/usr/bin/pngtopnm", [])]
-      convert PPM JPEG = [("/usr/bin/cjpeg", [])]
-      convert PPM GIF = [("ppmtogif", [])]
-      convert PPM PNG = [("pnmtopng", [])]
-      convert PNG x = [("pngtopnm", [])] ++ convert PPM x
-      convert GIF x = [("/usr/bin/giftopnm", [])] ++ convert PPM x
+      convert JPEG PPM = [proc "/usr/bin/jpegtopnm" []]
+      convert GIF PPM = [proc "giftpnm" []]
+      convert PNG PPM = [proc "/usr/bin/pngtopnm" []]
+      convert PPM JPEG = [proc "/usr/bin/cjpeg" []]
+      convert PPM GIF = [proc "ppmtogif" []]
+      convert PPM PNG = [proc "pnmtopng" []]
+      convert PNG x = proc "pngtopnm" [] : convert PPM x
+      convert GIF x = proc "/usr/bin/giftopnm" [] : convert PPM x
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
       err e = logExceptionM "Appraisal.ImageFile.editImage" $ fail $ "editImage Failure: file=" ++ show file ++ ", error=" ++ show e
 
-pipeline :: [(String, [String])] -> P.ByteString -> IO P.ByteString
+pipeline :: [CreateProcess] -> P.ByteString -> IO P.ByteString
 pipeline [] bytes = return bytes
-pipeline ((cmd, args) : rest) bytes = readCreateProcess' (proc cmd args) bytes >>= pipeline rest
+pipeline (p : ps) bytes =
+    (readCreateProcessWithExitCode p bytes >>= doResult)
+      `catch` (\ (e :: SomeException) -> doException (showCreateProcessForUser p ++ " -> " ++ show e) e)
+    where
+      doResult (ExitSuccess, out, _) = pipeline ps out
+      doResult (code, _, err) = let message = (showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in doException message (userError message)
+      -- Is there any exception we should ignore here?
+      doException message e = logM "Appraisal.ImageFile" ERROR message >> throw e
 
 {-
 pipelineWithExitCode :: [(String, [String])] -> B.ByteString -> IO (ExitCode, B.ByteString, [B.ByteString])

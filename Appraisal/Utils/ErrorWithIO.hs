@@ -11,7 +11,6 @@ module Appraisal.Utils.ErrorWithIO
     , readCreateProcessWithExitCode'
     ) where
 
-import Control.Applicative ((<$>))
 import Control.Monad.Error (MonadError, ErrorT(ErrorT, runErrorT), catchError, throwError)
 import Control.Monad.Trans (MonadIO, liftIO)
 import GHC.IO.Exception (IOException(ioe_description))
@@ -20,7 +19,7 @@ import System.Exit (ExitCode(..))
 import System.Log.Logger (logM, Priority(DEBUG, ERROR))
 import qualified System.Posix.Files as F
 import System.Process
-import System.Process.ListLike (ListLikeLazyIO, readCreateProcessWithExitCode, readCreateProcess, unStdoutWrapper)
+import System.Process.ListLike (ListLikeProcessIO, ProcessOutput, readCreateProcessWithExitCode, readCreateProcess)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 type ErrorWithIO m = ErrorT IOError m
@@ -45,15 +44,15 @@ ensureLink file path =
     liftIO (-- trace ("ensureLink " ++ show (fileChksum file) ++ " " ++ show path) (return ()) >>
             F.getSymbolicLinkStatus path >> return ()) `catchError` (\ _ -> liftIO (F.createSymbolicLink file path))
 
-readCreateProcessWithExitCode' :: ListLikeLazyIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
+readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
 readCreateProcessWithExitCode' p s =
     logM "readCreateProcessWithExitCode" DEBUG (show (pPrint p)) >>
     readCreateProcessWithExitCode p s
 
-readCreateProcess' :: ListLikeLazyIO a c => CreateProcess -> a -> IO a
+readCreateProcess' :: (ListLikeProcessIO a c, ProcessOutput a b) => CreateProcess -> a -> IO b
 readCreateProcess' p s =
     logM "readCreateProcess" DEBUG (show (pPrint p)) >>
-    unStdoutWrapper <$> readCreateProcess p s
+    readCreateProcess p s
 
 instance Pretty CreateProcess where
     pPrint p = pPrint (cmdspec p)

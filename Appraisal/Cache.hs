@@ -1,3 +1,4 @@
+-- | Maintain a persistent key/value map using acid-state.
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -106,6 +107,6 @@ withValueCache :: (Ord key, Typeable key, SafeCopy key, Typeable val, SafeCopy v
                   FilePath -> (CacheState key val -> IO a) -> IO a
 withValueCache path f = bracket (openValueCache path) createCheckpointAndClose $ f
 
--- | Given the Paths and AcidState objects, Run an action in the CacheIO monad.
+-- | Given the AcidState object for the cache, Run an action in the CacheIO monad.
 runMonadCacheT :: ReaderT (CacheState key val) m a -> CacheState key val -> m a
 runMonadCacheT action st = runReaderT action st
