@@ -42,7 +42,7 @@ Library
     pretty,
     prettyclass,
     process,
-    process-listlike >= 1,
+    process-extras >= 0.2.0,
     pureMD5,
     regex-compat,
     safecopy,
