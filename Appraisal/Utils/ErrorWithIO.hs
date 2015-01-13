@@ -11,11 +11,13 @@ module Appraisal.Utils.ErrorWithIO
     , readCreateProcessWithExitCode'
     ) where
 
+import Control.Exception (catchJust)
 import Control.Monad.Error (MonadError, ErrorT(ErrorT, runErrorT), catchError, throwError)
 import Control.Monad.Trans (MonadIO, liftIO)
 import GHC.IO.Exception (IOException(ioe_description))
 import Prelude hiding (error, undefined, log)
 import System.Exit (ExitCode(..))
+import System.IO.Error (isDoesNotExistError)
 import System.Log.Logger (logM, Priority(DEBUG, ERROR))
 import qualified System.Posix.Files as F
 import System.Process
@@ -39,10 +41,11 @@ logExceptionM :: (MonadError IOException m, MonadIO m) => String -> m a -> m a
 logExceptionM tag action = action `catchError` (\ e -> liftIO (logM tag ERROR (show e)) >> throwError e)
 --logExceptionM tag action = ErrorT (runErrorT action >>= either (\ e -> liftIO (logM tag ERROR (show e)) >> return (Left e)) (return . Right))
 
-ensureLink :: (MonadError IOException m, MonadIO m) => String -> FilePath -> m ()
-ensureLink file path =
-    liftIO (-- trace ("ensureLink " ++ show (fileChksum file) ++ " " ++ show path) (return ()) >>
-            F.getSymbolicLinkStatus path >> return ()) `catchError` (\ _ -> liftIO (F.createSymbolicLink file path))
+catchDoesNotExist :: IO a -> (() -> IO a) -> IO a
+catchDoesNotExist = catchJust (\ e -> if isDoesNotExistError e then Just () else Nothing)
+
+ensureLink :: String -> FilePath -> IO ()
+ensureLink file path = (F.getSymbolicLinkStatus path >> return ()) `catchDoesNotExist` (\ () -> F.createSymbolicLink file path)
 
 readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
 readCreateProcessWithExitCode' p s =

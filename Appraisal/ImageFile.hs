@@ -128,7 +128,7 @@ imageFileFromPnmfileOutput file typ out =
       pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
 
 ensureExtensionLink :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) => File -> String -> m ()
-ensureExtensionLink file ext = fileCachePath file >>= \ path -> ensureLink (fileChksum file) (path ++ ext)
+ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (fileChksum file) (path ++ ext)
 
 -- |Run @file -b@ and convert the output to an 'ImageType'.
 getFileType :: (MonadError IOException m, MonadIO m) => FilePath -> m ImageType
