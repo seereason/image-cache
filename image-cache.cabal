@@ -11,18 +11,15 @@ build-type:     Custom
 description:
   This package includes the following modules, from higher to lower level functionality:
   .
-  * "Appraisal.ImageCache" - Maintain a cache of images, maintaining a map from an @ImageKey@ to an
+  * "Appraisal.ImageCache" - Maintain a cache of images, consisting of a map from an @ImageKey@ to an
     @Imagefile@.  An 'Appraisal.ImageCache.ImageKey' describes how the image has been modified from
     its original form - any combination of cropped, scaled, and uprighted.  The @build@ method of
     the @MonadCache@ instance builds a new image file and inserts it into the map given the
     @ImageKey@ describing the desired modifications.
   .
-  * "Appraisal.Image" - data structures describing how an image should
-    appear on the page.  This includes its size, how it is cropped and scaled,
-    and functions to perform conversions amongst these data structures.
-  .
-  * "Appraisal.Exif" - use the EXIF orientation code in a JPEG file to normalize its orientation.
-    This code is set when the JPEG is create by a camera's orientation sensor.
+  * "Appraisal.Cache" - Code to maintain a generalized cache - a Map from keys to values that is
+    made persistant using acid-state.  The @MonadCache@ class has a @build@ method that is passed
+    a key and either looks up a cache value or creates a new one if not present.
   .
   * "Appraisal.ImageFile" - The 'ImageFile' type describing the file containing the image - its
     location and meta data.  Functions to create an 'ImageFile' from a file, a bytestring, or by
@@ -34,9 +31,12 @@ description:
     exclusion of duplicates.  Functions are provided to create a file from an existing 'FilePath',
     or by downloading a 'URI', capturing a command's output, or saving a 'ByteString'.
   .
-  * "Appraisal.Cache" - Code to maintain a generalized cache - a Map from keys to values that is
-    made persistant using acid-state.  The @MonadCache@ class has a @build@ method that is passed
-    a key and either looks up a cache value or creates a new one if not present.
+  * "Appraisal.Image" - data structures describing how an image should
+    appear on the page.  This includes its size, how it is cropped and scaled,
+    and functions to perform conversions amongst these data structures.
+  .
+  * "Appraisal.Exif" - use the EXIF orientation code in a JPEG file to normalize its orientation.
+    This code is set when the JPEG is create by a camera's orientation sensor.
 
 source-repository head
   type:     git
