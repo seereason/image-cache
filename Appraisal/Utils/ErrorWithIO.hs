@@ -16,7 +16,7 @@ import Control.Exception (throw)
 import Control.Monad.Catch (catch, catchJust, SomeException)
 import Control.Monad.Error (ErrorT(ErrorT, runErrorT))
 import Control.Monad.Trans (MonadIO, liftIO)
-import Debug.FileLocation ({- instance Lift Loc -})
+import Debian.Loc ({- instance Lift Loc -})
 import GHC.IO.Exception (IOException(ioe_description))
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
@@ -111,8 +111,6 @@ instance Lift Exp where
     lift (RecUpdE Exp [FieldExp]) =
         recConE 'RecUpdE ..
 -}
-
-deriving instance Show Loc
 
 __LOC__ :: Q Exp
 __LOC__ = lift =<< location
