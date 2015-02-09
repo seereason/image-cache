@@ -29,10 +29,11 @@ module Appraisal.File
     , addMessage
     ) where
 
-import Appraisal.Utils.ErrorWithIO (logExceptionM, readCreateProcessWithExitCode')
+import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
 import Appraisal.Utils.Files (writeFileReadable, makeReadableAndClose)
 import Control.Applicative ((<$>))
 import Control.Exception (IOException)
+import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Error (MonadError, catchError, throwError)
 import Control.Monad.Reader (ReaderT, ask)
 import Control.Monad.Trans (MonadIO, liftIO)
@@ -87,7 +88,7 @@ instance Pretty File where
     pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+fileFromURI :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
                String		-- ^ The URI to retrieve
             -> m (File, P.ByteString)
 fileFromURI uri =
@@ -98,7 +99,7 @@ fileFromURI uri =
          ExitSuccess ->
              do file <- fileFromBytes bytes
                 return (file {fileSource = Just (TheURI uri)}, bytes)
-         _ -> logExceptionM "Appraisal.File.fileFromURI" $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
+         _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 
 -- |Read the contents of a local path into a File.
 fileFromPath :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
@@ -171,7 +172,7 @@ fileFromBytes bytes =
 
 -- | Make sure a file is correctly installed in the cache, and if it
 -- isn't install it.
-cacheFile :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+cacheFile :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
              File                     -- ^ The file to verify
           -> P.ByteString             -- ^ Expected contents
           -> m File
@@ -180,7 +181,7 @@ cacheFile file bytes = do
   (loadBytes file >>= checkBytes) `catchError` (\ _e -> liftIO (writeFileReadable path bytes) >> return file)
     where
       checkBytes loaded = if loaded == bytes
-                          then logExceptionM "Appraisal.File.cacheFile" $ fail "cacheFile - Checksum error"
+                          then $logException $ fail "cacheFile - Checksum error"
                           else return file
 
 -- |Return the remote URI if the file resulted from downloading a URI.
@@ -202,7 +203,7 @@ fileCachePath :: MonadFileCacheTop m =>
 fileCachePath file = fileCacheTop >>= \ ver -> return $ ver <++> fileChksum file
 
 -- |Read and return the contents of the file from the cache.
-loadBytes :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+loadBytes :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
              File		-- ^ The file whose bytes should be loaded
           -> m P.ByteString
 loadBytes file =
@@ -210,7 +211,7 @@ loadBytes file =
        bytes <- liftIO (P.readFile path)
        case md5' bytes == fileChksum file of
          True -> return bytes
-         False -> logExceptionM "Appraisal.File.loadBytes" $ fail $ "Checksum mismatch: expected " ++ show (fileChksum file) ++ ", file contains " ++ show (md5' bytes)
+         False -> $logException $ fail $ "Checksum mismatch: expected " ++ show (fileChksum file) ++ ", file contains " ++ show (md5' bytes)
 
 -- |Add a message to the file message list.
 addMessage :: String -> File -> File

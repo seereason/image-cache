@@ -11,8 +11,9 @@ module Appraisal.Utils.Files
     ) where
 
 import Control.Applicative ((<$>))
-import Control.Exception as E (catch, IOException, try)
+import Control.Exception as E (catch, IOException, throw, try)
 import Data.ListLike hiding (foldr)
+import GHC.IO.Exception (ioe_description)
 import Prelude hiding (readFile)
 import System.Directory (removeFile)
 import qualified System.IO as IO
@@ -29,7 +30,7 @@ updateFile path text =
     where
       maybeWrite :: Either IOException full -> IO UpdateResult
       maybeWrite (Left (e :: IOException)) | isDoesNotExistError e = writeFileReadable path text >> return Created
-      maybeWrite (Left e) = error ("updateFile: " ++ show e)
+      maybeWrite (Left e) = throw (e {ioe_description = ioe_description e ++ " (via Appraisal.Utils.File.updateFile) "})
       maybeWrite (Right old) | old == text = return Unchanged
       maybeWrite (Right _old) =
           do --hPutStrLn stderr ("Old text: " ++ show old) >>

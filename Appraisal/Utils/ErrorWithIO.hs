@@ -1,20 +1,25 @@
-{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, ScopedTypeVariables, StandaloneDeriving, TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 module Appraisal.Utils.ErrorWithIO
     ( ErrorWithIO
     , modify
     , prefix
-    , logExceptionM
     , mapIOErrorDescription
     , ensureLink
     , readCreateProcess'
     , readCreateProcessWithExitCode'
+    -- , logExceptionM
+    , logException
     ) where
 
-import Control.Exception (catchJust)
-import Control.Monad.Error (MonadError, ErrorT(ErrorT, runErrorT), catchError, throwError)
+import Control.Exception (throw)
+import Control.Monad.Catch (catch, catchJust, SomeException)
+import Control.Monad.Error (ErrorT(ErrorT, runErrorT))
 import Control.Monad.Trans (MonadIO, liftIO)
+import Debug.FileLocation ({- instance Lift Loc -})
 import GHC.IO.Exception (IOException(ioe_description))
+import Language.Haskell.TH
+import Language.Haskell.TH.Syntax
 import Prelude hiding (error, undefined, log)
 import System.Exit (ExitCode(..))
 import System.IO.Error (isDoesNotExistError)
@@ -35,11 +40,6 @@ prefix s action = modify (mapIOErrorDescription (s ++)) action
 
 mapIOErrorDescription :: (String -> String) -> IOError -> IOError
 mapIOErrorDescription f e = e {ioe_description = f (ioe_description e)}
-
--- | Add a log message about an exception.
-logExceptionM :: (MonadError IOException m, MonadIO m) => String -> m a -> m a
-logExceptionM tag action = action `catchError` (\ e -> liftIO (logM tag ERROR (show e)) >> throwError e)
---logExceptionM tag action = ErrorT (runErrorT action >>= either (\ e -> liftIO (logM tag ERROR (show e)) >> return (Left e)) (return . Right))
 
 catchDoesNotExist :: IO a -> (() -> IO a) -> IO a
 catchDoesNotExist = catchJust (\ e -> if isDoesNotExistError e then Just () else Nothing)
@@ -63,3 +63,65 @@ instance Pretty CreateProcess where
 instance Pretty CmdSpec where
     pPrint (ShellCommand s) = text s
     pPrint (RawCommand path args) = text (showCommandForUser path args)
+
+{-
+instance Lift Exp where
+    lift (VarE name) =
+        recConE 'VarE ...
+    lift (ConE Name) =
+        recConE 'ConE ...
+    lift (LitE Lit) =
+        recConE 'LitE ...
+    lift (AppE Exp Exp) =
+        recConE 'AppE ...
+    lift (InfixE (Maybe Exp) Exp (Maybe Exp)) =
+        recConE 'InfixE ...
+    lift (UInfixE Exp Exp Exp) =
+        recConE 'UInfixE ...
+    lift (ParensE Exp) =
+        recConE 'ParensE ...
+    lift (LamE [Pat] Exp) =
+        recConE 'LamE ..
+    lift (LamCaseE [Match]) =
+        recConE 'LamCaseE ..
+    lift (TupE [Exp]) =
+        recConE 'TupE ..
+    lift (UnboxedTupE [Exp]) =
+        recConE 'UnboxedTupE ..
+    lift (CondE Exp Exp Exp) =
+        recConE 'CondE ..
+    lift (MultiIfE [(Guard, Exp)]) =
+        recConE 'MultiIfE ..
+    lift (LetE [Dec] Exp) =
+        recConE 'LetE ..
+    lift (CaseE Exp [Match]) =
+        recConE 'CaseE ..
+    lift (DoE [Stmt]) =
+        recConE 'DoE ..
+    lift (CompE [Stmt]) =
+        recConE 'CompE ..
+    lift (ArithSeqE Range) =
+        recConE 'ArithSeqE ..
+    lift (ListE [Exp]) =
+        recConE 'ListE ..
+    lift (SigE Exp Type) =
+        recConE 'SigE ..
+    lift (RecConE Name [FieldExp]) =
+        recConE 'RecConE ..
+    lift (RecUpdE Exp [FieldExp]) =
+        recConE 'RecUpdE ..
+-}
+
+deriving instance Show Loc
+
+__LOC__ :: Q Exp
+__LOC__ = lift =<< location
+
+-- | Create an expression of type (MonadIO m => a -> m a) that we can
+-- apply to an expression so that it catches, logs, and rethrows any
+-- exception.
+logException :: ExpQ
+logException =
+    [| \ action -> let f :: MonadIO m => SomeException -> m a
+                       f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (show $__LOC__) ++ " -> " ++ show e)) >> throw e in
+                   action `catch` f |]

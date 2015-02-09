@@ -28,7 +28,9 @@ import Appraisal.Cache (CacheState, MonadCache(..), runMonadCacheT)
 import Appraisal.File (MonadFileCacheTop, FileCacheTop(..), fileCachePath)
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
 import Appraisal.ImageFile (ImageFile(imageFile), editImage, scaleImage, uprightImage)
+import Appraisal.Utils.ErrorWithIO (logException)
 import Control.Exception (IOException)
+import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Error (MonadError)
 import Control.Monad.Reader (MonadReader(ask), MonadTrans(lift), ReaderT, runReaderT)
 import Control.Monad.Trans (MonadIO)
@@ -66,19 +68,19 @@ runImageCacheIO action p st = runMonadCacheT (runReaderT action p) st
 -- runImageCacheIO action p st = runReaderT (runMonadCacheT action st) p
 
 -- type ImageCacheIO p m = ReaderT p (ReaderT ImageCacheState m)
-instance (MonadError IOException m, MonadIO m, Functor m) => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
+instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m) => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
     askAcidState = lift ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do
       img <- build key
-      uprightImage img
+      $logException $ uprightImage img
     build (ImageScaled sz dpi key) = do
       img <- build key
       let scale = scaleFromDPI dpi sz img
-      scaleImage (fromMaybe 1.0 scale) img
+      $logException $ scaleImage (fromMaybe 1.0 scale) img
     build (ImageCropped crop key) = do
       img <- build key
-      editImage crop img
+      $logException $ editImage crop img
 
 -- | Compute 'Appraisal.File.fileCachePath' for an ImageFile.
 fileCachePath' :: MonadFileCacheTop m => ImageFile -> m FilePath
