@@ -62,6 +62,7 @@ Library
     bytestring,
     containers,
     data-lens,
+    debian,
     directory,
     exceptions,
     HaTeX,
