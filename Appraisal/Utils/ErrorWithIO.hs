@@ -16,9 +16,9 @@ import Control.Exception (throw)
 import Control.Monad.Catch (catch, catchJust, SomeException)
 import Control.Monad.Error (ErrorT(ErrorT, runErrorT))
 import Control.Monad.Trans (MonadIO, liftIO)
-import Debian.Loc ({- instance Lift Loc -})
 import GHC.IO.Exception (IOException(ioe_description))
 import Language.Haskell.TH
+import Language.Haskell.TH.Instances ({- instance Lift Loc -})
 import Language.Haskell.TH.Syntax
 import Prelude hiding (error, undefined, log)
 import System.Exit (ExitCode(..))

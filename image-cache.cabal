@@ -62,7 +62,6 @@ Library
     bytestring,
     containers,
     data-lens,
-    debian,
     directory,
     exceptions,
     HaTeX,
@@ -80,6 +79,7 @@ Library
     syb,
     template-haskell,
     text,
+    th-orphans >= 0.9,
     unix,
     Unixutils,
     utf8-string
