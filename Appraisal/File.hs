@@ -30,7 +30,6 @@ module Appraisal.File
     ) where
 
 import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
-import Appraisal.Utils.Files (writeFileReadable, makeReadableAndClose)
 import Control.Applicative ((<$>))
 import Control.Exception (IOException)
 import Control.Monad.Catch (MonadCatch)
@@ -50,6 +49,7 @@ import Data.SafeCopy (deriveSafeCopy, base)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
 import System.Directory (doesFileExist, renameFile)
 import System.Exit (ExitCode(..))
+import System.FilePath.Extra (writeFileReadable, makeReadableAndClose)
 import System.IO (openBinaryTempFile)
 import System.Log.Logger (logM, Priority(DEBUG))
 import System.Process (proc, shell, showCommandForUser)

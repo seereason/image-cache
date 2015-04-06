@@ -54,7 +54,6 @@ Library
                    Appraisal.ImageCache
                    Appraisal.ImageFile
                    Appraisal.Utils.ErrorWithIO
-                   Appraisal.Utils.Files
   Build-Depends:
     acid-state,
     base >= 4,
@@ -64,9 +63,9 @@ Library
     data-lens,
     directory,
     exceptions,
+    filemanip-extra,
     HaTeX,
     hslogger,
-    ListLike >= 4,
     mtl,
     network-uri,
     pretty,
