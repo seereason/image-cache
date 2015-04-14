@@ -42,6 +42,10 @@ source-repository head
   type:     git
   location: https://github.com/seereason/image-cache
 
+flag pretty-112
+  Description: The prettyclass package is included in pretty-1.1.2
+  Default: True
+
 Library
   Hs-Source-Dirs: .
   GHC-Options: -Wall -fno-warn-name-shadowing
@@ -68,8 +72,6 @@ Library
     hslogger,
     mtl,
     network-uri,
-    pretty,
-    prettyclass,
     process,
     process-extras >= 0.2.0,
     pureMD5,
@@ -82,6 +84,11 @@ Library
     unix,
     Unixutils,
     utf8-string
+  if flag(pretty-112)
+    Build-Depends: pretty >= 1.1.2
+  else
+    Build-Depends: pretty < 1.1.2, prettyclass
+
 
 Executable image-cache-tests
   Hs-Source-Dirs: Tests
