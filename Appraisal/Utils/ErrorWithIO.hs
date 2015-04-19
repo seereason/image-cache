@@ -26,7 +26,7 @@ import System.IO.Error (isDoesNotExistError)
 import System.Log.Logger (logM, Priority(DEBUG, ERROR))
 import qualified System.Posix.Files as F
 import System.Process
-import System.Process.ListLike (ListLikeProcessIO, ProcessOutput, readCreateProcessWithExitCode, readCreateProcess)
+import System.Process.ListLike as LL (ListLikeProcessIO, ProcessOutput, readCreateProcessWithExitCode, readCreateProcess)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 type ErrorWithIO m = ErrorT IOError m
@@ -50,12 +50,12 @@ ensureLink file path = (F.getSymbolicLinkStatus path >> return ()) `catchDoesNot
 readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
 readCreateProcessWithExitCode' p s =
     logM "readCreateProcessWithExitCode" DEBUG (show (pPrint p)) >>
-    readCreateProcessWithExitCode p s
+    LL.readCreateProcessWithExitCode p s
 
 readCreateProcess' :: (ListLikeProcessIO a c, ProcessOutput a b) => CreateProcess -> a -> IO b
 readCreateProcess' p s =
     logM "readCreateProcess" DEBUG (show (pPrint p)) >>
-    readCreateProcess p s
+    LL.readCreateProcess p s
 
 instance Pretty CreateProcess where
     pPrint p = pPrint (cmdspec p)

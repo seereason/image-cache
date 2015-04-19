@@ -16,7 +16,7 @@ module Appraisal.Image
     ) where
 
 import Data.Generics(Data, Typeable)
-import Data.Lens.Common (Lens, iso)
+import Control.Lens.Compat (Lens, iso)
 import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
