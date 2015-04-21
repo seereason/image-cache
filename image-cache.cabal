@@ -70,7 +70,6 @@ Library
     HaTeX,
     hslogger,
     lens,
-    lens-compat,
     mtl,
     network-uri,
     process,

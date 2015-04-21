@@ -16,7 +16,7 @@ module Appraisal.Image
     ) where
 
 import Data.Generics(Data, Typeable)
-import Control.Lens.Compat (Lens, iso)
+import Control.Lens (Lens', iso)
 import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
@@ -121,7 +121,7 @@ saneSize sz =
       (_, n) | n > 25.0 -> sz {units = Inches, size = 25.0}
       _ -> sz
 
-lens_saneSize :: Lens ImageSize ImageSize
+lens_saneSize :: Lens' ImageSize ImageSize
 lens_saneSize = iso id saneSize
 
 defaultSize :: ImageSize
