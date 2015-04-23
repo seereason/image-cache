@@ -33,7 +33,7 @@ import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode'
 import Control.Applicative ((<$>))
 import Control.Exception (IOException)
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Error (MonadError, catchError, throwError)
+import Control.Monad.Except (MonadError, catchError, throwError)
 import Control.Monad.Reader (ReaderT, ask)
 import Control.Monad.Trans (MonadIO, liftIO)
 import qualified Data.ByteString.Lazy.Char8 as Lazy

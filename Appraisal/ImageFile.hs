@@ -25,7 +25,7 @@ import Appraisal.Image (PixmapShape(..), ImageCrop(..))
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
 import Control.Exception (catch, IOException, SomeException, throw)
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Error (MonadError, catchError)
+import Control.Monad.Except (MonadError, catchError)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.ByteString (ByteString)
 import Data.Generics (Data(..), Typeable)
@@ -159,7 +159,7 @@ imageFileArea image = imageFileWidth image * imageFileHeight image
 -- return the original ImageFile.
 uprightImage :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => ImageFile -> m ImageFile
 uprightImage orig = do
-  path <- fileCachePath (imageFile orig)
+  -- path <- fileCachePath (imageFile orig)
   bs <- $logException $ loadBytes (imageFile orig)
   bs' <- $logException $ liftIO (normalizeOrientationCode (P.fromStrict bs))
   maybe (return orig) (\ bs'' -> $logException (fileFromBytes (P.toStrict bs'')) >>= makeImageFile) bs'

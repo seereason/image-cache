@@ -81,6 +81,7 @@ Library
     template-haskell,
     text,
     th-orphans >= 0.9,
+    transformers,
     unix,
     Unixutils,
     utf8-string
