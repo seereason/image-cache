@@ -39,32 +39,32 @@ import Data.SafeCopy (SafeCopy)
 type CacheMap key val = Map key val
 
 -- | Install an image into the cache.
-putValue :: Ord key => key -> val -> Update (CacheMap key val) ()
+putValue :: (SafeCopy key, Ord key, Typeable key, SafeCopy val, Typeable val) => key -> val -> Update (CacheMap key val) ()
 putValue key img =
     do mp <- get
        put $ Map.insert key img mp
 
 -- | Install several images into the cache.
-putValues :: Ord key => [(key, val)] -> Update (CacheMap key val) ()
+putValues :: (SafeCopy key, Ord key, Typeable key, SafeCopy val, Typeable val) => [(key, val)] -> Update (CacheMap key val) ()
 putValues pairs =
     do mp <- get
        put $ foldl (\ mp' (k, file) -> Map.insert k file mp') mp pairs
 
 -- | Retrieve one image
-lookValue :: Ord key => key -> Query (CacheMap key val) (Maybe val)
+lookValue :: (SafeCopy key, Ord key, Typeable key, SafeCopy val, Typeable val) => key -> Query (CacheMap key val) (Maybe val)
 lookValue key =
     do mp <- ask
        return $ Map.lookup key mp
 
 -- | Retrieve several images
-lookValues :: Ord key => [key] -> Query (CacheMap key val) (Map key (Maybe val))
+lookValues :: (SafeCopy key, Ord key, Typeable key, SafeCopy val, Typeable val) => [key] -> Query (CacheMap key val) (Map key (Maybe val))
 lookValues keys =
     do mp <- ask
        let imgs = map (`Map.lookup` mp) keys
        return $ fromList (zip keys imgs)
 
 -- | Return the entire cache
-lookMap :: Ord key => Query (CacheMap key val) (Map key val)
+lookMap :: (SafeCopy key, Ord key, SafeCopy val, Typeable key, Typeable val) => Query (CacheMap key val) (Map key val)
 lookMap = ask
 
 $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap])
