@@ -5,8 +5,9 @@ import System.Exit
 import System.Process
 
 main :: IO ()
-main = defaultMainWithHooks (withQuickTests simpleUserHooks)
+main = defaultMainWithHooks simpleUserHooks -- (withQuickTests simpleUserHooks)
 
+{-
 withQuickTests hooks =
     hooks { postBuild = \ args cf pd lbi -> do
                           let cmd = "runhaskell"
@@ -16,3 +17,4 @@ withQuickTests hooks =
                             ExitFailure _ -> error (showCommandForUser cmd args ++ " -> " ++ show code ++
                                                     "\nstdout:\n" ++ out ++ "\nstderr:\n" ++ err)
                             _ -> putStr out >> postBuild simpleUserHooks args cf pd lbi }
+-}
