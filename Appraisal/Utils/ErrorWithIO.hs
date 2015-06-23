@@ -14,8 +14,8 @@ module Appraisal.Utils.ErrorWithIO
 
 import Control.Exception (throw)
 import Control.Monad.Catch (catch, catchJust, SomeException)
-import Control.Monad.Error (ErrorT(ErrorT, runErrorT))
 import Control.Monad.Trans (MonadIO, liftIO)
+import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
 import GHC.IO.Exception (IOException(ioe_description))
 import Language.Haskell.TH
 import Language.Haskell.TH.Instances ({- instance Lift Loc -})
@@ -29,10 +29,10 @@ import System.Process
 import System.Process.ListLike as LL (ListLikeProcessIO, ProcessOutput, readCreateProcessWithExitCode, readCreateProcess)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
-type ErrorWithIO m = ErrorT IOError m
+type ErrorWithIO m = ExceptT IOError m
 
 modify :: Monad m => (IOError -> IOError) -> ErrorWithIO m a -> ErrorWithIO m a
-modify f action = ErrorT (runErrorT action >>= return . either (Left . f) Right)
+modify f action = ExceptT (runExceptT action >>= return . either (Left . f) Right)
 
 -- | Add a prefix to an IOError's description.
 prefix :: Monad m => String -> ErrorWithIO m a -> ErrorWithIO m a

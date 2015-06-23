@@ -5,7 +5,6 @@ module Cache where
 import Appraisal.File (FileCacheTop)
 import Appraisal.ImageCache (ImageCacheIO, ImageCacheMap, ImageCacheState, runImageCacheIO, fileCachePath')
 import Control.Exception (bracket)
-import Control.Monad.Error
 import Data.Acid (openLocalStateFrom, closeAcidState)
 import Data.Maybe (fromJust)
 import Data.Text (unpack)

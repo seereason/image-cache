@@ -31,7 +31,7 @@ import Appraisal.ImageFile (ImageFile(imageFile), editImage, scaleImage, upright
 import Appraisal.Utils.ErrorWithIO (logException)
 import Control.Exception (IOException)
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Error (MonadError)
+import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader(ask), MonadTrans(lift), ReaderT, runReaderT)
 import Control.Monad.Trans (MonadIO)
 import Data.Generics (Data, Typeable)
