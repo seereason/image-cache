@@ -39,32 +39,32 @@ import Data.SafeCopy (SafeCopy)
 type CacheMap key val = Map key val
 
 -- | Install an image into the cache.
-putValue :: (SafeCopy key, Ord key, Typeable key, SafeCopy val, Typeable val) => key -> val -> Update (CacheMap key val) ()
+putValue :: (Show key, SafeCopy key, Ord key, Typeable key, Show val, SafeCopy val, Typeable val) => key -> val -> Update (CacheMap key val) ()
 putValue key img =
     do mp <- get
        put $ Map.insert key img mp
 
 -- | Install several images into the cache.
-putValues :: (SafeCopy key, Ord key, Typeable key, SafeCopy val, Typeable val) => [(key, val)] -> Update (CacheMap key val) ()
+putValues :: (Show key, SafeCopy key, Ord key, Typeable key, Show val, SafeCopy val, Typeable val) => [(key, val)] -> Update (CacheMap key val) ()
 putValues pairs =
     do mp <- get
        put $ foldl (\ mp' (k, file) -> Map.insert k file mp') mp pairs
 
 -- | Retrieve one image
-lookValue :: (SafeCopy key, Ord key, Typeable key, SafeCopy val, Typeable val) => key -> Query (CacheMap key val) (Maybe val)
+lookValue :: (Show key, SafeCopy key, Ord key, Typeable key, Show val, SafeCopy val, Typeable val) => key -> Query (CacheMap key val) (Maybe val)
 lookValue key =
     do mp <- ask
        return $ Map.lookup key mp
 
 -- | Retrieve several images
-lookValues :: (SafeCopy key, Ord key, Typeable key, SafeCopy val, Typeable val) => [key] -> Query (CacheMap key val) (Map key (Maybe val))
+lookValues :: (Show key, SafeCopy key, Ord key, Typeable key, Show val, SafeCopy val, Typeable val) => [key] -> Query (CacheMap key val) (Map key (Maybe val))
 lookValues keys =
     do mp <- ask
        let imgs = map (`Map.lookup` mp) keys
        return $ fromList (zip keys imgs)
 
 -- | Return the entire cache
-lookMap :: (SafeCopy key, Ord key, SafeCopy val, Typeable key, Typeable val) => Query (CacheMap key val) (Map key val)
+lookMap :: (Show key, SafeCopy key, Ord key, Show val, SafeCopy val, Typeable key, Typeable val) => Query (CacheMap key val) (Map key val)
 lookMap = ask
 
 $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap])
@@ -72,8 +72,8 @@ $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMa
 type CacheState key val = AcidState (CacheMap key val)
 
 -- | Class of monads for managing a cache in acid state.
-class (SafeCopy key, Eq key, Ord key, Typeable key, Data key,
-       Typeable val, SafeCopy val, MonadIO m) => MonadCache key val m | val -> key where
+class (Show key, SafeCopy key, Eq key, Ord key, Typeable key, Data key,
+       Typeable val, Show val, SafeCopy val, MonadIO m) => MonadCache key val m | val -> key where
     askAcidState :: m (CacheState key val)
     build :: key -> m val -- ^ A possibly expensive function to create a new map entry.
 
@@ -99,11 +99,11 @@ cacheMap = do
 initCacheMap :: Ord key => CacheMap key val
 initCacheMap = mempty
 
-openValueCache :: (Ord key, Typeable key, SafeCopy key, Typeable val, SafeCopy val) =>
+openValueCache :: (Show key, Ord key, Typeable key, SafeCopy key, Typeable val, Show val, SafeCopy val) =>
                   FilePath -> IO (CacheState key val)
 openValueCache path = openLocalStateFrom path initCacheMap
 
-withValueCache :: (Ord key, Typeable key, SafeCopy key, Typeable val, SafeCopy val) =>
+withValueCache :: (Show key, Ord key, Typeable key, SafeCopy key, Typeable val, Show val, SafeCopy val) =>
                   FilePath -> (CacheState key val -> IO a) -> IO a
 withValueCache path f = bracket (openValueCache path) createCheckpointAndClose $ f
 
