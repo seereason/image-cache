@@ -30,7 +30,7 @@ module Appraisal.File
     ) where
 
 import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
-import Control.Applicative ((<$>))
+--import Control.Applicative ((<$>))
 import Control.Exception (IOException)
 import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (MonadError, catchError, throwError)
