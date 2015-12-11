@@ -15,7 +15,7 @@ module Appraisal.File
     , Checksum
     , File(..)
     , FileSource(..)
-    , fileFromURI		-- was importFile
+    , fileFromURI               -- was importFile
     , fileFromPath
     , fileFromBytes
     , fileFromFile
@@ -79,9 +79,9 @@ type Checksum = String
 
 -- |A local cache of a file obtained from a 'FileSource'.
 data File
-    = File { fileSource :: Maybe FileSource	-- ^ Where the file's contents came from
-           , fileChksum :: Checksum		-- ^ The checksum of the file's contents
-           , fileMessages :: [String]		-- ^ Messages received while manipulating the file
+    = File { fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
+           , fileChksum :: Checksum             -- ^ The checksum of the file's contents
+           , fileMessages :: [String]           -- ^ Messages received while manipulating the file
            } deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 instance Pretty File where
@@ -89,7 +89,7 @@ instance Pretty File where
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
-               String		-- ^ The URI to retrieve
+               String           -- ^ The URI to retrieve
             -> m (File, P.ByteString)
 fileFromURI uri =
     do let cmd = "curl"
@@ -103,7 +103,7 @@ fileFromURI uri =
 
 -- |Read the contents of a local path into a File.
 fileFromPath :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
-                FilePath	-- ^ The local pathname to copy into the cache
+                FilePath        -- ^ The local pathname to copy into the cache
              -> m (File, P.ByteString)
 fileFromPath path =
     do bytes <- liftIO $ P.readFile path
@@ -112,7 +112,7 @@ fileFromPath path =
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromFile :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m, Functor m) =>
-                FilePath	-- ^ The local pathname to copy into the cache
+                FilePath        -- ^ The local pathname to copy into the cache
              -> m File
 fileFromFile path = do
     cksum <- (\ (_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
@@ -158,7 +158,7 @@ fileFromCmdViaTemp cmd = do
 -- because it saves the data into the local cache.  We use writeFileReadable
 -- because the files we create need to be read remotely by our backup program.
 fileFromBytes :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
-                 P.ByteString	-- ^ The bytes to store as the file's contents
+                 P.ByteString   -- ^ The bytes to store as the file's contents
               -> m File
 fileFromBytes bytes =
     do let file = File { fileSource = Nothing
@@ -190,21 +190,21 @@ fileURI (File {fileSource = Just (TheURI uri)}) = maybe (parseRelativeReference 
 fileURI _ = Nothing
 
 -- |A URI for the locally cached version of the file.
-fileCacheURI :: URI		-- ^ The URI of the cache home directory
-             -> File		-- ^ The file whose URI should be returned
+fileCacheURI :: URI             -- ^ The URI of the cache home directory
+             -> File            -- ^ The file whose URI should be returned
              -> URI
 fileCacheURI cacheDirectoryURI file =
     cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> fileChksum file}
 
 -- |The full path name for the local cache of the file.
 fileCachePath :: MonadFileCacheTop m =>
-                 File		-- ^ The file whose path should be returned
+                 File           -- ^ The file whose path should be returned
               -> m FilePath
 fileCachePath file = fileCacheTop >>= \ ver -> return $ ver <++> fileChksum file
 
 -- |Read and return the contents of the file from the cache.
 loadBytes :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
-             File		-- ^ The file whose bytes should be loaded
+             File               -- ^ The file whose bytes should be loaded
           -> m P.ByteString
 loadBytes file =
     do path <- fileCachePath file

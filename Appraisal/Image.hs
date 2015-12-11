@@ -51,7 +51,7 @@ data ImageCrop
       , bottomCrop :: Int
       , leftCrop :: Int
       , rightCrop :: Int
-      , rotation :: Int		-- 0, 90, 180, 270
+      , rotation :: Int         -- 0, 90, 180, 270
       } deriving (Show, Read, Eq, Ord, Typeable, Data)
 
 -- | Access to the original dimensions of the image, so
