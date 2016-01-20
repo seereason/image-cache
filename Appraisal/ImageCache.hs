@@ -35,6 +35,8 @@ import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader(ask), MonadTrans(lift), ReaderT, runReaderT)
 import Control.Monad.Trans (MonadIO)
 import Data.Generics (Data, Typeable)
+import Data.Aeson.TH (deriveJSON)
+import Data.Aeson.Types (defaultOptions)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
@@ -85,3 +87,5 @@ instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m) => Monad
 -- | Compute 'Appraisal.File.fileCachePath' for an ImageFile.
 fileCachePath' :: MonadFileCacheTop m => ImageFile -> m FilePath
 fileCachePath' = fileCachePath . imageFile
+
+$(deriveJSON defaultOptions ''ImageKey)

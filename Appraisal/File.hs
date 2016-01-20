@@ -36,6 +36,8 @@ import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (MonadError, catchError, throwError)
 import Control.Monad.Reader (ReaderT, ask)
 import Control.Monad.Trans (MonadIO, liftIO)
+import Data.Aeson.TH (deriveJSON)
+import Data.Aeson.Types (defaultOptions)
 import qualified Data.ByteString.Lazy.Char8 as Lazy
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -228,3 +230,5 @@ $(deriveSafeCopy 1 'base ''File)
 $(deriveSafeCopy 1 'base ''FileSource)
 $(deriveSafeCopy 0 'base ''URI)
 $(deriveSafeCopy 0 'base ''URIAuth)
+$(deriveJSON defaultOptions ''FileSource)
+$(deriveJSON defaultOptions ''File)

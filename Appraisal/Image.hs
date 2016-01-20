@@ -15,8 +15,10 @@ module Appraisal.Image
     , latexWidth
     ) where
 
-import Data.Generics(Data, Typeable)
 import Control.Lens (Lens', iso)
+import Data.Aeson.TH (deriveJSON)
+import Data.Aeson.Types (defaultOptions)
+import Data.Generics(Data, Typeable)
 import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
@@ -173,3 +175,8 @@ instance Pretty ImageSize where
 
 instance Pretty ImageCrop where
     pPrint (ImageCrop t b l r _) = text $ "crop (" <> show (b, l) <> " -> " <> show (t, r) <> ")"
+
+$(deriveJSON defaultOptions ''Units)
+$(deriveJSON defaultOptions ''Dimension)
+$(deriveJSON defaultOptions ''ImageCrop)
+$(deriveJSON defaultOptions ''ImageSize)

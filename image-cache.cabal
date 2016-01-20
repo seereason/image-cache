@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.5
+Version:        0.5.1
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -60,6 +60,7 @@ Library
                    Appraisal.Utils.ErrorWithIO
   Build-Depends:
     acid-state,
+    aeson,
     base >= 4,
     binary,
     bytestring,
