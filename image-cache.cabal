@@ -70,7 +70,6 @@ Library
     filemanip-extra,
     HaTeX,
     hslogger,
-    lens,
     mtl,
     network-uri,
     process,
@@ -90,7 +89,10 @@ Library
     Build-Depends: pretty >= 1.1.2
   else
     Build-Depends: pretty < 1.1.2, prettyclass
-
+  if impl(ghcjs)
+    build-depends: microlens-compat
+  else
+    build-depends: lens
 
 Executable image-cache-tests
   Hs-Source-Dirs: Tests
