@@ -48,6 +48,7 @@ import Data.Digest.Pure.MD5 (md5)
 import Data.Generics (Data(..), Typeable)
 import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
+import Language.Haskell.TH.Lift (deriveLiftMany)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
 import System.Directory (doesFileExist, renameFile)
 import System.Exit (ExitCode(..))
@@ -226,9 +227,17 @@ md5' = show . md5
 md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
 
+#if !__GHCJS__
 $(deriveSafeCopy 1 'base ''File)
 $(deriveSafeCopy 1 'base ''FileSource)
 $(deriveSafeCopy 0 'base ''URI)
 $(deriveSafeCopy 0 'base ''URIAuth)
+$(deriveLiftMany [
+   ''File,
+   ''FileSource,
+   ''URI,
+   ''URIAuth
+  ])
+#endif
 $(deriveJSON defaultOptions ''FileSource)
 $(deriveJSON defaultOptions ''File)

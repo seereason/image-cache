@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.5.1
+Version:        0.5.2
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -81,6 +81,7 @@ Library
     template-haskell,
     text,
     th-orphans >= 0.9,
+    th-lift,
     transformers,
     unix,
     Unixutils,
