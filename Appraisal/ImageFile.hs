@@ -296,7 +296,8 @@ pipe2 a b =
 pipe' :: [String] -> String
 pipe' = intercalate " | "
 
-$(deriveSafeCopy 0 'base ''ImageType)
-$(deriveSafeCopy 0 'base ''ImageFile)
 $(deriveJSON defaultOptions ''ImageType)
 $(deriveJSON defaultOptions ''ImageFile)
+
+$(deriveSafeCopy 0 'base ''ImageType)
+$(deriveSafeCopy 0 'base ''ImageFile)

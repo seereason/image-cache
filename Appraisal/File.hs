@@ -227,7 +227,6 @@ md5' = show . md5
 md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
 
-#if !__GHCJS__
 $(deriveSafeCopy 1 'base ''File)
 $(deriveSafeCopy 1 'base ''FileSource)
 $(deriveSafeCopy 0 'base ''URI)
@@ -238,6 +237,5 @@ $(deriveLiftMany [
    ''URI,
    ''URIAuth
   ])
-#endif
 $(deriveJSON defaultOptions ''FileSource)
 $(deriveJSON defaultOptions ''File)

@@ -56,11 +56,7 @@ instance Pretty ImageKey where
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (show dpi) <> text "dpi) (" <> pPrint x <> text ")"
 
-$(deriveSafeCopy 1 'base ''ImageKey)
-
 data ImageCacheMap = ImageCacheMap (Map ImageKey ImageFile) deriving (Eq, Ord, Show, Typeable, Data)
-
-$(deriveSafeCopy 1 'base ''ImageCacheMap)
 
 type ImageCacheState = CacheState ImageKey ImageFile
 type ImageCacheIO p m = ReaderT p (ReaderT ImageCacheState m)
@@ -89,3 +85,6 @@ fileCachePath' :: MonadFileCacheTop m => ImageFile -> m FilePath
 fileCachePath' = fileCachePath . imageFile
 
 $(deriveJSON defaultOptions ''ImageKey)
+
+$(deriveSafeCopy 1 'base ''ImageKey)
+$(deriveSafeCopy 1 'base ''ImageCacheMap)

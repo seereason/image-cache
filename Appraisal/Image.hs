@@ -154,11 +154,6 @@ latexWidth p sz =
       unitsToMeasureCon Cm = LaTeX.Cm
       unitsToMeasureCon Points = LaTeX.Pt
 
-$(deriveSafeCopy 1 'base ''ImageSize)
-$(deriveSafeCopy 0 'base ''Dimension)
-$(deriveSafeCopy 0 'base ''Units)
-$(deriveSafeCopy 0 'base ''ImageCrop)
-
 instance Pretty Dimension where
     pPrint TheHeight = text "h"
     pPrint TheWidth = text "w"
@@ -180,3 +175,8 @@ $(deriveJSON defaultOptions ''Units)
 $(deriveJSON defaultOptions ''Dimension)
 $(deriveJSON defaultOptions ''ImageCrop)
 $(deriveJSON defaultOptions ''ImageSize)
+
+$(deriveSafeCopy 1 'base ''ImageSize)
+$(deriveSafeCopy 0 'base ''Dimension)
+$(deriveSafeCopy 0 'base ''Units)
+$(deriveSafeCopy 0 'base ''ImageCrop)
