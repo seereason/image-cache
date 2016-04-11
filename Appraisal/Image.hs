@@ -15,7 +15,7 @@ module Appraisal.Image
     , latexWidth
     ) where
 
-import Control.Lens (Lens', iso)
+import Control.Lens (Iso', iso)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
 import Data.Generics(Data, Typeable)
@@ -123,7 +123,7 @@ saneSize sz =
       (_, n) | n > 25.0 -> sz {units = Inches, size = 25.0}
       _ -> sz
 
-lens_saneSize :: Lens' ImageSize ImageSize
+lens_saneSize :: Iso' ImageSize ImageSize
 lens_saneSize = iso id saneSize
 
 defaultSize :: ImageSize
