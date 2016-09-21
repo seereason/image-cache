@@ -68,7 +68,7 @@ class PixmapShape a where
 scaleFromDPI :: PixmapShape a => Double -> ImageSize -> a -> Maybe Double
 scaleFromDPI dpi sz file =
     case dim sz of
-      _ | sz < 0.000001 | sz > 1000000.0 -> Nothing
+      _ | size sz < 0.000001 || size sz > 1000000.0 -> Nothing
       TheHeight -> Just $ inches sz * dpi / h
       TheWidth -> Just $ inches sz * dpi / w
       -- If we want an area of 9 square inches, and the dpi is 100, and the image
