@@ -15,7 +15,7 @@ module Appraisal.Image
     , latexWidth
     ) where
 
-import Control.Lens (Iso', iso)
+import Control.Lens (Iso', iso, view)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
 import Data.Generics(Data, Typeable)
@@ -24,6 +24,7 @@ import Data.SafeCopy (deriveSafeCopy, base)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
 import Text.LaTeX.Packages.Graphicx (IGOption(IGWidth))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
+import Test.HUnit
 
 -- |This can describe an image size in various ways.
 data ImageSize
@@ -125,7 +126,13 @@ saneSize sz =
       _ -> sz
 
 lens_saneSize :: Iso' ImageSize ImageSize
-lens_saneSize = iso id saneSize
+lens_saneSize = iso saneSize saneSize
+
+tests :: Test
+tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
+                               (ImageSize {dim = TheHeight, size = 0.25, units = Inches})
+                               (view lens_saneSize (ImageSize {dim = TheHeight, size = 0.0, units = Inches})))
+                 ]
 
 defaultSize :: ImageSize
 defaultSize = ImageSize {dim = TheArea, units = Inches, size = 6.0}
