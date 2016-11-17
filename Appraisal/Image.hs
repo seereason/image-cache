@@ -12,6 +12,7 @@ module Appraisal.Image
     , lens_saneSize
     , defaultSize
     , latexSize
+    , latexEnlarge
     , latexWidth
     ) where
 
@@ -22,7 +23,7 @@ import Data.Generics(Data, Typeable)
 import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
-import Text.LaTeX.Packages.Graphicx (IGOption(IGWidth))
+import Text.LaTeX.Packages.Graphicx (IGOption(IGWidth, IGHeight, IGAngle))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import Test.HUnit
 
@@ -150,6 +151,13 @@ inches sz =
 -- | Return a LaTeX formatted size string for an image, e.g. width=3.0in
 latexSize :: PixmapShape a => a -> ImageSize -> IGOption
 latexSize p sz = IGWidth (latexWidth p sz)
+
+-- | Return options to create an image that may be rotated to increase page coverage.
+latexEnlarge :: PixmapShape a => a -> ImageSize -> [IGOption]
+latexEnlarge p sz =
+    case pixmapHeight p < pixmapWidth p of
+      False -> [IGWidth (latexWidth p sz)]
+      True -> [IGWidth (latexWidth p sz), IGAngle 90]
 
 -- | Return a LaTeX formatted size string for an image, e.g. width=3.0in
 latexWidth :: PixmapShape a => a -> ImageSize -> LaTeX.Measure
