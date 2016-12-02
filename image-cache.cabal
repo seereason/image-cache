@@ -75,7 +75,7 @@ Library
     mtl,
     network-uri,
     process,
-    process-extras >= 0.2.0,
+    process-extras >= 0.7,
     pureMD5,
     regex-compat,
     safecopy,

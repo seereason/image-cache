@@ -26,7 +26,7 @@ import System.IO.Error (isDoesNotExistError)
 import System.Log.Logger (logM, Priority(DEBUG, ERROR))
 import qualified System.Posix.Files as F
 import System.Process
-import System.Process.ListLike as LL (ListLikeProcessIO, ProcessOutput, readCreateProcessWithExitCode, readCreateProcess)
+import System.Process.ListLike as LL (ListLikeProcessIO, ProcessResult, readCreateProcessWithExitCode, readCreateProcess)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 type ErrorWithIO m = ExceptT IOError m
