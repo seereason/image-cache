@@ -52,7 +52,7 @@ readCreateProcessWithExitCode' p s =
     logM "readCreateProcessWithExitCode" DEBUG (show (pPrint p)) >>
     LL.readCreateProcessWithExitCode p s
 
-readCreateProcess' :: (ListLikeProcessIO a c, ProcessOutput a b) => CreateProcess -> a -> IO b
+readCreateProcess' :: (ListLikeProcessIO a c, ProcessResult a b) => CreateProcess -> a -> IO b
 readCreateProcess' p s =
     logM "readCreateProcess" DEBUG (show (pPrint p)) >>
     LL.readCreateProcess p s
