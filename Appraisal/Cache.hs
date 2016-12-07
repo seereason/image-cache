@@ -1,4 +1,5 @@
 -- | Maintain a persistent key/value map using acid-state.
+
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -38,25 +39,25 @@ import Data.SafeCopy (SafeCopy)
 
 type CacheMap key val = Map key val
 
--- | Install an image into the cache.
+-- | Install a key/value pair into the cache.
 putValue :: (Show key, SafeCopy key, Ord key, Typeable key, Show val, SafeCopy val, Typeable val) => key -> val -> Update (CacheMap key val) ()
 putValue key img =
     do mp <- get
        put $ Map.insert key img mp
 
--- | Install several images into the cache.
+-- | Install several key/value pairs into the cache.
 putValues :: (Show key, SafeCopy key, Ord key, Typeable key, Show val, SafeCopy val, Typeable val) => [(key, val)] -> Update (CacheMap key val) ()
 putValues pairs =
     do mp <- get
        put $ foldl (\ mp' (k, file) -> Map.insert k file mp') mp pairs
 
--- | Retrieve one image
+-- | Look up a key.
 lookValue :: (Show key, SafeCopy key, Ord key, Typeable key, Show val, SafeCopy val, Typeable val) => key -> Query (CacheMap key val) (Maybe val)
 lookValue key =
     do mp <- ask
        return $ Map.lookup key mp
 
--- | Retrieve several images
+-- | Look up several keys.
 lookValues :: (Show key, SafeCopy key, Ord key, Typeable key, Show val, SafeCopy val, Typeable val) => [key] -> Query (CacheMap key val) (Map key (Maybe val))
 lookValues keys =
     do mp <- ask
@@ -71,13 +72,18 @@ $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMa
 
 type CacheState key val = AcidState (CacheMap key val)
 
--- | Class of monads for managing a cache in acid state.
+-- | Class of monads for managing a key/value cache in acid state.
+-- The monad must be in MonadIO because it needs to query the acid
+-- state.
 class (Show key, SafeCopy key, Eq key, Ord key, Typeable key, Data key,
-       Typeable val, Show val, SafeCopy val, MonadIO m) => MonadCache key val m | val -> key where
+       Typeable val, Show val, SafeCopy val, MonadIO m)
+    => MonadCache key val m | val -> key where
     askAcidState :: m (CacheState key val)
-    build :: key -> m val -- ^ A possibly expensive function to create a new map entry.
+    build :: key -> m val
+    -- ^ A monadic, possibly expensive function to create a new map entry.
+    -- Our application is to scale/rotate/crop an image.
 
--- | Call the build function on cache miss
+-- | Call the build function on cache miss to build the value.
 cacheInsert :: MonadCache key val m => key -> m val
 cacheInsert key = do
   st <- askAcidState

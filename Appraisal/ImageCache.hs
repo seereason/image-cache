@@ -4,6 +4,13 @@
 -- the checksum of the original image and the desired transformation.
 -- If the desired transformation is not in the cached it is produced
 -- and added.
+--
+-- The 'ImageKey' type describes the 'ImageFile' we would like the
+-- system to produce.  This is passed to the 'build' method (which may
+-- use IO) of 'MonadCache', and if that 'ImageKey' is not already in
+-- the cache the desired 'ImageFile' is generated, added to the cache,
+-- and returned.
+
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
