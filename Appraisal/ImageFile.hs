@@ -90,7 +90,8 @@ imageFileFromURI uri = fileFromURI (uriToString id uri "") >>= makeImageFile . f
 imageFileFromPath :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => FilePath -> m ImageFile
 imageFileFromPath path = fileFromPath path >>= makeImageFile . fst
 
--- |Create an image file from a 'File'.
+-- | Create an image file from a 'File'.  An ImageFile value implies
+-- that the image has been found in or added to the acid-state cache.
 makeImageFile :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => File -> m ImageFile
 makeImageFile file = $logException $ do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
@@ -101,6 +102,8 @@ makeImageFile file = $logException $ do
       handle e =
           $logException $ fail $ "Failure making image file " ++ show file ++ ": " ++ show e
 
+-- | Helper function to build an image once its type is known - JPEG,
+-- GIF, etc.
 imageFileFromType :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) => FilePath -> File -> ImageType -> m ImageFile
 imageFileFromType path file typ = do
   -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
@@ -117,6 +120,7 @@ imageFileFromType path file typ = do
     ExitSuccess -> imageFileFromPnmfileOutput file typ out
     ExitFailure _ -> error $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
 
+-- | Helper function to load a PNM file.
 imageFileFromPnmfileOutput :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) => File -> ImageType -> P.ByteString -> m ImageFile
 imageFileFromPnmfileOutput file typ out =
         case matchRegex pnmFileRegex (P.toString out) of
@@ -131,10 +135,13 @@ imageFileFromPnmfileOutput file typ out =
   where
       pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
 
+-- | The image file names are just checksums.  This makes sure a link
+-- with a suitable extension (.jpg, .gif) also exists.
 ensureExtensionLink :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) => File -> String -> m ()
 ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (fileChksum file) (path ++ ext)
 
--- |Run @file -b@ and convert the output to an 'ImageType'.
+-- | Helper function to learn the 'ImageType' of a file by runing
+-- @file -b@.
 getFileType :: (MonadCatch m, MonadError IOException m, MonadIO m) => FilePath -> m ImageType
 getFileType path =
     liftIO (readProcessWithExitCode cmd args P.empty) `catchError` err >>= return . test . (\ (_, out, _) -> out)
@@ -157,9 +164,9 @@ getFileType path =
 imageFileArea :: ImageFile -> Int
 imageFileArea image = imageFileWidth image * imageFileHeight image
 
--- | Build a version of the image with its orientation fixed based on
--- the EXIF orientation flag.  If the image is already upright it will
--- return the original ImageFile.
+-- | Build, cache, and return a version of the image with its
+-- orientation fixed based on the EXIF orientation flag.  If the image
+-- is already upright it will return the original ImageFile.
 uprightImage :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => ImageFile -> m ImageFile
 uprightImage orig = do
   -- path <- fileCachePath (imageFile orig)
