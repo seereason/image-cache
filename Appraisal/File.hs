@@ -1,6 +1,3 @@
-{-# LANGUAGE CPP, DeriveDataTypeable, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses,
-             ScopedTypeVariables, TemplateHaskell, TypeFamilies #-}
-{-# OPTIONS -Wall -fno-warn-orphans #-}
 -- |A data structure representing a local cache of a data file.  The
 -- cached file persists across runs of our application, and can be
 -- accessed by name and passed to software which requires a file, for
@@ -8,6 +5,11 @@
 -- be supplied as either a URI, a local file path, or as a ByteString.
 -- The file is then downloaded and stored on the local machine at a
 -- location based on the file's checksum.
+
+{-# LANGUAGE CPP, DeriveDataTypeable, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses,
+             ScopedTypeVariables, StandaloneDeriving, TemplateHaskell, TypeFamilies, UndecidableInstances #-}
+{-# OPTIONS -Wall -fno-warn-orphans #-}
+
 module Appraisal.File
     ( module Network.URI
     , MonadFileCacheTop(fileCacheTop)

@@ -5,15 +5,16 @@
 module Appraisal.ImageFile
     ( ImageFile(..)
     , ImageType(..)
+    -- * Standard file extension for each ImageType
     , extension
-    -- * Build original image files
+    -- * Build an original ImageFile
     , imageFileFromBytes
     , imageFileFromURI
     , imageFileFromPath
     -- * Image file queries
     , imageFileArea
     , imageFilePath
-    -- * Build derived image files
+    -- * Build a derived ImageFile
     , uprightImage
     , scaleImage
     , editImage

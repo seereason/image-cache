@@ -50,11 +50,17 @@ import Data.Monoid ((<>))
 import Data.SafeCopy (base, deriveSafeCopy)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
+-- | Describes an ImageFile and, if it was derived from other image
+-- files, how.
 data ImageKey
     = ImageOriginal ImageFile
+    -- ^ An unmodified upload
     | ImageCropped ImageCrop ImageKey
+    -- ^ A cropped version of another image
     | ImageScaled ImageSize Double ImageKey
+    -- ^ A resized version of another image
     | ImageUpright ImageKey
+    -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
     deriving (Eq, Ord, Show, Typeable, Data)
 
 instance Pretty ImageKey where
@@ -63,16 +69,21 @@ instance Pretty ImageKey where
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (show dpi) <> text "dpi) (" <> pPrint x <> text ")"
 
+-- | A map from 'ImageKey' to 'ImageFile'.
 data ImageCacheMap = ImageCacheMap (Map ImageKey ImageFile) deriving (Eq, Ord, Show, Typeable, Data)
 
+-- | The acidic version of 'ImageCacheMap'
 type ImageCacheState = CacheState ImageKey ImageFile
+-- | Reader monad providing 'ImageCacheState'
 type ImageCacheIO p m = ReaderT p (ReaderT ImageCacheState m)
 
+-- | Given the path to a cache of images and an opened image cache
+-- database, perform an action in the 'ImageCacheIO' monad.
 runImageCacheIO :: ImageCacheIO FileCacheTop m a -> FileCacheTop -> ImageCacheState -> m a
 runImageCacheIO action p st = runMonadCacheT (runReaderT action p) st
 -- runImageCacheIO action p st = runReaderT (runMonadCacheT action st) p
 
--- type ImageCacheIO p m = ReaderT p (ReaderT ImageCacheState m)
+-- | Base instance of MonadCache for 'ImageCacheIO'.
 instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m) => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
     askAcidState = lift ask
     build (ImageOriginal img) = return img
