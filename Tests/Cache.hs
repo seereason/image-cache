@@ -3,7 +3,7 @@ module Cache where
 -- | Load an image cache state
 
 import Appraisal.FileCache (FileCacheTop, fileCachePath)
-import Appraisal.ImageCache (ImageCacheIO, ImageCacheMap, ImageCacheState, runImageCacheIO)
+import Appraisal.ImageCache (ImageCacheState)
 import Control.Exception (bracket)
 import Data.Acid (openLocalStateFrom, closeAcidState)
 import Data.Maybe (fromJust)

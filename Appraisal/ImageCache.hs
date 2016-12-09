@@ -27,21 +27,16 @@ module Appraisal.ImageCache
     ( ImageKey(..)
     , ImageCacheMap
     , ImageCacheState
-    , ImageCacheIO
     , runImageCacheIO
     ) where
 
 import Appraisal.Cache (MonadCache(..))
-import Appraisal.FileCache (FileCacheTop(..), MonadFileCache(..))
+import Appraisal.FileCache (MonadFileCache(..))
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
 import Appraisal.ImageFile (ImageFile, editImage, scaleImage, uprightImage)
-import Appraisal.Map (CacheState, runMonadCacheT)
+import Appraisal.Map (CacheState)
 import Appraisal.Utils.ErrorWithIO (logException)
-import Control.Exception (IOException)
-import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (MonadError)
-import Control.Monad.Reader (MonadReader(ask), MonadTrans(lift), ReaderT, runReaderT)
-import Control.Monad.Trans (MonadIO)
+import Control.Monad.Reader (MonadReader(ask), ReaderT, runReaderT)
 import Data.Generics (Data, Typeable)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
@@ -75,18 +70,17 @@ data ImageCacheMap = ImageCacheMap (Map ImageKey ImageFile) deriving (Eq, Ord, S
 
 -- | The acidic version of 'ImageCacheMap'
 type ImageCacheState = CacheState ImageKey ImageFile
--- | Reader monad providing 'ImageCacheState'
-type ImageCacheIO p m = ReaderT p (ReaderT ImageCacheState m)
 
--- | Given the path to a cache of images and an opened image cache
--- database, perform an action in the 'ImageCacheIO' monad.
-runImageCacheIO :: ImageCacheIO FileCacheTop m a -> FileCacheTop -> ImageCacheState -> m a
-runImageCacheIO action p st = runMonadCacheT (runReaderT action p) st
+-- | Given a file cache monad and an opened image cache database,
+-- perform an image cache action.
+runImageCacheIO :: MonadFileCache m => ReaderT ImageCacheState m a -> ImageCacheState -> m a
+runImageCacheIO = runReaderT
 -- runImageCacheIO action p st = runReaderT (runMonadCacheT action st) p
 
--- | Base instance of MonadCache for 'ImageCacheIO'.
-instance MonadFileCache m => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
-    askAcidState = lift ask
+-- | Build a MonadCache instance for images on top of a MonadFileCache
+-- instance and a reader for the acid state.
+instance (MonadFileCache m, MonadReader ImageCacheState m) => MonadCache ImageKey ImageFile m where
+    askAcidState = ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do
       img <- build key
