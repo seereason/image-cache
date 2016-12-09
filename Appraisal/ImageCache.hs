@@ -21,6 +21,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall #-}
 module Appraisal.ImageCache
     ( ImageKey(..)
@@ -32,7 +33,7 @@ module Appraisal.ImageCache
     ) where
 
 import Appraisal.Cache (MonadCache(..))
-import Appraisal.File (MonadFileCacheTop, FileCacheTop(..), fileCachePath)
+import Appraisal.File (MonadFileCache(fileCacheTop), FileCacheTop(..), fileCachePath)
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
 import Appraisal.ImageFile (ImageFile(imageFile), editImage, scaleImage, uprightImage)
 import Appraisal.Map (CacheState, runMonadCacheT)
@@ -84,8 +85,13 @@ runImageCacheIO :: ImageCacheIO FileCacheTop m a -> FileCacheTop -> ImageCacheSt
 runImageCacheIO action p st = runMonadCacheT (runReaderT action p) st
 -- runImageCacheIO action p st = runReaderT (runMonadCacheT action st) p
 
+instance (MonadReader FileCacheTop m, MonadCatch m, MonadError IOException m, MonadIO m)
+    => MonadFileCache m where
+    fileCacheTop = unFileCacheTop <$> ask
+
 -- | Base instance of MonadCache for 'ImageCacheIO'.
-instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m) => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
+instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m)
+    => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
     askAcidState = lift ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do
@@ -100,7 +106,7 @@ instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m) => Monad
       $logException $ editImage crop img
 
 -- | Compute 'Appraisal.File.fileCachePath' for an ImageFile.
-fileCachePath' :: MonadFileCacheTop m => ImageFile -> m FilePath
+fileCachePath' :: MonadFileCache m => ImageFile -> m FilePath
 fileCachePath' = fileCachePath . imageFile
 
 $(deriveJSON defaultOptions ''ImageKey)

@@ -21,13 +21,12 @@ module Appraisal.ImageFile
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.File (MonadFileCacheTop, File(..), fileCachePath, loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
+import Appraisal.File (MonadFileCache, File(..), fileCachePath, loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
 import Appraisal.Image (PixmapShape(..), ImageCrop(..))
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
-import Control.Exception (catch, IOException, SomeException, throw)
-import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (MonadError, catchError)
-import Control.Monad.Trans (MonadIO, liftIO)
+import Control.Exception (catch, SomeException, throw)
+import Control.Monad.Except (catchError)
+import Control.Monad.Trans (liftIO)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
 import Data.ByteString (ByteString)
@@ -77,34 +76,34 @@ extension GIF = ".gif"
 extension PNG = ".png"
 
 -- |Return the local pathname of an image file with an appropriate extension (e.g. .jpg).
-imageFilePath :: MonadFileCacheTop m => ImageFile -> m FilePath
+imageFilePath :: MonadFileCache m => ImageFile -> m FilePath
 imageFilePath img = fileCachePath (imageFile img) >>= \ path -> return $ path ++ extension (imageFileType img)
 
-imageFileFromBytes :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => ByteString -> m ImageFile
+imageFileFromBytes :: MonadFileCache m => ByteString -> m ImageFile
 imageFileFromBytes bs = fileFromBytes bs >>= makeImageFile
 
 -- | Find or create a cached image file from a URI.
-imageFileFromURI :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => URI -> m ImageFile
+imageFileFromURI :: MonadFileCache m => URI -> m ImageFile
 imageFileFromURI uri = fileFromURI (uriToString id uri "") >>= makeImageFile . fst
 
-imageFileFromPath :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => FilePath -> m ImageFile
+imageFileFromPath :: MonadFileCache m => FilePath -> m ImageFile
 imageFileFromPath path = fileFromPath path >>= makeImageFile . fst
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
-makeImageFile :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => File -> m ImageFile
+makeImageFile :: forall m. MonadFileCache m => File -> m ImageFile
 makeImageFile file = $logException $ do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
     (getFileType path >>= $logException . imageFileFromType path file) `catchError` handle
     where
-      handle :: (MonadCatch m, MonadError IOException m, MonadIO m) => IOError -> m ImageFile
+      handle :: IOError -> m ImageFile
       handle e =
           $logException $ fail $ "Failure making image file " ++ show file ++ ": " ++ show e
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
-imageFileFromType :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) => FilePath -> File -> ImageType -> m ImageFile
+imageFileFromType :: MonadFileCache m => FilePath -> File -> ImageType -> m ImageFile
 imageFileFromType path file typ = do
   -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
   let cmd = case typ of
@@ -121,7 +120,7 @@ imageFileFromType path file typ = do
     ExitFailure _ -> error $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
 
 -- | Helper function to load a PNM file.
-imageFileFromPnmfileOutput :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) => File -> ImageType -> P.ByteString -> m ImageFile
+imageFileFromPnmfileOutput :: MonadFileCache m => File -> ImageType -> P.ByteString -> m ImageFile
 imageFileFromPnmfileOutput file typ out =
         case matchRegex pnmFileRegex (P.toString out) of
           Just [width, height, _, maxval] ->
@@ -137,12 +136,12 @@ imageFileFromPnmfileOutput file typ out =
 
 -- | The image file names are just checksums.  This makes sure a link
 -- with a suitable extension (.jpg, .gif) also exists.
-ensureExtensionLink :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) => File -> String -> m ()
+ensureExtensionLink :: MonadFileCache m => File -> String -> m ()
 ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (fileChksum file) (path ++ ext)
 
 -- | Helper function to learn the 'ImageType' of a file by runing
 -- @file -b@.
-getFileType :: (MonadCatch m, MonadError IOException m, MonadIO m) => FilePath -> m ImageType
+getFileType :: MonadFileCache m => FilePath -> m ImageType
 getFileType path =
     liftIO (readProcessWithExitCode cmd args P.empty) `catchError` err >>= return . test . (\ (_, out, _) -> out)
     where
@@ -167,7 +166,7 @@ imageFileArea image = imageFileWidth image * imageFileHeight image
 -- | Build, cache, and return a version of the image with its
 -- orientation fixed based on the EXIF orientation flag.  If the image
 -- is already upright it will return the original ImageFile.
-uprightImage :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => ImageFile -> m ImageFile
+uprightImage :: MonadFileCache m => ImageFile -> m ImageFile
 uprightImage orig = do
   -- path <- fileCachePath (imageFile orig)
   bs <- $logException $ loadBytes (imageFile orig)
@@ -176,7 +175,7 @@ uprightImage orig = do
 
 -- |Use a decoder, pnmscale, and an encoder to change the size of an
 -- |image file.  The new image inherits the home directory of the old.
-scaleImage :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m, Functor m, RealFloat f) => f -> ImageFile -> m ImageFile
+scaleImage :: forall m f. (MonadFileCache m, RealFloat f) => f -> ImageFile -> m ImageFile
 scaleImage scale orig | scale == 1.0 = return orig
 scaleImage scale orig = $logException $ do
     path <- fileCachePath (imageFile orig)
@@ -197,11 +196,11 @@ scaleImage scale orig = $logException $ do
     -- fileFromCmd ver cmd >>= buildImage
     fileFromCmdViaTemp cmd >>= buildImage
     where
-      buildImage :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => File -> m ImageFile
+      buildImage :: File -> m ImageFile
       buildImage file = makeImageFile file `catchError` (\ e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)
 
 -- |Crop an image.
-editImage :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) => ImageCrop -> ImageFile -> m ImageFile
+editImage :: MonadFileCache m => ImageCrop -> ImageFile -> m ImageFile
 editImage crop file = $logException $
     case commands of
       [] ->

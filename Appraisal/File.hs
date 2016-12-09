@@ -12,7 +12,7 @@
 
 module Appraisal.File
     ( module Network.URI
-    , MonadFileCacheTop(fileCacheTop)
+    , MonadFileCache(fileCacheTop)
     , FileCacheTop(..)
     , Checksum
     , File(..)
@@ -36,7 +36,6 @@ import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode'
 import Control.Exception (IOException)
 import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (MonadError, catchError, throwError)
-import Control.Monad.Reader (ReaderT, ask)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
@@ -64,11 +63,8 @@ import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
-class Monad m => MonadFileCacheTop m where
+class (MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCache m where
     fileCacheTop :: m FilePath
-
-instance Monad m => MonadFileCacheTop (ReaderT FileCacheTop m) where
-    fileCacheTop  = ask >>= \ (FileCacheTop x) -> return x
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -93,8 +89,8 @@ instance Pretty File where
     pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
-               String           -- ^ The URI to retrieve
+fileFromURI :: MonadFileCache m =>
+               String            -- ^ The URI to retrieve
             -> m (File, P.ByteString)
 fileFromURI uri =
     do let cmd = "curl"
@@ -107,7 +103,7 @@ fileFromURI uri =
          _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 
 -- |Read the contents of a local path into a File.
-fileFromPath :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+fileFromPath :: MonadFileCache m =>
                 FilePath        -- ^ The local pathname to copy into the cache
              -> m (File, P.ByteString)
 fileFromPath path =
@@ -116,7 +112,7 @@ fileFromPath path =
        return (file {fileSource = Just (ThePath path)}, bytes)
 
 -- | Move a file into the file cache and incorporate it into a File.
-fileFromFile :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m, Functor m) =>
+fileFromFile :: MonadFileCache m =>
                 FilePath        -- ^ The local pathname to copy into the cache
              -> m File
 fileFromFile path = do
@@ -129,7 +125,7 @@ fileFromFile path = do
             renameFile path dest)
     return file
 
-fileFromCmd :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+fileFromCmd :: MonadFileCache m =>
                String           -- ^ A shell command whose output becomes the contents of the file.
             -> m File
 fileFromCmd cmd = do
@@ -143,7 +139,7 @@ fileFromCmd cmd = do
 -- | Build a file from the output of a command.  We use a temporary
 -- file to store the contents of the command while we checksum it to
 -- avoid reading the command's output into RAM.
-fileFromCmdViaTemp :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+fileFromCmdViaTemp :: MonadFileCache m =>
                       String           -- ^ A shell command whose output becomes the contents of the file.
                    -> m File
 fileFromCmdViaTemp cmd = do
@@ -162,7 +158,7 @@ fileFromCmdViaTemp cmd = do
 -- |Turn the bytes in a ByteString into a File.  This is an IO operation
 -- because it saves the data into the local cache.  We use writeFileReadable
 -- because the files we create need to be read remotely by our backup program.
-fileFromBytes :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+fileFromBytes :: MonadFileCache m =>
                  P.ByteString   -- ^ The bytes to store as the file's contents
               -> m File
 fileFromBytes bytes =
@@ -177,7 +173,7 @@ fileFromBytes bytes =
 
 -- | Make sure a file is correctly installed in the cache, and if it
 -- isn't install it.
-cacheFile :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+cacheFile :: MonadFileCache m =>
              File                     -- ^ The file to verify
           -> P.ByteString             -- ^ Expected contents
           -> m File
@@ -202,13 +198,13 @@ fileCacheURI cacheDirectoryURI file =
     cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> fileChksum file}
 
 -- |The full path name for the local cache of the file.
-fileCachePath :: MonadFileCacheTop m =>
+fileCachePath :: MonadFileCache m =>
                  File           -- ^ The file whose path should be returned
               -> m FilePath
 fileCachePath file = fileCacheTop >>= \ ver -> return $ ver <++> fileChksum file
 
 -- |Read and return the contents of the file from the cache.
-loadBytes :: (MonadCatch m, MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
+loadBytes :: MonadFileCache m =>
              File               -- ^ The file whose bytes should be loaded
           -> m P.ByteString
 loadBytes file =
