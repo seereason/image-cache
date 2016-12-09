@@ -29,13 +29,12 @@ module Appraisal.ImageCache
     , ImageCacheState
     , ImageCacheIO
     , runImageCacheIO
-    , fileCachePath'
     ) where
 
 import Appraisal.Cache (MonadCache(..))
-import Appraisal.File (MonadFileCache(fileCacheTop), FileCacheTop(..), fileCachePath)
+import Appraisal.File (FileCacheTop(..))
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
-import Appraisal.ImageFile (ImageFile(imageFile), editImage, scaleImage, uprightImage)
+import Appraisal.ImageFile (ImageFile, editImage, scaleImage, uprightImage)
 import Appraisal.Map (CacheState, runMonadCacheT)
 import Appraisal.Utils.ErrorWithIO (logException)
 import Control.Exception (IOException)
@@ -85,10 +84,6 @@ runImageCacheIO :: ImageCacheIO FileCacheTop m a -> FileCacheTop -> ImageCacheSt
 runImageCacheIO action p st = runMonadCacheT (runReaderT action p) st
 -- runImageCacheIO action p st = runReaderT (runMonadCacheT action st) p
 
-instance (MonadReader FileCacheTop m, MonadCatch m, MonadError IOException m, MonadIO m)
-    => MonadFileCache m where
-    fileCacheTop = unFileCacheTop <$> ask
-
 -- | Base instance of MonadCache for 'ImageCacheIO'.
 instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m)
     => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
@@ -104,10 +99,6 @@ instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m)
     build (ImageCropped crop key) = do
       img <- build key
       $logException $ editImage crop img
-
--- | Compute 'Appraisal.File.fileCachePath' for an ImageFile.
-fileCachePath' :: MonadFileCache m => ImageFile -> m FilePath
-fileCachePath' = fileCachePath . imageFile
 
 $(deriveJSON defaultOptions ''ImageKey)
 

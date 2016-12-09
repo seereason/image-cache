@@ -14,6 +14,7 @@ module Appraisal.File
     ( module Network.URI
     , MonadFileCache(fileCacheTop)
     , FileCacheTop(..)
+    , CacheFile(..)
     , Checksum
     , File(..)
     , FileSource(..)
@@ -24,7 +25,6 @@ module Appraisal.File
     , fileFromCmd
     , fileFromCmdViaTemp
     , fileURI
-    , fileCachePath
     , fileCacheURI
     , loadBytes
     , cacheFile
@@ -36,6 +36,7 @@ import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode'
 import Control.Exception (IOException)
 import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (MonadError, catchError, throwError)
+import Control.Monad.Reader (MonadReader, ask)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
@@ -63,8 +64,12 @@ import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
-class (MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCache m where
+class (MonadReader FileCacheTop m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCache m where
     fileCacheTop :: m FilePath
+
+instance (MonadReader FileCacheTop m, MonadCatch m, MonadError IOException m, MonadIO m)
+    => MonadFileCache m where
+    fileCacheTop = unFileCacheTop <$> ask
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -80,13 +85,28 @@ type Checksum = String
 
 -- |A local cache of a file obtained from a 'FileSource'.
 data File
-    = File { fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
-           , fileChksum :: Checksum             -- ^ The checksum of the file's contents
-           , fileMessages :: [String]           -- ^ Messages received while manipulating the file
+    = File { _fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
+           , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
+           , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            } deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 instance Pretty File where
     pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")
+
+class CacheFile file where
+    fileSource :: file -> Maybe FileSource
+    fileChksum :: file -> Checksum
+    fileMessages :: file -> [String]
+    -- ^ Any messages that were produced when creating the file
+    fileCachePath :: MonadFileCache m => file -> m FilePath
+    -- ^ The full path name for the local cache of the file.
+
+
+instance CacheFile File where
+    fileSource = _fileSource
+    fileChksum = _fileChksum
+    fileMessages = _fileMessages
+    fileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> fileChksum file
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI :: MonadFileCache m =>
@@ -99,7 +119,7 @@ fileFromURI uri =
        case code of
          ExitSuccess ->
              do file <- fileFromBytes bytes
-                return (file {fileSource = Just (TheURI uri)}, bytes)
+                return (file {_fileSource = Just (TheURI uri)}, bytes)
          _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 
 -- |Read the contents of a local path into a File.
@@ -109,7 +129,7 @@ fileFromPath :: MonadFileCache m =>
 fileFromPath path =
     do bytes <- liftIO $ P.readFile path
        file <- fileFromBytes bytes
-       return (file {fileSource = Just (ThePath path)}, bytes)
+       return (file {_fileSource = Just (ThePath path)}, bytes)
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromFile :: MonadFileCache m =>
@@ -117,9 +137,9 @@ fileFromFile :: MonadFileCache m =>
              -> m File
 fileFromFile path = do
     cksum <- (\ (_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
-    let file = File { fileSource = Just (ThePath path)
-                    , fileChksum = cksum
-                    , fileMessages = [] }
+    let file = File { _fileSource = Just (ThePath path)
+                    , _fileChksum = cksum
+                    , _fileMessages = [] }
     dest <- fileCachePath file
     liftIO (logM "fileFromFile" DEBUG ("renameFile " <> path <> " " <> dest) >>
             renameFile path dest)
@@ -133,7 +153,7 @@ fileFromCmd cmd = do
   case code of
     ExitSuccess ->
         do file <- fileFromBytes out
-           return $ file {fileSource = Just (ThePath cmd)}
+           return $ file {_fileSource = Just (ThePath cmd)}
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
 
 -- | Build a file from the output of a command.  We use a temporary
@@ -162,9 +182,9 @@ fileFromBytes :: MonadFileCache m =>
                  P.ByteString   -- ^ The bytes to store as the file's contents
               -> m File
 fileFromBytes bytes =
-    do let file = File { fileSource = Nothing
-                       , fileChksum = md5' bytes
-                       , fileMessages = [] }
+    do let file = File { _fileSource = Nothing
+                       , _fileChksum = md5' bytes
+                       , _fileMessages = [] }
        path <- fileCachePath file
        exists <- liftIO $ doesFileExist path
        case exists of
@@ -187,7 +207,7 @@ cacheFile file bytes = do
 
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
-fileURI (File {fileSource = Just (TheURI uri)}) = maybe (parseRelativeReference uri) Just (parseURI uri)
+fileURI (File {_fileSource = Just (TheURI uri)}) = maybe (parseRelativeReference uri) Just (parseURI uri)
 fileURI _ = Nothing
 
 -- |A URI for the locally cached version of the file.
@@ -196,12 +216,6 @@ fileCacheURI :: URI             -- ^ The URI of the cache home directory
              -> URI
 fileCacheURI cacheDirectoryURI file =
     cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> fileChksum file}
-
--- |The full path name for the local cache of the file.
-fileCachePath :: MonadFileCache m =>
-                 File           -- ^ The file whose path should be returned
-              -> m FilePath
-fileCachePath file = fileCacheTop >>= \ ver -> return $ ver <++> fileChksum file
 
 -- |Read and return the contents of the file from the cache.
 loadBytes :: MonadFileCache m =>
@@ -216,7 +230,7 @@ loadBytes file =
 
 -- |Add a message to the file message list.
 addMessage :: String -> File -> File
-addMessage message file = file {fileMessages = fileMessages file ++ [message]}
+addMessage message file = file {_fileMessages = fileMessages file ++ [message]}
 
 md5' :: P.ByteString -> String
 #ifdef LAZYIMAGES

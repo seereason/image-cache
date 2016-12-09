@@ -21,7 +21,7 @@ module Appraisal.ImageFile
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.File (MonadFileCache, File(..), fileCachePath, loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
+import Appraisal.File (MonadFileCache, File(..), CacheFile(..), loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
 import Appraisal.Image (PixmapShape(..), ImageCrop(..))
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
 import Control.Exception (catch, SomeException, throw)
@@ -168,7 +168,7 @@ imageFileArea image = imageFileWidth image * imageFileHeight image
 -- is already upright it will return the original ImageFile.
 uprightImage :: MonadFileCache m => ImageFile -> m ImageFile
 uprightImage orig = do
-  -- path <- fileCachePath (imageFile orig)
+  -- path <- _fileCachePath (imageFile orig)
   bs <- $logException $ loadBytes (imageFile orig)
   bs' <- $logException $ liftIO (normalizeOrientationCode (P.fromStrict bs))
   maybe (return orig) (\ bs'' -> $logException (fileFromBytes (P.toStrict bs'')) >>= makeImageFile) bs'
