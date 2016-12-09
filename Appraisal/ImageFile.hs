@@ -21,10 +21,12 @@ module Appraisal.ImageFile
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.FileCache (MonadFileCache, File(..), CacheFile(..), loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
+import Appraisal.File (File(..))
+import Appraisal.FileCache (MonadFileCache, CacheFile(..), loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
 import Appraisal.Image (PixmapShape(..), ImageCrop(..))
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
 import Control.Exception (catch, SomeException, throw)
+import Control.Lens (view)
 import Control.Monad.Except (catchError)
 import Control.Monad.Trans (liftIO)
 import Data.Aeson.TH (deriveJSON)
@@ -137,7 +139,7 @@ imageFileFromPnmfileOutput file typ out =
 -- | The image file names are just checksums.  This makes sure a link
 -- with a suitable extension (.jpg, .gif) also exists.
 ensureExtensionLink :: MonadFileCache m => File -> String -> m ()
-ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (fileChksum file) (path ++ ext)
+ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksum file) (path ++ ext)
 
 -- | Helper function to learn the 'ImageType' of a file by runing
 -- @file -b@.

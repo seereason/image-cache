@@ -32,7 +32,7 @@ module Appraisal.ImageCache
     ) where
 
 import Appraisal.Cache (MonadCache(..))
-import Appraisal.FileCache (FileCacheTop(..))
+import Appraisal.FileCache (FileCacheTop(..), MonadFileCache(..))
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
 import Appraisal.ImageFile (ImageFile, editImage, scaleImage, uprightImage)
 import Appraisal.Map (CacheState, runMonadCacheT)
@@ -85,8 +85,7 @@ runImageCacheIO action p st = runMonadCacheT (runReaderT action p) st
 -- runImageCacheIO action p st = runReaderT (runMonadCacheT action st) p
 
 -- | Base instance of MonadCache for 'ImageCacheIO'.
-instance (MonadCatch m, MonadError IOException m, MonadIO m, Functor m)
-    => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
+instance MonadFileCache m => MonadCache ImageKey ImageFile (ImageCacheIO FileCacheTop m) where
     askAcidState = lift ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do

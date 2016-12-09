@@ -1,4 +1,4 @@
--- |A data structure representing a local cache of a data file.  The
+-- | A data structure representing a local cache of a data file.  The
 -- cached file persists across runs of our application, and can be
 -- accessed by name and passed to software which requires a file, for
 -- example a document formatter such as LaTeX.  The original data can
@@ -6,7 +6,7 @@
 -- The file is then downloaded and stored on the local machine at a
 -- location based on the file's checksum.
 
-{-# LANGUAGE CPP, DeriveDataTypeable, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses,
+{-# LANGUAGE CPP, DeriveDataTypeable, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, PartialTypeSignatures,
              ScopedTypeVariables, StandaloneDeriving, TemplateHaskell, TypeFamilies, UndecidableInstances #-}
 {-# OPTIONS -Wall -fno-warn-orphans #-}
 
@@ -16,12 +16,9 @@ module Appraisal.FileCache
     , FileCacheTop(..)
     , CacheFile(..)
     , Checksum
-    , File(..)
     , FileSource(..)
     , fileFromURI               -- was importFile
     , fileFromPath
-    , fileFromBytes
-    , fileFromFile
     , fileFromCmd
     , fileFromCmdViaTemp
     , fileURI
@@ -29,11 +26,12 @@ module Appraisal.FileCache
     , loadBytes
     , cacheFile
     , addMessage
+    , md5'
     ) where
 
 import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
---import Control.Applicative ((<$>))
 import Control.Exception (IOException)
+import Control.Lens (Lens', over, set, view)
 import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (MonadError, catchError, throwError)
 import Control.Monad.Reader (MonadReader, ask)
@@ -48,23 +46,18 @@ import qualified Data.ByteString as P
 #endif
 import Data.Digest.Pure.MD5 (md5)
 import Data.Generics (Data(..), Typeable)
-import Data.Monoid ((<>))
 import Data.SafeCopy (deriveSafeCopy, base)
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
-import System.Directory (doesFileExist, renameFile)
 import System.Exit (ExitCode(..))
 import System.FilePath.Extra (writeFileReadable, makeReadableAndClose)
 import System.IO (openBinaryTempFile)
-import System.Log.Logger (logM, Priority(DEBUG))
-import System.Process (proc, shell, showCommandForUser)
-import System.Process.ListLike (readCreateProcessWithExitCode)
+import System.Process (proc, shell)
 import System.Unix.FilePath ((<++>))
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
-class (MonadReader FileCacheTop m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCache m where
+class (MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCache m where
     fileCacheTop :: m FilePath
 
 instance (MonadReader FileCacheTop m, MonadCatch m, MonadError IOException m, MonadIO m)
@@ -83,35 +76,22 @@ data FileSource
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
 
--- |A local cache of a file obtained from a 'FileSource'.
-data File
-    = File { _fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
-           , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
-           , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
-           } deriving (Show, Read, Eq, Ord, Data, Typeable)
-
-instance Pretty File where
-    pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")
-
 class CacheFile file where
-    fileSource :: file -> Maybe FileSource
-    fileChksum :: file -> Checksum
-    fileMessages :: file -> [String]
+    fileSource :: Lens' file (Maybe FileSource)
+    fileChksum :: Lens' file Checksum
+    fileMessages :: Lens' file [String]
     -- ^ Any messages that were produced when creating the file
     fileCachePath :: MonadFileCache m => file -> m FilePath
     -- ^ The full path name for the local cache of the file.
-
-
-instance CacheFile File where
-    fileSource = _fileSource
-    fileChksum = _fileChksum
-    fileMessages = _fileMessages
-    fileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> fileChksum file
+    fileFromFile :: MonadFileCache m => FilePath -> m file
+    fileFromBytes :: MonadFileCache m => P.ByteString -> m file
+    -- ^ Turn the bytes in a ByteString into a File.  This is an IO
+    -- operation because it saves the data into the local cache.  We
+    -- use writeFileReadable because the files we create need to be
+    -- read remotely by our backup program.
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI :: MonadFileCache m =>
-               String            -- ^ The URI to retrieve
-            -> m (File, P.ByteString)
+fileFromURI :: (CacheFile file, MonadFileCache m) => String -> m (file, P.ByteString)
 fileFromURI uri =
     do let cmd = "curl"
            args = ["-s", uri]
@@ -119,22 +99,21 @@ fileFromURI uri =
        case code of
          ExitSuccess ->
              do file <- fileFromBytes bytes
-                return (file {_fileSource = Just (TheURI uri)}, bytes)
+                return (set fileSource (Just (TheURI uri)) file, bytes)
          _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 
 -- |Read the contents of a local path into a File.
-fileFromPath :: MonadFileCache m =>
-                FilePath        -- ^ The local pathname to copy into the cache
-             -> m (File, P.ByteString)
+fileFromPath :: (CacheFile file, MonadFileCache m) => FilePath -> m (file, P.ByteString)
 fileFromPath path =
     do bytes <- liftIO $ P.readFile path
        file <- fileFromBytes bytes
-       return (file {_fileSource = Just (ThePath path)}, bytes)
+       return (set fileSource (Just (ThePath path)) file, bytes)
 
 -- | Move a file into the file cache and incorporate it into a File.
-fileFromFile :: MonadFileCache m =>
+#if 0
+fileFromFile :: (CacheFile file, MonadFileCache m) =>
                 FilePath        -- ^ The local pathname to copy into the cache
-             -> m File
+             -> m file
 fileFromFile path = do
     cksum <- (\ (_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
     let file = File { _fileSource = Just (ThePath path)
@@ -144,24 +123,24 @@ fileFromFile path = do
     liftIO (logM "fileFromFile" DEBUG ("renameFile " <> path <> " " <> dest) >>
             renameFile path dest)
     return file
+#endif
 
-fileFromCmd :: MonadFileCache m =>
+fileFromCmd :: (CacheFile file, MonadFileCache m) =>
                String           -- ^ A shell command whose output becomes the contents of the file.
-            -> m File
+            -> m file
 fileFromCmd cmd = do
   (code, out, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
     ExitSuccess ->
         do file <- fileFromBytes out
-           return $ file {_fileSource = Just (ThePath cmd)}
+           return $ set fileSource (Just (ThePath cmd)) file
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
 
--- | Build a file from the output of a command.  We use a temporary
--- file to store the contents of the command while we checksum it to
--- avoid reading the command's output into RAM.
-fileFromCmdViaTemp :: MonadFileCache m =>
-                      String           -- ^ A shell command whose output becomes the contents of the file.
-                   -> m File
+-- | Build a file from the output of a command.  This uses a temporary
+-- file to store the contents of the command while we checksum it.  This
+-- is to avoid reading the file contents into a Haskell ByteString, which
+-- seems to be slower than using a unix pipeline.
+fileFromCmdViaTemp :: forall m file. (MonadFileCache m, CacheFile file) => String -> m file
 fileFromCmdViaTemp cmd = do
   dir <- fileCacheTop
   (tmp, h) <- liftIO (openBinaryTempFile dir "scaled")
@@ -173,30 +152,13 @@ fileFromCmdViaTemp cmd = do
     ExitSuccess -> installFile tmp
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
     where
+      installFile :: FilePath -> m file
       installFile tmp = fileFromFile tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
 
--- |Turn the bytes in a ByteString into a File.  This is an IO operation
--- because it saves the data into the local cache.  We use writeFileReadable
--- because the files we create need to be read remotely by our backup program.
-fileFromBytes :: MonadFileCache m =>
-                 P.ByteString   -- ^ The bytes to store as the file's contents
-              -> m File
-fileFromBytes bytes =
-    do let file = File { _fileSource = Nothing
-                       , _fileChksum = md5' bytes
-                       , _fileMessages = [] }
-       path <- fileCachePath file
-       exists <- liftIO $ doesFileExist path
-       case exists of
-         True -> return file
-         False -> liftIO (writeFileReadable path bytes) >> return file
-
--- | Make sure a file is correctly installed in the cache, and if it
--- isn't install it.
-cacheFile :: MonadFileCache m =>
-             File                     -- ^ The file to verify
-          -> P.ByteString             -- ^ Expected contents
-          -> m File
+-- | Given a file and a ByteString containing the expected contents,
+-- verify the contents.  If it isn't installed or isn't correct,
+-- (re)install it.
+cacheFile :: (MonadFileCache m, CacheFile file) => file -> P.ByteString -> m file
 cacheFile file bytes = do
   path <- fileCachePath file
   (loadBytes file >>= checkBytes) `catchError` (\ _e -> liftIO (writeFileReadable path bytes) >> return file)
@@ -206,31 +168,29 @@ cacheFile file bytes = do
                           else return file
 
 -- |Return the remote URI if the file resulted from downloading a URI.
-fileURI :: File -> Maybe URI
-fileURI (File {_fileSource = Just (TheURI uri)}) = maybe (parseRelativeReference uri) Just (parseURI uri)
-fileURI _ = Nothing
+fileURI :: CacheFile file => file -> Maybe URI
+fileURI file = case view fileSource file of
+                 Just (TheURI uri) -> maybe (parseRelativeReference uri) Just (parseURI uri)
+                 _ -> Nothing
 
--- |A URI for the locally cached version of the file.
-fileCacheURI :: URI             -- ^ The URI of the cache home directory
-             -> File            -- ^ The file whose URI should be returned
-             -> URI
+-- | Build a URI for the locally cached version of the file given the
+-- uri of the cache home directory.
+fileCacheURI :: CacheFile file => URI -> file -> URI
 fileCacheURI cacheDirectoryURI file =
-    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> fileChksum file}
+    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> view fileChksum file}
 
--- |Read and return the contents of the file from the cache.
-loadBytes :: MonadFileCache m =>
-             File               -- ^ The file whose bytes should be loaded
-          -> m P.ByteString
+-- | Read and return the contents of the file from the cache as a ByteString.
+loadBytes :: (MonadFileCache m, CacheFile file) => file -> m P.ByteString
 loadBytes file =
     do path <- fileCachePath file
        bytes <- liftIO (P.readFile path)
-       case md5' bytes == fileChksum file of
+       case md5' bytes == view fileChksum file of
          True -> return bytes
-         False -> $logException $ fail $ "Checksum mismatch: expected " ++ show (fileChksum file) ++ ", file contains " ++ show (md5' bytes)
+         False -> $logException $ fail $ "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
 
 -- |Add a message to the file message list.
-addMessage :: String -> File -> File
-addMessage message file = file {_fileMessages = fileMessages file ++ [message]}
+addMessage :: CacheFile file => String -> file -> file
+addMessage message file = over fileMessages (++ [message]) file
 
 md5' :: P.ByteString -> String
 #ifdef LAZYIMAGES
@@ -239,15 +199,12 @@ md5' = show . md5
 md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
 
-$(deriveSafeCopy 1 'base ''File)
 $(deriveSafeCopy 1 'base ''FileSource)
 $(deriveSafeCopy 0 'base ''URI)
 $(deriveSafeCopy 0 'base ''URIAuth)
 $(deriveLiftMany [
-   ''File,
    ''FileSource,
    ''URI,
    ''URIAuth
   ])
 $(deriveJSON defaultOptions ''FileSource)
-$(deriveJSON defaultOptions ''File)
