@@ -31,10 +31,11 @@ module Appraisal.ImageCache
     , fileCachePath'
     ) where
 
-import Appraisal.Cache (CacheState, MonadCache(..), runMonadCacheT)
+import Appraisal.Cache (MonadCache(..))
 import Appraisal.File (MonadFileCacheTop, FileCacheTop(..), fileCachePath)
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
 import Appraisal.ImageFile (ImageFile(imageFile), editImage, scaleImage, uprightImage)
+import Appraisal.Map (CacheState, runMonadCacheT)
 import Appraisal.Utils.ErrorWithIO (logException)
 import Control.Exception (IOException)
 import Control.Monad.Catch (MonadCatch)

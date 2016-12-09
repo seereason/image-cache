@@ -57,6 +57,7 @@ Library
                    Appraisal.Image
                    Appraisal.ImageCache
                    Appraisal.ImageFile
+                   Appraisal.Map
                    Appraisal.Utils.ErrorWithIO
   Build-Depends:
     acid-state,
