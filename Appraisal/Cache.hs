@@ -1,4 +1,4 @@
--- | 'MonadCache' lets us maintain 
+-- | Maintain a cache of key/value pairs in acid state.
 
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -17,13 +17,13 @@ module Appraisal.Cache
 import Appraisal.Map
 import Control.Monad.State (MonadIO(..))
 import Data.Acid (query, update)
-import Data.Generics (Data, Typeable)
+import Data.Generics (Typeable)
 import Data.SafeCopy (SafeCopy)
 
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
 -- state.
-class (Show key, SafeCopy key, Eq key, Ord key, Typeable key, Data key,
+class (Show key, SafeCopy key, Eq key, Ord key, Typeable key,
        Typeable val, Show val, SafeCopy val, MonadIO m)
     => MonadCache key val m where
     askAcidState :: m (CacheState key val)

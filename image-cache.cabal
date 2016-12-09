@@ -53,7 +53,7 @@ Library
   Extensions: CPP
   Exposed-modules: Appraisal.Cache
                    Appraisal.Exif
-                   Appraisal.File
+                   Appraisal.FileCache
                    Appraisal.Image
                    Appraisal.ImageCache
                    Appraisal.ImageFile

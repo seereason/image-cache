@@ -21,7 +21,7 @@ module Appraisal.ImageFile
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.File (MonadFileCache, File(..), CacheFile(..), loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
+import Appraisal.FileCache (MonadFileCache, File(..), CacheFile(..), loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
 import Appraisal.Image (PixmapShape(..), ImageCrop(..))
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
 import Control.Exception (catch, SomeException, throw)

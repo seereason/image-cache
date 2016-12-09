@@ -32,7 +32,7 @@ module Appraisal.ImageCache
     ) where
 
 import Appraisal.Cache (MonadCache(..))
-import Appraisal.File (FileCacheTop(..))
+import Appraisal.FileCache (FileCacheTop(..))
 import Appraisal.Image (ImageCrop, ImageSize, scaleFromDPI)
 import Appraisal.ImageFile (ImageFile, editImage, scaleImage, uprightImage)
 import Appraisal.Map (CacheState, runMonadCacheT)

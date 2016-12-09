@@ -10,7 +10,7 @@
              ScopedTypeVariables, StandaloneDeriving, TemplateHaskell, TypeFamilies, UndecidableInstances #-}
 {-# OPTIONS -Wall -fno-warn-orphans #-}
 
-module Appraisal.File
+module Appraisal.FileCache
     ( module Network.URI
     , MonadFileCache(fileCacheTop)
     , FileCacheTop(..)
