@@ -143,7 +143,7 @@ fileFromCmd cmd = do
 -- | Build a file from the output of a command.  We use a temporary
 -- file to store the contents of the command while we checksum it to
 -- avoid reading the command's output into RAM.
-fileFromCmdViaTemp :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m, Functor m) =>
+fileFromCmdViaTemp :: (MonadFileCacheTop m, MonadError IOException m, MonadIO m) =>
                       String           -- ^ A shell command whose output becomes the contents of the file.
                    -> m File
 fileFromCmdViaTemp cmd = do

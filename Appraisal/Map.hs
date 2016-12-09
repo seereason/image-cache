@@ -21,12 +21,11 @@ module Appraisal.Map
 
 import Control.Exception (bracket)
 import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
-import Control.Monad.State (MonadIO(..), MonadState(get, put))
-import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, query, Query, update, Update)
+import Control.Monad.State (MonadState(get, put))
+import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, Update)
 import Data.Acid.Local (createCheckpointAndClose)
-import Data.Generics (Data, Typeable)
+import Data.Generics (Typeable)
 import Data.Map as Map (fromList, insert, lookup, Map)
-import Data.Monoid (Monoid(mempty))
 import Data.SafeCopy (SafeCopy)
 
 type CacheMap key val = Map key val
