@@ -56,13 +56,14 @@ module Appraisal.ImageCache
 
 import Appraisal.AcidCache (MonadCache(..))
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.FileCache (Checksum, File(..), FileSource(..), MonadFileCache, MonadFileCacheIO, CacheFile(..), loadBytes, fileFromBytes, fileFromPath, fileFromURI, {-fileFromFile, fileFromCmd,-} fileFromCmdViaTemp)
+import Appraisal.FileCache (CacheFile(..), Checksum, File(..), FileCacheT, FileCacheTop, fileFromBytes, fileFromPath, fileFromURI, fileFromCmdViaTemp,
+                            FileSource(..), loadBytes, MonadFileCache, MonadFileCacheIO, runMonadFileCache)
 import Appraisal.Image (ImageCrop(..), ImageSize, PixmapShape(..), scaleFromDPI)
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
 import Control.Exception (catch, SomeException, throw)
 import Control.Lens (makeLensesFor, view)
 import Control.Monad.Except (catchError)
-import Control.Monad.Reader (MonadReader(ask), ReaderT, runReaderT)
+import Control.Monad.Reader (MonadReader(ask), ReaderT)
 import Control.Monad.Trans (liftIO)
 import Data.Acid (AcidState)
 import Data.Aeson.TH (deriveJSON)
@@ -73,7 +74,7 @@ import Data.List (intercalate)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
-import Data.SafeCopy (deriveSafeCopy, base)
+import Data.SafeCopy (base, deriveSafeCopy, SafeCopy)
 import qualified Data.ByteString.Lazy as P (fromStrict, toStrict)
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -381,9 +382,13 @@ type ImageCacheState = AcidState (Map ImageKey ImageFile)
 
 -- | Given a file cache monad and an opened image cache database,
 -- perform an image cache action.
-runImageCacheIO :: MonadFileCache m => ReaderT ImageCacheState m a -> ImageCacheState -> m a
-runImageCacheIO = runReaderT
+-- runImageCacheIO :: MonadFileCache m => ReaderT ImageCacheState m a -> ImageCacheState -> m a
+-- runImageCacheIO = runReaderT
 -- runImageCacheIO action p st = runReaderT (runMonadCacheT action st) p
+runImageCacheIO :: forall a key val.
+                   (Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
+                   AcidState (Map key val) -> FileCacheTop -> FileCacheT (ReaderT (AcidState (Map key val)) IO) a -> IO a
+runImageCacheIO = runMonadFileCache
 
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
