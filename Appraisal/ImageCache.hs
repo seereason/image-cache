@@ -27,38 +27,27 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall #-}
 module Appraisal.ImageCache
-    ( ImageFile(..)
-    , ImageType(..)
-    -- * Standard file extension for each ImageType
-    , extension
-    -- * Build an original ImageFile
+    ( -- * Image cache monad
+      MonadImageCache
+    , runImageCacheIO
+    -- * ImageFile upload
     , imageFileFromBytes
     , imageFileFromURI
     , imageFileFromPath
-    -- * Image file queries
-    , imageFileArea
+    -- * ImageFile query
     , imageFilePath
-    -- * Build a derived ImageFile
+    -- * Deriving new ImageFiles
     , uprightImage
     , scaleImage
     , editImage
-    -- Image cache Key type
-    , ImageKey(..)
-    , ImageCacheMap
-    , ImageCacheState
-    , runImageCacheIO
-    , MonadImageCache
-
-    , File(..)
-    , Checksum
-    , FileSource(..)
     ) where
 
 import Appraisal.AcidCache (MonadCache(..))
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.FileCache (CacheFile(..), Checksum, File(..), FileCacheT, FileCacheTop, fileFromBytes, fileFromPath, fileFromURI, fileFromCmdViaTemp,
-                            FileSource(..), loadBytes, MonadFileCache, MonadFileCacheIO, runMonadFileCache)
-import Appraisal.Image (ImageCrop(..), ImageSize, PixmapShape(..), scaleFromDPI)
+import Appraisal.FileCache (CacheFile(..), File(..), FileCacheT, FileCacheTop, fileFromBytes, fileFromPath, fileFromURI,
+                            fileFromCmdViaTemp, loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO)
+import Appraisal.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..),
+                        extension, imageFileType, PixmapShape(..), scaleFromDPI)
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
 import Control.Exception (IOException, SomeException, throw)
 import Control.Lens (makeLensesFor, view)
@@ -67,14 +56,11 @@ import Control.Monad.Except (catchError, MonadError)
 import Control.Monad.Reader (MonadReader(ask), ReaderT)
 import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
-import Data.Aeson.TH (deriveJSON)
-import Data.Aeson.Types (defaultOptions)
 import Data.ByteString (ByteString)
 import Data.Generics (Data(..), Typeable)
 import Data.List (intercalate)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
-import Data.Monoid ((<>))
 import Data.SafeCopy (base, deriveSafeCopy, SafeCopy)
 import qualified Data.ByteString.Lazy as P (fromStrict, toStrict)
 #ifdef LAZYIMAGES
@@ -89,34 +75,7 @@ import System.Exit (ExitCode(..))
 import System.Log.Logger (logM, Priority(ERROR))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode, readProcessWithExitCode, showCreateProcessForUser)
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import Text.Regex (mkRegex, matchRegex)
-
--- | A file containing an image plus meta info.
-data ImageFile
-    = ImageFile
-      { imageFile :: File
-      , imageFileType :: ImageType
-      , imageFileWidth :: Int
-      , imageFileHeight :: Int
-      , imageFileMaxVal :: Int
-      } deriving (Show, Read, Eq, Ord, Data, Typeable)
-
-data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
-
-instance PixmapShape ImageFile where
-    pixmapHeight = imageFileHeight
-    pixmapWidth = imageFileWidth
-    pixmapMaxVal = imageFileMaxVal
-
-instance Pretty ImageFile where
-    pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
-
-extension :: ImageType -> String
-extension JPEG = ".jpg"
-extension PPM = ".ppm"
-extension GIF = ".gif"
-extension PNG = ".png"
 
 -- |Return the local pathname of an image file with an appropriate extension (e.g. .jpg).
 imageFilePath :: MonadFileCache m => ImageFile -> m FilePath
@@ -201,10 +160,6 @@ getFileType path =
               ,(mkRegex "JPEG image data", JPEG)
               ,(mkRegex "PNG image data", PNG)
               ,(mkRegex "GIF image data", GIF)]
-
--- |Return the area of an image in square pixels.
-imageFileArea :: ImageFile -> Int
-imageFileArea image = imageFileWidth image * imageFileHeight image
 
 -- | Build, cache, and return a version of the image with its
 -- orientation fixed based on the EXIF orientation flag.  If the image
@@ -350,31 +305,6 @@ instance CacheFile ImageFile where
     fileFromFile = imageFileFromPath
     fileFromBytes = imageFileFromBytes
 
-$(deriveJSON defaultOptions ''ImageType)
-$(deriveJSON defaultOptions ''ImageFile)
-
-$(deriveSafeCopy 0 'base ''ImageType)
-$(deriveSafeCopy 0 'base ''ImageFile)
-
--- | Describes an ImageFile and, if it was derived from other image
--- files, how.
-data ImageKey
-    = ImageOriginal ImageFile
-    -- ^ An unmodified upload
-    | ImageCropped ImageCrop ImageKey
-    -- ^ A cropped version of another image
-    | ImageScaled ImageSize Double ImageKey
-    -- ^ A resized version of another image
-    | ImageUpright ImageKey
-    -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Show, Typeable, Data)
-
-instance Pretty ImageKey where
-    pPrint (ImageOriginal x) = pPrint x
-    pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
-    pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
-    pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (show dpi) <> text "dpi) (" <> pPrint x <> text ")"
-
 -- | A map from 'ImageKey' to 'ImageFile'.
 data ImageCacheMap = ImageCacheMap (Map ImageKey ImageFile) deriving (Eq, Ord, Show, Typeable, Data)
 
@@ -382,7 +312,7 @@ data ImageCacheMap = ImageCacheMap (Map ImageKey ImageFile) deriving (Eq, Ord, S
 type ImageCacheState = AcidState (Map ImageKey ImageFile)
 
 -- | Given a file cache monad and an opened image cache database,
--- perform an image cache action.  This is just 'runMonadFileCache'
+-- perform an image cache action.  This is just 'runFileCache'
 -- with its arguments reversed to match an older version of the
 -- function.
 runImageCacheIO :: forall key val m a.
@@ -392,7 +322,7 @@ runImageCacheIO :: forall key val m a.
                 -> FileCacheTop
                 -> AcidState (Map key val)
                 -> m a
-runImageCacheIO action fileCacheDir fileAcidState = runMonadFileCache fileAcidState fileCacheDir action
+runImageCacheIO action fileCacheDir fileAcidState = runFileCacheIO fileAcidState fileCacheDir action
 
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
@@ -414,7 +344,4 @@ class (MonadCache ImageKey ImageFile m, MonadFileCacheIO m) => MonadImageCache m
 
 instance (MonadCache ImageKey ImageFile m, MonadFileCacheIO m) => MonadImageCache m
 
-$(deriveJSON defaultOptions ''ImageKey)
-
-$(deriveSafeCopy 1 'base ''ImageKey)
 $(deriveSafeCopy 1 'base ''ImageCacheMap)

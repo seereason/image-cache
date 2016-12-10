@@ -27,10 +27,11 @@ module Appraisal.FileCache
     ( MonadFileCache(fileCacheTop)
     , FileCacheTop(..)
     , FileCacheT(runFileCacheT)
-    , runMonadFileCache
+    , runFileCache
     , CacheFile(..)
     , Checksum
     , MonadFileCacheIO
+    , runFileCacheIO
     , FileSource(..)
     , fileFromURI               -- was importFile
     , fileFromPath
@@ -81,16 +82,13 @@ import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
--- | This is the class for operations that do require IO.  Almost all
--- operations require IO, but you can build paths into the cache
--- without it.
--- | This is the class for operations that do require IO.  Almost all
--- operations require IO, but you can build paths into the cache
--- without it.
 -- | Almost all file cache operations require IO, but constructing
 -- paths do not.
 class Monad m => MonadFileCache m where
     fileCacheTop :: m FilePath
+
+runFileCache :: FileCacheT m a -> FileCacheTop -> m a
+runFileCache action fileCacheDir = runReaderT (runFileCacheT action) fileCacheDir
 
 -- This instance is omitted because it prevents us from using the
 -- reader monad for anything but MonadFileCache.
@@ -130,11 +128,11 @@ instance MonadError e m => MonadError e (FileCacheT m) where
 instance MonadFileCache m => MonadFileCache (ExceptT IOException m) where
     fileCacheTop = lift fileCacheTop
 
-runMonadFileCache :: forall key val m a.
+runFileCacheIO :: forall key val m a.
                      (MonadIO m, MonadCatch m, MonadError IOException m,
                       Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
                      AcidState (Map key val) -> FileCacheTop -> FileCacheT (ReaderT (AcidState (Map key val)) m) a -> m a
-runMonadFileCache fileAcidState fileCacheDir action =
+runFileCacheIO fileAcidState fileCacheDir action =
     runMonadCacheT (runReaderT (runFileCacheT (ensureFileCacheTop >> action)) fileCacheDir) fileAcidState
 
 -- |The original source if the file is saved, in case

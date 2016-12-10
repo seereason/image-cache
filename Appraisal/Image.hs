@@ -12,7 +12,12 @@ module Appraisal.Image
     , ImageCrop(..)
     , Dimension(..)
     , Units(..)
+    , ImageFile(..)
+    , imageFileArea
     , PixmapShape(..)
+    , ImageType(..)
+    , extension
+    , ImageKey(..)
     , scaleFromDPI
     , widthInInches
     , widthInInches'
@@ -22,8 +27,10 @@ module Appraisal.Image
     , latexSize
     , latexEnlarge
     , latexWidth
+    , tests
     ) where
 
+import Appraisal.FileCache (File(..))
 import Control.Lens (Iso', iso, view)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
@@ -66,8 +73,9 @@ data ImageCrop
       , rotation :: Int         -- 0, 90, 180, 270
       } deriving (Show, Read, Eq, Ord, Typeable, Data)
 
--- | Access to the original dimensions of the image, so
--- we can compute the aspect ratio.
+-- | A class whose primary (only?) instance is ImageFile.  Access to
+-- the original dimensions of the image, so we can compute the aspect
+-- ratio.
 class PixmapShape a where
     pixmapHeight :: a -> Int
     pixmapWidth :: a -> Int
@@ -195,12 +203,67 @@ instance Pretty ImageSize where
 instance Pretty ImageCrop where
     pPrint (ImageCrop t b l r _) = text $ "crop (" <> show (b, l) <> " -> " <> show (t, r) <> ")"
 
+-- | A file containing an image plus meta info.
+data ImageFile
+    = ImageFile
+      { imageFile :: File
+      , imageFileType :: ImageType
+      , imageFileWidth :: Int
+      , imageFileHeight :: Int
+      , imageFileMaxVal :: Int
+      } deriving (Show, Read, Eq, Ord, Data, Typeable)
+
+data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
+
+instance PixmapShape ImageFile where
+    pixmapHeight = imageFileHeight
+    pixmapWidth = imageFileWidth
+    pixmapMaxVal = imageFileMaxVal
+
+instance Pretty ImageFile where
+    pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
+
+-- |Return the area of an image in square pixels.
+imageFileArea :: ImageFile -> Int
+imageFileArea image = imageFileWidth image * imageFileHeight image
+
+extension :: ImageType -> String
+extension JPEG = ".jpg"
+extension PPM = ".ppm"
+extension GIF = ".gif"
+extension PNG = ".png"
+
+-- | Describes an ImageFile and, if it was derived from other image
+-- files, how.
+data ImageKey
+    = ImageOriginal ImageFile
+    -- ^ An unmodified upload
+    | ImageCropped ImageCrop ImageKey
+    -- ^ A cropped version of another image
+    | ImageScaled ImageSize Double ImageKey
+    -- ^ A resized version of another image
+    | ImageUpright ImageKey
+    -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
+    deriving (Eq, Ord, Show, Typeable, Data)
+
+instance Pretty ImageKey where
+    pPrint (ImageOriginal x) = pPrint x
+    pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
+    pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
+    pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (show dpi) <> text "dpi) (" <> pPrint x <> text ")"
+
 $(deriveJSON defaultOptions ''Units)
 $(deriveJSON defaultOptions ''Dimension)
 $(deriveJSON defaultOptions ''ImageCrop)
 $(deriveJSON defaultOptions ''ImageSize)
+$(deriveJSON defaultOptions ''ImageKey)
+$(deriveJSON defaultOptions ''ImageType)
+$(deriveJSON defaultOptions ''ImageFile)
 
 $(deriveSafeCopy 1 'base ''ImageSize)
 $(deriveSafeCopy 0 'base ''Dimension)
 $(deriveSafeCopy 0 'base ''Units)
 $(deriveSafeCopy 0 'base ''ImageCrop)
+$(deriveSafeCopy 1 'base ''ImageKey)
+$(deriveSafeCopy 0 'base ''ImageType)
+$(deriveSafeCopy 0 'base ''ImageFile)

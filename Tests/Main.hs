@@ -75,7 +75,7 @@ acid1 = TestCase $ do
 file1 :: Test
 file1 = TestCase $ do
           removeRecursiveSafely fileAcidDir
-          value1 <- withValueCache fileAcidDir (\fileAcidState -> runMonadFileCache fileAcidState fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString)))
+          value1 <- withValueCache fileAcidDir (\fileAcidState -> runFileCacheIO fileAcidState fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString)))
           assertEqual "file1" expected value1
     where
       expected :: (File, ByteString)
