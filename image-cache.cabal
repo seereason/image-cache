@@ -51,15 +51,12 @@ Library
   GHC-Options: -Wall -fno-warn-name-shadowing
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP
-  Exposed-modules: Appraisal.Cache
-                   Appraisal.Exif
-                   Appraisal.File
-                   Appraisal.FileCache
-                   Appraisal.Image
+  Exposed-modules: Appraisal.AcidCache
                    Appraisal.ImageCache
-                   Appraisal.ImageFile
-                   Appraisal.Map
+                   Appraisal.Exif
+                   Appraisal.FileCache
                    Appraisal.Utils.ErrorWithIO
+                   Appraisal.Image
   Build-Depends:
     acid-state,
     aeson,
@@ -98,4 +95,17 @@ Library
 Executable image-cache-tests
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs
-  Build-Depends: base >= 4, image-cache, HUnit, mtl, acid-state, filepath, HaTeX, bytestring, binary, containers, text
+  Build-Depends:
+    acid-state,
+    base >= 4,
+    binary,
+    bytestring,
+    containers,
+    directory,
+    filemanip-extra,
+    filepath,
+    HaTeX,
+    HUnit,
+    image-cache,
+    mtl,
+    text
