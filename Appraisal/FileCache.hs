@@ -8,6 +8,7 @@
 -- The file is then downloaded and stored on the local machine at a
 -- location based on the file's checksum.
 
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -24,11 +25,12 @@
 
 module Appraisal.FileCache
     ( MonadFileCache(fileCacheTop)
-    , MonadFileCacheIO
     , FileCacheTop(..)
+    , FileCacheT(runFileCacheT)
     , runMonadFileCache
     , CacheFile(..)
     , Checksum
+    , MonadFileCacheIO
     , FileSource(..)
     , fileFromURI               -- was importFile
     , fileFromPath
@@ -45,12 +47,12 @@ module Appraisal.FileCache
 
 import Appraisal.AcidCache (runMonadCacheT)
 import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
-import Control.Exception (IOException)
+import Control.Exception (Exception, IOException)
 import Control.Lens (Lens', over, set, view)
-import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (MonadError, catchError, throwError)
-import Control.Monad.Reader (ask, MonadReader, ReaderT(ReaderT), runReaderT)
-import Control.Monad.Trans (MonadIO, liftIO)
+import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
+import Control.Monad.Except (ExceptT, MonadError, catchError, throwError)
+import Control.Monad.Reader (mapReaderT, MonadReader(ask, local), ReaderT(ReaderT), runReaderT)
+import Control.Monad.Trans (MonadIO, MonadTrans(lift), liftIO)
 import Data.Acid (AcidState)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
@@ -79,6 +81,12 @@ import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
+-- | This is the class for operations that do require IO.  Almost all
+-- operations require IO, but you can build paths into the cache
+-- without it.
+-- | This is the class for operations that do require IO.  Almost all
+-- operations require IO, but you can build paths into the cache
+-- without it.
 -- | Almost all file cache operations require IO, but constructing
 -- paths do not.
 class Monad m => MonadFileCache m where
@@ -89,22 +97,44 @@ class Monad m => MonadFileCache m where
 -- instance MonadReader FileCacheTop m => MonadFileCache m where
 --     fileCacheTop = unFileCacheTop <$> ask
 
--- | This is the class for operations that do require IO, almost all
--- of them.
-class (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO m where
-    ensureFileCacheTop :: m () -- Create the fileCacheTop directory if necessary
+-- | In order to avoid type ambiguities between different reader monads, we need
+-- a newtype wrapper around this ReaderT FileCacheTop.
+newtype FileCacheT m a = FileCacheT {runFileCacheT :: ReaderT FileCacheTop m a} deriving (Monad, Applicative, Functor)
 
-instance (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO m where
-    ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True
+-- | Get 'fileCacheTop' from the wrapped reader monad.
+instance (Monad m, Monad (FileCacheT m)) => MonadFileCache (FileCacheT m) where
+    -- fileCacheTop :: FileCacheT m FilePath
+    fileCacheTop = FileCacheT (ReaderT (return . unFileCacheTop))
 
-instance Monad m => MonadFileCache (ReaderT FileCacheTop m) where
-    fileCacheTop = unFileCacheTop <$> ask
+mapFileCacheT :: (m a -> m a) -> FileCacheT m a -> FileCacheT m a
+mapFileCacheT f = FileCacheT . mapReaderT f . runFileCacheT
+
+instance MonadTrans FileCacheT where
+    lift = FileCacheT . lift
+instance MonadReader r m => MonadReader r (FileCacheT m) where
+    ask = lift ask
+    local = mapFileCacheT . local
+instance MonadIO m => MonadIO (FileCacheT m) where
+    liftIO = FileCacheT . liftIO
+instance MonadThrow m => MonadThrow (FileCacheT m) where
+    throwM e = lift $ throwM e
+instance MonadCatch m => MonadCatch (FileCacheT m) where
+    catch :: forall e a. Exception e => FileCacheT m a -> (e -> FileCacheT m a) -> FileCacheT m a
+    catch (FileCacheT m) c = FileCacheT $ m `catch` (runFileCacheT . c)
+-- Hmm, familiar...
+instance MonadError e m => MonadError e (FileCacheT m) where
+    throwError :: e -> FileCacheT m a
+    throwError e = lift $ throwError e
+    catchError :: FileCacheT m a -> (e -> FileCacheT m a) -> FileCacheT m a
+    catchError (FileCacheT m) c = FileCacheT $ m `catchError` (runFileCacheT . c)
+instance MonadFileCache m => MonadFileCache (ExceptT IOException m) where
+    fileCacheTop = lift fileCacheTop
 
 runMonadFileCache :: forall a key val.
                      (Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
-                     AcidState (Map key val) -> FileCacheTop -> ReaderT FileCacheTop (ReaderT (AcidState (Map key val)) IO) a -> IO a
+                     AcidState (Map key val) -> FileCacheTop -> FileCacheT (ReaderT (AcidState (Map key val)) IO) a -> IO a
 runMonadFileCache fileAcidState fileCacheDir action =
-    runMonadCacheT (runReaderT (ensureFileCacheTop >> action) fileCacheDir) fileAcidState
+    runMonadCacheT (runReaderT (runFileCacheT (ensureFileCacheTop >> action)) fileCacheDir) fileAcidState
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -117,6 +147,16 @@ data FileSource
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
+
+-- | This is the class for operations that do require IO.  Almost all
+-- operations require IO, but you can build paths into the cache
+-- without it.
+class (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO m where
+    ensureFileCacheTop :: m () -- Create the fileCacheTop directory if necessary
+
+-- | Probably the only meaningful instance of MonadFileCacheIO.
+instance (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO m where
+    ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True
 
 -- | Represents one of the files in our file cache.
 class CacheFile file where

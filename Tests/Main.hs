@@ -48,7 +48,7 @@ oldfile :: FilePath
 oldfile = "/usr/share/doc/cron/THANKS"
 
 type AcidM = ReaderT (AcidState (Map String String)) IO
-type FileM = ReaderT FileCacheTop (ReaderT (AcidState (Map String String)) IO)
+type FileM = FileCacheT (ReaderT (AcidState (Map String String)) IO)
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
