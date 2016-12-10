@@ -60,11 +60,12 @@ import Appraisal.FileCache (CacheFile(..), Checksum, File(..), FileCacheT, FileC
                             FileSource(..), loadBytes, MonadFileCache, MonadFileCacheIO, runMonadFileCache)
 import Appraisal.Image (ImageCrop(..), ImageSize, PixmapShape(..), scaleFromDPI)
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
-import Control.Exception (catch, SomeException, throw)
+import Control.Exception (IOException, SomeException, throw)
 import Control.Lens (makeLensesFor, view)
-import Control.Monad.Except (catchError)
+import Control.Monad.Catch (MonadCatch(catch))
+import Control.Monad.Except (catchError, MonadError)
 import Control.Monad.Reader (MonadReader(ask), ReaderT)
-import Control.Monad.Trans (liftIO)
+import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
@@ -381,14 +382,17 @@ data ImageCacheMap = ImageCacheMap (Map ImageKey ImageFile) deriving (Eq, Ord, S
 type ImageCacheState = AcidState (Map ImageKey ImageFile)
 
 -- | Given a file cache monad and an opened image cache database,
--- perform an image cache action.
--- runImageCacheIO :: MonadFileCache m => ReaderT ImageCacheState m a -> ImageCacheState -> m a
--- runImageCacheIO = runReaderT
--- runImageCacheIO action p st = runReaderT (runMonadCacheT action st) p
-runImageCacheIO :: forall a key val.
-                   (Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
-                   AcidState (Map key val) -> FileCacheTop -> FileCacheT (ReaderT (AcidState (Map key val)) IO) a -> IO a
-runImageCacheIO = runMonadFileCache
+-- perform an image cache action.  This is just 'runMonadFileCache'
+-- with its arguments reversed to match an older version of the
+-- function.
+runImageCacheIO :: forall key val m a.
+                   (MonadIO m, MonadCatch m, MonadError IOException m,
+                    Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
+                   FileCacheT (ReaderT (AcidState (Map key val)) m) a
+                -> FileCacheTop
+                -> AcidState (Map key val)
+                -> m a
+runImageCacheIO action fileCacheDir fileAcidState = runMonadFileCache fileAcidState fileCacheDir action
 
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.

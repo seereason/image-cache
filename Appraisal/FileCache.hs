@@ -130,9 +130,10 @@ instance MonadError e m => MonadError e (FileCacheT m) where
 instance MonadFileCache m => MonadFileCache (ExceptT IOException m) where
     fileCacheTop = lift fileCacheTop
 
-runMonadFileCache :: forall a key val.
-                     (Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
-                     AcidState (Map key val) -> FileCacheTop -> FileCacheT (ReaderT (AcidState (Map key val)) IO) a -> IO a
+runMonadFileCache :: forall key val m a.
+                     (MonadIO m, MonadCatch m, MonadError IOException m,
+                      Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
+                     AcidState (Map key val) -> FileCacheTop -> FileCacheT (ReaderT (AcidState (Map key val)) m) a -> m a
 runMonadFileCache fileAcidState fileCacheDir action =
     runMonadCacheT (runReaderT (runFileCacheT (ensureFileCacheTop >> action)) fileCacheDir) fileAcidState
 
