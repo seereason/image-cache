@@ -282,7 +282,7 @@ data ImageKey_1
     -- ^ An unmodified upload
     | ImageCropped_1 ImageCrop ImageKey
     -- ^ A cropped version of another image
-    | ImageScaled_1 ImageSize Rational ImageKey
+    | ImageScaled_1 ImageSize Double ImageKey
     -- ^ A resized version of another image
     | ImageUpright_1 ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
