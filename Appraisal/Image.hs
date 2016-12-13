@@ -41,6 +41,7 @@ import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
+import Language.Haskell.TH.Lift (deriveLiftMany)
 import Numeric (fromRat)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
 import Text.LaTeX.Packages.Graphicx (IGOption(IGWidth, {-IGHeight,-} IGAngle))
@@ -334,3 +335,8 @@ $(deriveSafeCopy 1 'base ''ImageKey_1)
 $(deriveSafeCopy 2 'extension ''ImageKey)
 $(deriveSafeCopy 0 'base ''ImageType)
 $(deriveSafeCopy 0 'base ''ImageFile)
+
+$(deriveLiftMany [
+   ''ImageFile,
+   ''ImageType
+  ])
