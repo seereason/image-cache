@@ -338,5 +338,10 @@ $(deriveSafeCopy 0 'base ''ImageFile)
 
 $(deriveLiftMany [
    ''ImageFile,
-   ''ImageType
+   ''ImageType,
+   ''ImageKey,
+   ''ImageSize,
+   ''Units,
+   ''ImageCrop,
+   ''Dimension
   ])
