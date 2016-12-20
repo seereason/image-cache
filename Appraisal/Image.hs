@@ -9,6 +9,8 @@
 
 module Appraisal.Image
     ( ImageSize(..)
+    , approx
+    , rationalIso
     , ImageCrop(..)
     , Dimension(..)
     , Units(..)
@@ -28,7 +30,6 @@ module Appraisal.Image
     , latexSize
     , latexEnlarge
     , latexWidth
-    , approx
     , tests
     ) where
 
@@ -38,11 +39,12 @@ import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
 import Language.Haskell.TH.Lift (deriveLiftMany)
-import Numeric (fromRat)
+import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
 import Text.LaTeX.Packages.Graphicx (IGOption(IGWidth, {-IGHeight,-} IGAngle))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
@@ -67,14 +69,32 @@ instance Migrate ImageSize where
           s' = approx (toRational s)
 
 -- | Simplify the ratio to avoid a long representation:
+--
 -- > toRational 0.123456
 -- 8895942329546431 % 72057594037927936
 -- > approxRational (toRational 0.123456) (1 % 10000)
 -- 10 % 81
 -- > 10 / 81
 -- 0.12345679012345678   (wow, that's wierd)
+--
+-- This is important for values that might become part of a path,
+-- we don't want them to be too long or subject to rounding errors.
 approx :: Rational -> Rational
 approx x = approxRational x (1 % 10000)
+
+-- | readShowLens is not a good choice for rational numbers,  because
+-- it only understands strings like "15 % 4", not "15" or "3.5".
+rationalIso :: Iso' Rational String
+rationalIso = iso showRational (readRational 0)
+    where
+      showRational :: Rational -> String
+      showRational x = showSigned (showFFloat Nothing) 0 (fromRat x) ""
+
+      readRational :: Rational -> String -> Rational
+      readRational d = fromMaybe d . readRationalMaybe
+
+      readRationalMaybe :: String -> Maybe Rational
+      readRationalMaybe = {-fmap approx .-} listToMaybe . map fst . filter (null . snd) . readSigned readFloat
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
 -- mapRatio f r = f (numerator r) % f (denominator r)
