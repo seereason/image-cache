@@ -78,6 +78,7 @@ Library
     pureMD5,
     regex-compat,
     safecopy,
+    show-please,
     syb,
     template-haskell,
     text,

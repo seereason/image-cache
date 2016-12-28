@@ -16,6 +16,7 @@ import Control.Exception (throw)
 import Control.Monad.Catch (catch, catchJust, SomeException)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
+import Debug.Show (V(V))
 import GHC.IO.Exception (IOException(ioe_description))
 import Language.Haskell.TH
 import Language.Haskell.TH.Instances ({- instance Lift Loc -})
@@ -121,5 +122,5 @@ __LOC__ = lift =<< location
 logException :: ExpQ
 logException =
     [| \ action -> let f :: MonadIO m => SomeException -> m a
-                       f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (show $__LOC__) ++ " -> " ++ show e)) >> throw e in
+                       f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (show $__LOC__) ++ " -> " ++ show (V e))) >> throw e in
                    action `catch` f |]
