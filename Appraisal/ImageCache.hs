@@ -109,10 +109,10 @@ imageFileFromType :: MonadFileCacheIO m => FilePath -> File -> ImageType -> m Im
 imageFileFromType path file typ = do
   -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
   let cmd = case typ of
-              JPEG -> pipe [proc "/usr/bin/jpegtopnm" [path], proc "/usr/bin/pnmfile" []]
-              PPM ->  (proc "/usr/bin/pnmfile" [])
-              GIF -> pipe [proc "/usr/bin/giftopnm" [path], proc "/usr/bin/pnmfile" []]
-              PNG -> pipe [proc "/usr/bin/pngtopnm" [path], proc "/usr/bin/pnmfile" []]
+              JPEG -> pipe [proc "jpegtopnm" [path], proc "pnmfile" []]
+              PPM ->  (proc "pnmfile" [])
+              GIF -> pipe [proc "giftopnm" [path], proc "pnmfile" []]
+              PNG -> pipe [proc "pngtopnm" [path], proc "pnmfile" []]
   -- err may contain "Output file write error --- out of disk space?"
   -- because pnmfile closes the output descriptor of the decoder
   -- process early.  This can be ignored.
@@ -178,15 +178,15 @@ scaleImage scale orig | approx (toRational scale) == 1 = return orig
 scaleImage scale orig = $logException $ do
     path <- fileCachePath (imageFile orig)
     let decoder = case imageFileType orig of
-                    JPEG -> showCommandForUser "/usr/bin/jpegtopnm" [path]
+                    JPEG -> showCommandForUser "jpegtopnm" [path]
                     PPM -> showCommandForUser "cat" [path]
-                    GIF -> showCommandForUser "/usr/bin/giftopnm" [path]
-                    PNG -> showCommandForUser "/usr/bin/pngtopnm" [path]
+                    GIF -> showCommandForUser "giftopnm" [path]
+                    PNG -> showCommandForUser "pngtopnm" [path]
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
         -- Probably we should always build a png here rather than
         -- whatever the original file type was?
         encoder = case imageFileType orig of
-                    JPEG -> showCommandForUser "/usr/bin/cjpeg" []
+                    JPEG -> showCommandForUser "cjpeg" []
                     PPM -> showCommandForUser "cat" []
                     GIF -> showCommandForUser "ppmtogif" []
                     PNG -> showCommandForUser "pnmtopng" []
@@ -234,14 +234,14 @@ editImage crop file = $logException $
       buildPipeline start (Nothing : ops) end = buildPipeline start ops end
       buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
       buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
-      convert JPEG PPM = [proc "/usr/bin/jpegtopnm" []]
+      convert JPEG PPM = [proc "jpegtopnm" []]
       convert GIF PPM = [proc "giftpnm" []]
-      convert PNG PPM = [proc "/usr/bin/pngtopnm" []]
-      convert PPM JPEG = [proc "/usr/bin/cjpeg" []]
+      convert PNG PPM = [proc "pngtopnm" []]
+      convert PPM JPEG = [proc "cjpeg" []]
       convert PPM GIF = [proc "ppmtogif" []]
       convert PPM PNG = [proc "pnmtopng" []]
       convert PNG x = proc "pngtopnm" [] : convert PPM x
-      convert GIF x = proc "/usr/bin/giftopnm" [] : convert PPM x
+      convert GIF x = proc "giftopnm" [] : convert PPM x
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
       err e = $logException $ fail $ "editImage Failure: file=" ++ show file ++ ", error=" ++ show e
