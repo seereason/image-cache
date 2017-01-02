@@ -46,7 +46,7 @@ module Appraisal.FileCache
     , File(..)
     ) where
 
-import Appraisal.AcidCache (runMonadCacheT)
+import Appraisal.AcidCache (MonadCache, runMonadCacheT)
 import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
 import Control.Exception (Exception, IOException)
 import Control.Lens (Lens', over, set, view)
@@ -67,7 +67,7 @@ import Data.Digest.Pure.MD5 (md5)
 import Data.Generics (Data(..), Typeable)
 import Data.Map (Map)
 import Data.Monoid ((<>))
-import Data.SafeCopy (base, deriveSafeCopy, SafeCopy)
+import Data.SafeCopy (base, deriveSafeCopy)
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
 import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
@@ -83,7 +83,7 @@ import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
 -- | Almost all file cache operations require IO, but constructing
--- paths do not.
+-- paths do not.  So MonadIO is not a superclass here.
 class Monad m => MonadFileCache m where
     fileCacheTop :: m FilePath
 
@@ -129,8 +129,7 @@ instance MonadFileCache m => MonadFileCache (ExceptT IOException m) where
     fileCacheTop = lift fileCacheTop
 
 runFileCacheIO :: forall key val m a.
-                     (MonadIO m, MonadCatch m, MonadError IOException m,
-                      Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
+                     (MonadIO m, MonadCatch m, MonadError IOException m, MonadCache key val m) =>
                      AcidState (Map key val) -> FileCacheTop -> FileCacheT (ReaderT (AcidState (Map key val)) m) a -> m a
 runFileCacheIO fileAcidState fileCacheDir action =
     runMonadCacheT (runReaderT (runFileCacheT (ensureFileCacheTop >> action)) fileCacheDir) fileAcidState

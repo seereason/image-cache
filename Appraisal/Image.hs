@@ -88,7 +88,7 @@ rationalIso :: Iso' Rational String
 rationalIso = iso showRational (readRational 0)
     where
       showRational :: Rational -> String
-      showRational x = showSigned (showFFloat Nothing) 0 (fromRat x) ""
+      showRational x = showSigned (showFFloat Nothing) 0 (fromRat x :: Double) ""
 
       readRational :: Rational -> String -> Rational
       readRational d = fromMaybe d . readRationalMaybe

@@ -57,11 +57,9 @@ import Control.Monad.Reader (MonadReader(ask), ReaderT)
 import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
 import Data.ByteString (ByteString)
-import Data.Generics (Typeable)
 import Data.List (intercalate)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
-import Data.SafeCopy (SafeCopy)
 import qualified Data.ByteString.Lazy as P (fromStrict, toStrict)
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -310,8 +308,7 @@ instance CacheFile ImageFile where
 -- with its arguments reversed to match an older version of the
 -- function.
 runImageCacheIO :: forall key val m a.
-                   (MonadIO m, MonadCatch m, MonadError IOException m,
-                    Ord key, Show key, Show val, Typeable key, Typeable val, SafeCopy key, SafeCopy val) =>
+                   (MonadIO m, MonadCatch m, MonadError IOException m, MonadCache key val m) =>
                    FileCacheT (ReaderT (AcidState (Map key val)) m) a
                 -> FileCacheTop
                 -> AcidState (Map key val)
