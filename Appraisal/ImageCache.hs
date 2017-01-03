@@ -308,7 +308,7 @@ instance CacheFile ImageFile where
 -- with its arguments reversed to match an older version of the
 -- function.
 runImageCacheIO :: forall key val m a.
-                   (MonadIO m, MonadCatch m, MonadError IOException m, MonadCache key val m) =>
+                   (MonadIO m, MonadCatch m, MonadError IOException m) =>
                    FileCacheT (ReaderT (AcidState (Map key val)) m) a
                 -> FileCacheTop
                 -> AcidState (Map key val)

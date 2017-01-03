@@ -26,12 +26,13 @@
 module Appraisal.FileCache
     ( MonadFileCache(fileCacheTop)
     , FileCacheTop(..)
-    , FileCacheT(runFileCacheT)
-    , runFileCache
+    , FileCacheT(unFileCacheT)
+    , runFileCacheT
     , CacheFile(..)
     , Checksum
     , MonadFileCacheIO
     , runFileCacheIO
+    , runFileCache
     , FileSource(..)
     , fileFromURI               -- was importFile
     , fileFromPath
@@ -46,7 +47,7 @@ module Appraisal.FileCache
     , File(..)
     ) where
 
-import Appraisal.AcidCache (MonadCache, runMonadCacheT)
+import Appraisal.AcidCache (runMonadCacheT)
 import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
 import Control.Exception (Exception, IOException)
 import Control.Lens (Lens', over, set, view)
@@ -87,9 +88,6 @@ newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 class Monad m => MonadFileCache m where
     fileCacheTop :: m FilePath
 
-runFileCache :: FileCacheT m a -> FileCacheTop -> m a
-runFileCache action fileCacheDir = runReaderT (runFileCacheT action) fileCacheDir
-
 -- This instance is omitted because it prevents us from using the
 -- reader monad for anything but MonadFileCache.
 -- instance MonadReader FileCacheTop m => MonadFileCache m where
@@ -97,7 +95,7 @@ runFileCache action fileCacheDir = runReaderT (runFileCacheT action) fileCacheDi
 
 -- | In order to avoid type ambiguities between different reader monads, we need
 -- a newtype wrapper around this ReaderT FileCacheTop.
-newtype FileCacheT m a = FileCacheT {runFileCacheT :: ReaderT FileCacheTop m a} deriving (Monad, Applicative, Functor)
+newtype FileCacheT m a = FileCacheT {unFileCacheT :: ReaderT FileCacheTop m a} deriving (Monad, Applicative, Functor)
 
 -- | Get 'fileCacheTop' from the wrapped reader monad.
 instance (Monad m, Monad (FileCacheT m)) => MonadFileCache (FileCacheT m) where
@@ -105,7 +103,7 @@ instance (Monad m, Monad (FileCacheT m)) => MonadFileCache (FileCacheT m) where
     fileCacheTop = FileCacheT (ReaderT (return . unFileCacheTop))
 
 mapFileCacheT :: (m a -> m a) -> FileCacheT m a -> FileCacheT m a
-mapFileCacheT f = FileCacheT . mapReaderT f . runFileCacheT
+mapFileCacheT f = FileCacheT . mapReaderT f . unFileCacheT
 
 instance MonadTrans FileCacheT where
     lift = FileCacheT . lift
@@ -118,21 +116,38 @@ instance MonadThrow m => MonadThrow (FileCacheT m) where
     throwM e = lift $ throwM e
 instance MonadCatch m => MonadCatch (FileCacheT m) where
     catch :: forall e a. Exception e => FileCacheT m a -> (e -> FileCacheT m a) -> FileCacheT m a
-    catch (FileCacheT m) c = FileCacheT $ m `catch` (runFileCacheT . c)
+    catch (FileCacheT m) c = FileCacheT $ m `catch` (unFileCacheT . c)
 -- Hmm, familiar...
 instance MonadError e m => MonadError e (FileCacheT m) where
     throwError :: e -> FileCacheT m a
     throwError e = lift $ throwError e
     catchError :: FileCacheT m a -> (e -> FileCacheT m a) -> FileCacheT m a
-    catchError (FileCacheT m) c = FileCacheT $ m `catchError` (runFileCacheT . c)
+    catchError (FileCacheT m) c = FileCacheT $ m `catchError` (unFileCacheT . c)
 instance MonadFileCache m => MonadFileCache (ExceptT IOException m) where
     fileCacheTop = lift fileCacheTop
 
 runFileCacheIO :: forall key val m a.
-                     (MonadIO m, MonadCatch m, MonadError IOException m, MonadCache key val m) =>
-                     AcidState (Map key val) -> FileCacheTop -> FileCacheT (ReaderT (AcidState (Map key val)) m) a -> m a
+                  (MonadIO m, MonadCatch m, MonadError IOException m) =>
+                  AcidState (Map key val)
+               -> FileCacheTop
+               -> FileCacheT (ReaderT (AcidState (Map key val)) m) a
+               -> m a
 runFileCacheIO fileAcidState fileCacheDir action =
-    runMonadCacheT (runReaderT (runFileCacheT (ensureFileCacheTop >> action)) fileCacheDir) fileAcidState
+    runMonadCacheT (runFileCacheT fileCacheDir action) fileAcidState
+
+-- | Like runFileCacheIO, but without the MonadIO superclass.  No acid
+-- state value is passed because you need IO to use acid state.
+-- Typical use is to construct paths to the file cache.
+runFileCache :: FileCacheTop -> FileCacheT m a -> m a
+runFileCache fileCacheDir action = runReaderT (unFileCacheT action) fileCacheDir
+
+runFileCacheT :: forall m a.
+                 (MonadIO m, MonadCatch m, MonadError IOException m) =>
+                 FileCacheTop
+              -> FileCacheT m a
+              -> m a
+runFileCacheT fileCacheDir action =
+    runReaderT (unFileCacheT (ensureFileCacheTop >> action)) fileCacheDir
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't

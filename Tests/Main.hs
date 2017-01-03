@@ -48,7 +48,7 @@ oldfile :: FilePath
 oldfile = "/usr/share/doc/cron/THANKS"
 
 type AcidM = ReaderT (AcidState (Map String String)) IO
-type FileM = FileCacheT (ReaderT (AcidState (Map String String)) IO)
+type FileM = FileCacheT AcidM
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
@@ -75,9 +75,12 @@ acid1 = TestCase $ do
 file1 :: Test
 file1 = TestCase $ do
           removeRecursiveSafely fileAcidDir
-          value1 <- withValueCache fileAcidDir (\fileAcidState -> runFileCacheIO fileAcidState fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString)))
+          value1 <- withValueCache fileAcidDir f
           assertEqual "file1" expected value1
     where
+      f :: AcidState (Map String String) -> IO (File, ByteString)
+      f fileAcidState = runMonadCacheT (runFileCacheT fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString))) fileAcidState
+      -- f fileAcidState = runFileCacheT' fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString))
       expected :: (File, ByteString)
       expected = (File {fileSource = Just (ThePath "/usr/share/doc/cron/THANKS"),
                         fileChksum = "8f57348732b9755b264ef1c15b0e6485",
