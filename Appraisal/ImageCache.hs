@@ -75,17 +75,21 @@ import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode, readProcessWithExitCode, showCreateProcessForUser)
 import Text.Regex (mkRegex, matchRegex)
 
--- |Return the local pathname of an image file with an appropriate extension (e.g. .jpg).
+-- | Return the local pathname of an image file.  The path will have a
+-- suitable extension (e.g. .jpg) for the benefit of software that
+-- depends on this, so the result might point to a symbolic link.
 imageFilePath :: MonadFileCache m => ImageFile -> m FilePath
 imageFilePath img = fileCachePath (imageFile img) >>= \ path -> return $ path ++ fileExtension (imageFileType img)
 
+-- | Find or create a cached image matching this ByteString.
 imageFileFromBytes :: MonadFileCacheIO m => ByteString -> m ImageFile
 imageFileFromBytes bs = fileFromBytes bs >>= makeImageFile
 
--- | Find or create a cached image file from a URI.
+-- | Find or create a cached image file by downloading from this URI.
 imageFileFromURI :: MonadFileCacheIO m => URI -> m ImageFile
 imageFileFromURI uri = fileFromURI (uriToString id uri "") >>= makeImageFile . fst
 
+-- | Find or create a cached image file by reading from local file.
 imageFileFromPath :: MonadFileCacheIO m => FilePath -> m ImageFile
 imageFileFromPath path = fileFromPath path >>= makeImageFile . fst
 
@@ -159,9 +163,9 @@ getFileType path =
               ,(mkRegex "PNG image data", PNG)
               ,(mkRegex "GIF image data", GIF)]
 
--- | Build, cache, and return a version of the image with its
--- orientation fixed based on the EXIF orientation flag.  If the image
--- is already upright it will return the original ImageFile.
+-- | Find or create a version of some image with its orientation
+-- corrected based on the EXIF orientation flag.  If the image is
+-- already upright this will return the original ImageFile.
 uprightImage :: MonadFileCacheIO m => ImageFile -> m ImageFile
 uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
@@ -169,8 +173,9 @@ uprightImage orig = do
   bs' <- $logException $ liftIO (normalizeOrientationCode (P.fromStrict bs))
   maybe (return orig) (\ bs'' -> $logException (fileFromBytes (P.toStrict bs'')) >>= makeImageFile) bs'
 
--- |Use a decoder, pnmscale, and an encoder to change the size of an
--- |image file.  The new image inherits the home directory of the old.
+-- | Find or create a cached image resized by decoding, applying
+-- pnmscale, and then re-encoding.  The new image inherits attributes
+-- of the old other than size.
 scaleImage :: forall m. MonadFileCacheIO m => Double -> ImageFile -> m ImageFile
 scaleImage scale orig | approx (toRational scale) == 1 = return orig
 scaleImage scale orig = $logException $ do
@@ -195,7 +200,8 @@ scaleImage scale orig = $logException $ do
       buildImage :: File -> m ImageFile
       buildImage file = makeImageFile file `catchError` (\ e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)
 
--- |Crop an image.
+-- | Find or create a cached image which is a cropped version of
+-- another.
 editImage :: MonadFileCacheIO m => ImageCrop -> ImageFile -> m ImageFile
 editImage crop file = $logException $
     case commands of
