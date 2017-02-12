@@ -1,5 +1,6 @@
 -- | Pure functions to deal with image data.
 
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -35,6 +36,9 @@ module Appraisal.Image
 
 import Appraisal.FileCache (File(..))
 import Control.Lens (Iso', iso, view)
+#if MIN_VERSION_aeson(1,1,0)
+import Data.Aeson (ToJSONKey, FromJSONKey)
+#endif
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
 import Data.Generics (Data, Typeable)
@@ -307,7 +311,6 @@ data ImageKey_1
     -- ^ A resized version of another image
     | ImageUpright_1 ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data)
 
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
@@ -345,6 +348,19 @@ $(deriveJSON defaultOptions ''ImageSize)
 $(deriveJSON defaultOptions ''ImageKey)
 $(deriveJSON defaultOptions ''ImageType)
 $(deriveJSON defaultOptions ''ImageFile)
+
+#if MIN_VERSION_aeson(1,1,0)
+instance FromJSONKey Rational
+instance ToJSONKey Rational
+instance FromJSONKey ImageFile
+instance ToJSONKey ImageFile
+instance FromJSONKey ImageCrop
+instance ToJSONKey ImageCrop
+instance FromJSONKey ImageSize
+instance ToJSONKey ImageSize
+instance FromJSONKey ImageKey
+instance ToJSONKey ImageKey
+#endif
 
 $(deriveSafeCopy 1 'base ''ImageSize_1)
 $(deriveSafeCopy 2 'extension ''ImageSize)
