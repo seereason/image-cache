@@ -28,9 +28,6 @@ module Appraisal.Image
     , heightInInches
     , lens_saneSize
     , defaultSize
-    , latexSize
-    , latexEnlarge
-    , latexWidth
     , tests
     ) where
 
@@ -49,8 +46,6 @@ import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
-import qualified Text.LaTeX.Base.Syntax as LaTeX (Measure(In, Cm, Pt))
-import Text.LaTeX.Packages.Graphicx (IGOption(IGWidth, {-IGHeight,-} IGAngle))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import Test.HUnit
 
@@ -231,29 +226,6 @@ inches sz =
                 (TheArea, Points) -> (7227 % 100) * (7227 % 100)
                 (_, Cm) -> 254 % 100
                 (_, Points) -> 7227 % 100
-
--- | Return a LaTeX formatted size string for an image, e.g. width=3.0in
-latexSize :: PixmapShape a => a -> ImageSize -> IGOption
-latexSize p sz = IGWidth (latexWidth p sz)
-
--- | Return options to create an image that may be rotated to increase page coverage.
-latexEnlarge :: PixmapShape a => a -> ImageSize -> [IGOption]
-latexEnlarge p sz =
-    case pixmapHeight p < pixmapWidth p of
-      False -> [IGWidth (latexWidth p sz)]
-      True -> [IGWidth (latexWidth p sz), IGAngle 90]
-
--- | Return a LaTeX formatted size string for an image, e.g. width=3.0in
-latexWidth :: PixmapShape a => a -> ImageSize -> LaTeX.Measure
-latexWidth p sz =
-    case dim sz of
-      TheWidth -> unitsToMeasureCon (units sz) (size sz)
-      _ -> latexWidth p (sz {dim = TheWidth, size = approx (widthInInches p sz), units = Inches})
-    where
-      unitsToMeasureCon :: Units -> Rational -> LaTeX.Measure
-      unitsToMeasureCon Inches = LaTeX.In . fromRat
-      unitsToMeasureCon Cm = LaTeX.Cm . fromRat
-      unitsToMeasureCon Points = LaTeX.Pt . fromRat
 
 instance Pretty Dimension where
     pPrint TheHeight = text "h"
