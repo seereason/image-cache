@@ -22,6 +22,9 @@ import System.Process.ByteString.Lazy (readCreateProcessWithExitCode)
 -- to 1.  The result is the new bytestring.  If the old bytestring was
 -- already normalized, or absolutely anything else goes wrong, the
 -- result is Nothing.  This means the original bytestring should be used.
+--
+-- This is an IO operation because it runs jpegtran(1) to perform the
+-- transformation on the jpeg image.
 normalizeOrientationCode :: ByteString -> IO (Maybe ByteString)
 normalizeOrientationCode bs = do
   result <- try (evaluate $ runGet getEXIFOrientationCode bs) :: IO (Either ErrorCall (Int, Int64, Bool))

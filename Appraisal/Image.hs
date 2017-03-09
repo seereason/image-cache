@@ -1,7 +1,9 @@
 -- | Pure functions to deal with image data.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -32,7 +34,7 @@ module Appraisal.Image
     ) where
 
 import Appraisal.FileCache (File(..))
-import Control.Lens (Iso', iso, view)
+import Control.Lens (Iso', iso, Lens', lens, view)
 #if MIN_VERSION_aeson(1,1,0)
 import Data.Aeson (ToJSONKey, FromJSONKey)
 #endif
@@ -44,6 +46,7 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
+import GHC.Generics (Generic)
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
@@ -69,12 +72,12 @@ instance Migrate ImageSize where
 
 -- | Simplify the ratio to avoid a long representation:
 --
--- > toRational 0.123456
--- 8895942329546431 % 72057594037927936
--- > approxRational (toRational 0.123456) (1 % 10000)
--- 10 % 81
--- > 10 / 81
--- 0.12345679012345678   (wow, that's wierd)
+-- > λ> toRational 0.123456
+-- > 8895942329546431 % 72057594037927936
+-- > λ> approxRational (toRational 0.123456) (1 % 10000)
+-- > 10 % 81
+-- > λ> 10 / 81
+-- > 0.12345679012345678   (wow, that's wierd)
 --
 -- This is important for values that might become part of a path,
 -- we don't want them to be too long or subject to rounding errors.
@@ -83,17 +86,21 @@ approx x = approxRational x (1 % 10000)
 
 -- | readShowLens is not a good choice for rational numbers,  because
 -- it only understands strings like "15 % 4", not "15" or "3.5".
+-- If an invalid string is input this returns 0.
+rationalLens :: Lens' Rational String
+rationalLens = lens showRational (\r s -> fromMaybe r (readRationalMaybe s))
+
 rationalIso :: Iso' Rational String
 rationalIso = iso showRational (readRational 0)
     where
-      showRational :: Rational -> String
-      showRational x = showSigned (showFFloat Nothing) 0 (fromRat x :: Double) ""
-
       readRational :: Rational -> String -> Rational
       readRational d = fromMaybe d . readRationalMaybe
 
-      readRationalMaybe :: String -> Maybe Rational
-      readRationalMaybe = {-fmap approx .-} listToMaybe . map fst . filter (null . snd) . readSigned readFloat
+showRational :: Rational -> String
+showRational x = showSigned (showFFloat Nothing) 0 (fromRat x :: Double) ""
+
+readRationalMaybe :: String -> Maybe Rational
+readRationalMaybe = listToMaybe . map fst . filter (null . snd) . readSigned readFloat
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
 -- mapRatio f r = f (numerator r) % f (denominator r)
@@ -116,7 +123,7 @@ data Units
     = Inches
     | Cm
     | Points
-    deriving (Show, Read, Eq, Ord, Typeable, Data)
+    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded)
 
 -- |This describes the cropping and rotation of an image.
 data ImageCrop
@@ -295,7 +302,7 @@ data ImageKey
     -- ^ A resized version of another image
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data)
+    deriving (Eq, Ord, Read, Show, Typeable, Data, Generic)
 
 instance Migrate ImageKey where
     type MigrateFrom ImageKey = ImageKey_1
