@@ -49,8 +49,9 @@ import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
 import GHC.Generics (Generic)
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import Test.HUnit
+import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
+import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 -- |This can describe an image size in various ways.
 data ImageSize_1
@@ -360,3 +361,26 @@ $(deriveLiftMany [
    ''ImageCrop,
    ''Dimension
   ])
+
+instance Arbitrary Units where
+    arbitrary = elements [Inches, Cm, Points]
+
+instance Arbitrary ImageType where
+    arbitrary = elements [PPM, JPEG, GIF, PNG]
+
+instance Arbitrary Dimension where
+    arbitrary = oneof [pure TheHeight, pure TheWidth, pure TheArea, Invalid <$> arbitrary]
+
+instance Arbitrary ImageSize where
+    arbitrary = ImageSize <$> arbitrary <*> ((% 100) <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
+
+instance Arbitrary ImageFile where
+    arbitrary = ImageFile <$> arbitrary
+                          <*> arbitrary
+                          <*> choose (1,5000)
+                          <*> choose (1,5000)
+                          <*> choose (1,255)
+
+-- It would be good to finish these instances.
+instance Arbitrary ImageCrop where arbitrary = undefined
+
