@@ -384,3 +384,8 @@ instance Arbitrary ImageFile where
 -- It would be good to finish these instances.
 instance Arbitrary ImageCrop where arbitrary = undefined
 
+instance Arbitrary ImageKey where
+    arbitrary = oneof [ ImageOriginal <$> arbitrary
+                      , ImageCropped <$> arbitrary <*> arbitrary
+                      , ImageScaled <$> arbitrary <*> arbitrary <*> arbitrary
+                      , ImageUpright <$> arbitrary ]
