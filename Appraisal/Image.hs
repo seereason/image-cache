@@ -381,8 +381,12 @@ instance Arbitrary ImageFile where
                           <*> choose (1,5000)
                           <*> choose (1,255)
 
--- It would be good to finish these instances.
-instance Arbitrary ImageCrop where arbitrary = undefined
+instance Arbitrary ImageCrop where
+    arbitrary = ImageCrop <$> choose (0,100)
+                          <*> choose (0,100)
+                          <*> choose (0,100)
+                          <*> choose (0,100)
+                          <*> elements [0, 90, 180, 270]
 
 instance Arbitrary ImageKey where
     arbitrary = oneof [ ImageOriginal <$> arbitrary
