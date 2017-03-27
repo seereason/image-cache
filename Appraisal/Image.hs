@@ -35,7 +35,7 @@ module Appraisal.Image
 
 import Appraisal.FileCache (File(..))
 import Control.Lens (Iso', iso, Lens', lens, view)
-#if MIN_VERSION_aeson(1,1,0)
+#if MIN_VERSION_aeson(1,0,0)
 import Data.Aeson (ToJSONKey, FromJSONKey)
 #endif
 import Data.Aeson.TH (deriveJSON)
@@ -329,7 +329,7 @@ $(deriveJSON defaultOptions ''ImageKey)
 $(deriveJSON defaultOptions ''ImageType)
 $(deriveJSON defaultOptions ''ImageFile)
 
-#if MIN_VERSION_aeson(1,1,0)
+#if MIN_VERSION_aeson(1,0,0)
 instance FromJSONKey Rational
 instance ToJSONKey Rational
 instance FromJSONKey ImageFile
