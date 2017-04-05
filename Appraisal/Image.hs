@@ -11,7 +11,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Appraisal.Image
-    ( ImageSize(..)
+    ( ImageSize(..), ImageSize_1(..)
     , approx
     , rationalIso
     , ImageCrop(..)
