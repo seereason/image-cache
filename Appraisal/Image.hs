@@ -325,6 +325,7 @@ $(deriveJSON defaultOptions ''Units)
 $(deriveJSON defaultOptions ''Dimension)
 $(deriveJSON defaultOptions ''ImageCrop)
 $(deriveJSON defaultOptions ''ImageSize)
+$(deriveJSON defaultOptions ''ImageSize_1)
 $(deriveJSON defaultOptions ''ImageKey)
 $(deriveJSON defaultOptions ''ImageType)
 $(deriveJSON defaultOptions ''ImageFile)
@@ -338,6 +339,8 @@ instance FromJSONKey ImageCrop
 instance ToJSONKey ImageCrop
 instance FromJSONKey ImageSize
 instance ToJSONKey ImageSize
+instance FromJSONKey ImageSize_1
+instance ToJSONKey ImageSize_1
 instance FromJSONKey ImageKey
 instance ToJSONKey ImageKey
 #endif
