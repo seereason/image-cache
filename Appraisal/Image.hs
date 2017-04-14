@@ -23,6 +23,7 @@ module Appraisal.Image
     , ImageType(..)
     , fileExtension
     , ImageKey(..)
+    , ImageKey_1(..)
     , ImageCacheMap
     , scaleFromDPI
     , widthInInches
