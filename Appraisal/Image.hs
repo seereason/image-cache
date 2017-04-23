@@ -292,6 +292,7 @@ data ImageKey_1
     -- ^ A resized version of another image
     | ImageUpright_1 ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
+    deriving (Eq, Ord, Read, Show, Typeable, Data, Generic)
 
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
@@ -328,6 +329,7 @@ $(deriveJSON defaultOptions ''ImageCrop)
 $(deriveJSON defaultOptions ''ImageSize)
 $(deriveJSON defaultOptions ''ImageSize_1)
 $(deriveJSON defaultOptions ''ImageKey)
+$(deriveJSON defaultOptions ''ImageKey_1)
 $(deriveJSON defaultOptions ''ImageType)
 $(deriveJSON defaultOptions ''ImageFile)
 
@@ -378,6 +380,9 @@ instance Arbitrary Dimension where
 instance Arbitrary ImageSize where
     arbitrary = ImageSize <$> arbitrary <*> ((% 100) <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
 
+instance Arbitrary ImageSize_1 where
+    arbitrary = ImageSize_1 <$> arbitrary <*> (fromInteger <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
+
 instance Arbitrary ImageFile where
     arbitrary = ImageFile <$> arbitrary
                           <*> arbitrary
@@ -397,3 +402,9 @@ instance Arbitrary ImageKey where
                       , ImageCropped <$> arbitrary <*> arbitrary
                       , ImageScaled <$> arbitrary <*> arbitrary <*> arbitrary
                       , ImageUpright <$> arbitrary ]
+
+instance Arbitrary ImageKey_1 where
+    arbitrary = oneof [ ImageOriginal_1 <$> arbitrary
+                      , ImageCropped_1 <$> arbitrary <*> arbitrary
+                      , ImageScaled_1 <$> arbitrary <*> arbitrary <*> arbitrary
+                      , ImageUpright_1 <$> arbitrary ]
