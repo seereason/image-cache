@@ -11,6 +11,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -69,6 +70,7 @@ import Data.Generics (Data(..), Typeable)
 import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.SafeCopy (base, deriveSafeCopy)
+import GHC.Generics (Generic)
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
 import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
@@ -157,7 +159,7 @@ runFileCacheT fileCacheDir action =
 data FileSource
     = TheURI String
     | ThePath FilePath
-    deriving (Show, Read, Eq, Ord, Data, Typeable)
+    deriving (Show, Read, Eq, Ord, Data, Typeable, Generic)
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
@@ -310,7 +312,7 @@ data File
     = File { fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
            , fileChksum :: Checksum             -- ^ The checksum of the file's contents
            , fileMessages :: [String]           -- ^ Messages received while manipulating the file
-           } deriving (Show, Read, Eq, Ord, Data, Typeable)
+           } deriving (Show, Read, Eq, Ord, Data, Typeable, Generic)
 
 instance Pretty File where
     pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")

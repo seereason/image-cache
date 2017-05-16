@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -34,7 +35,7 @@ module Appraisal.Image
     , tests
     ) where
 
-import Appraisal.FileCache (File(..))
+import Appraisal.FileCache (File(..), FileSource(..))
 import Control.Lens (Iso', iso, Lens', lens, view)
 #if MIN_VERSION_aeson(1,0,0)
 import Data.Aeson (ToJSONKey, FromJSONKey)
@@ -47,6 +48,7 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
+import Data.Serialize (Serialize(..))
 import GHC.Generics (Generic)
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
@@ -261,9 +263,15 @@ data ImageFile
       , imageFileWidth :: Int
       , imageFileHeight :: Int
       , imageFileMaxVal :: Int
-      } deriving (Show, Read, Eq, Ord, Data, Typeable)
+      } deriving (Show, Read, Eq, Ord, Data, Typeable, Generic)
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
+data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data, Generic)
+
+-- DeriveAnyTime makes FileCache.hs fail to build
+deriving instance Serialize ImageType
+deriving instance Serialize FileSource
+deriving instance Serialize File
+deriving instance Serialize ImageFile
 
 instance PixmapShape ImageFile where
     pixmapHeight = imageFileHeight
