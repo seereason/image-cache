@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, ScopedTypeVariables, StandaloneDeriving, TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, ScopedTypeVariables, TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 module Appraisal.Utils.ErrorWithIO
     ( ErrorWithIO

@@ -56,13 +56,18 @@ import Test.HUnit
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
+-- I can't move these to FileCache.hs because DeriveAnyTime, which they
+-- use, messes up another declartion there
+deriving instance Serialize FileSource
+deriving instance Serialize File
+
 -- |This can describe an image size in various ways.
 data ImageSize_1
     = ImageSize_1
       { _dim_1 :: Dimension
       , _size_1 :: Double
       , _units_1 :: Units
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 instance Migrate ImageSize where
     type MigrateFrom ImageSize = ImageSize_1
@@ -114,20 +119,20 @@ data ImageSize
       { dim :: Dimension
       , size :: Rational
       , units :: Units
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 data Dimension
     = TheHeight
     | TheWidth
     | TheArea
     | Invalid String
-    deriving (Show, Read, Eq, Ord, Typeable, Data)
+    deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 data Units
     = Inches
     | Cm
     | Points
-    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded)
+    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded, Generic, Serialize)
 
 -- |This describes the cropping and rotation of an image.
 data ImageCrop
@@ -137,7 +142,7 @@ data ImageCrop
       , leftCrop :: Int
       , rightCrop :: Int
       , rotation :: Int         -- 0, 90, 180, 270
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 -- | A class whose primary (only?) instance is ImageFile.  Access to
 -- the original dimensions of the image, so we can compute the aspect
@@ -263,15 +268,9 @@ data ImageFile
       , imageFileWidth :: Int
       , imageFileHeight :: Int
       , imageFileMaxVal :: Int
-      } deriving (Show, Read, Eq, Ord, Data, Typeable, Generic)
+      } deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data, Generic)
-
--- DeriveAnyTime makes FileCache.hs fail to build
-deriving instance Serialize ImageType
-deriving instance Serialize FileSource
-deriving instance Serialize File
-deriving instance Serialize ImageFile
+data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 instance PixmapShape ImageFile where
     pixmapHeight = imageFileHeight
@@ -300,7 +299,7 @@ data ImageKey_1
     -- ^ A resized version of another image
     | ImageUpright_1 ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data, Generic)
+    deriving (Eq, Ord, Read, Show, Typeable, Data, Generic, Serialize)
 
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
@@ -313,7 +312,7 @@ data ImageKey
     -- ^ A resized version of another image
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data, Generic)
+    deriving (Eq, Ord, Read, Show, Typeable, Data, Generic, Serialize)
 
 instance Migrate ImageKey where
     type MigrateFrom ImageKey = ImageKey_1
