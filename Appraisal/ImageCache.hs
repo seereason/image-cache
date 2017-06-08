@@ -27,7 +27,7 @@
 {-# OPTIONS -Wall #-}
 module Appraisal.ImageCache
     ( -- * Image cache monad
-      MonadImageCacheNoIO
+      MonadImageCache
     , MonadImageCacheIO
     , runImageCacheIO
     -- * ImageFile upload
@@ -337,8 +337,8 @@ instance (MonadReader (AcidState ImageCacheMap) m, MonadFileCacheIO m) => MonadC
       img <- build key
       $logException $ editImage crop img
 
-class (MonadCache ImageKey ImageFile m, MonadFileCache m) => MonadImageCacheNoIO m
-instance (MonadCache ImageKey ImageFile m, MonadFileCache m) => MonadImageCacheNoIO m
+class (MonadCache ImageKey ImageFile m, MonadFileCache m) => MonadImageCache m
+instance (MonadCache ImageKey ImageFile m, MonadFileCache m) => MonadImageCache m
 
-class (MonadCache ImageKey ImageFile m, MonadFileCacheIO m) => MonadImageCacheIO m
-instance (MonadCache ImageKey ImageFile m, MonadFileCacheIO m) => MonadImageCacheIO m
+class (MonadImageCache m, MonadFileCacheIO m) => MonadImageCacheIO m
+instance (MonadImageCache m, MonadFileCacheIO m) => MonadImageCacheIO m
