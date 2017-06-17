@@ -80,7 +80,6 @@ import System.Log.Logger (logM, Priority(DEBUG))
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
 import System.Unix.FilePath ((<++>))
-import Test.QuickCheck (Arbitrary(..), oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
@@ -343,9 +342,3 @@ instance CacheFile File where
 $(deriveSafeCopy 1 'base ''File)
 $(deriveLiftMany [''File])
 $(deriveJSON defaultOptions ''File)
-
-instance Arbitrary File where
-    arbitrary = File <$> arbitrary <*> arbitrary <*> pure []
-
-instance Arbitrary FileSource where
-    arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]

@@ -53,7 +53,6 @@ import GHC.Generics (Generic)
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import Test.HUnit
-import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 -- I can't move these to FileCache.hs because DeriveAnyTime, which they
@@ -374,44 +373,3 @@ $(deriveLiftMany [
    ''ImageCrop,
    ''Dimension
   ])
-
-instance Arbitrary Units where
-    arbitrary = elements [Inches, Cm, Points]
-
-instance Arbitrary ImageType where
-    arbitrary = elements [PPM, JPEG, GIF, PNG]
-
-instance Arbitrary Dimension where
-    arbitrary = oneof [pure TheHeight, pure TheWidth, pure TheArea, Invalid <$> arbitrary]
-
-instance Arbitrary ImageSize where
-    arbitrary = ImageSize <$> arbitrary <*> ((% 100) <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
-
-instance Arbitrary ImageSize_1 where
-    arbitrary = ImageSize_1 <$> arbitrary <*> (fromInteger <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
-
-instance Arbitrary ImageFile where
-    arbitrary = ImageFile <$> arbitrary
-                          <*> arbitrary
-                          <*> choose (1,5000)
-                          <*> choose (1,5000)
-                          <*> choose (1,255)
-
-instance Arbitrary ImageCrop where
-    arbitrary = ImageCrop <$> choose (0,100)
-                          <*> choose (0,100)
-                          <*> choose (0,100)
-                          <*> choose (0,100)
-                          <*> elements [0, 90, 180, 270]
-
-instance Arbitrary ImageKey where
-    arbitrary = oneof [ ImageOriginal <$> arbitrary
-                      , ImageCropped <$> arbitrary <*> arbitrary
-                      , ImageScaled <$> arbitrary <*> arbitrary <*> arbitrary
-                      , ImageUpright <$> arbitrary ]
-
-instance Arbitrary ImageKey_1 where
-    arbitrary = oneof [ ImageOriginal_1 <$> arbitrary
-                      , ImageCropped_1 <$> arbitrary <*> arbitrary
-                      , ImageScaled_1 <$> arbitrary <*> arbitrary <*> arbitrary
-                      , ImageUpright_1 <$> arbitrary ]

@@ -77,7 +77,6 @@ Library
     process,
     process-extras >= 0.7,
     pureMD5,
-    QuickCheck,
     regex-compat,
     safecopy,
     show-please,
