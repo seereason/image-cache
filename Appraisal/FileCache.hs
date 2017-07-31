@@ -341,7 +341,7 @@ instance CacheFile File where
            False -> liftIO (writeFileReadable path bytes) >> return file
 
 instance Arbitrary File where
-    arbitrary = File <$> arbitrary <*> arbitrary <*> pure ".idk" <*> pure []
+    arbitrary = File <$> arbitrary <*> arbitrary <*> pure []
 
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
