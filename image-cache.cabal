@@ -65,6 +65,7 @@ Library
     bytestring,
     cereal,
     containers,
+    data-default,
     directory,
     exceptions,
     filemanip-extra,

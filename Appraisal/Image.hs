@@ -42,6 +42,7 @@ import Data.Aeson (ToJSONKey, FromJSONKey)
 #endif
 import Data.Aeson.TH (deriveJSON)
 import Data.Aeson.Types (defaultOptions)
+import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -121,6 +122,9 @@ data ImageSize
       , units :: Units
       } deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
+instance Default ImageSize where
+    def = ImageSize TheArea 15.0 Inches
+
 data Dimension
     = TheHeight
     | TheWidth
@@ -143,6 +147,9 @@ data ImageCrop
       , rightCrop :: Int
       , rotation :: Int         -- 0, 90, 180, 270
       } deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
+
+instance Default ImageCrop where
+    def = ImageCrop 0 0 0 0 0
 
 -- | A class whose primary (only?) instance is ImageFile.  Access to
 -- the original dimensions of the image, so we can compute the aspect
