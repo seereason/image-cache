@@ -49,7 +49,7 @@ import Appraisal.FileCache (CacheFile(..), File(..), FileCacheT, FileCacheTop, f
 import Appraisal.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..), ImageCacheMap,
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
-import Control.Exception (IOException, SomeException, throw)
+import Control.Exception (IOException, throw)
 import Control.Lens (makeLensesFor, view)
 import Control.Monad.Catch (MonadCatch(catch))
 import Control.Monad.Except (catchError, MonadError)
@@ -254,7 +254,7 @@ pipeline :: [CreateProcess] -> P.ByteString -> IO P.ByteString
 pipeline [] bytes = return bytes
 pipeline (p : ps) bytes =
     (readCreateProcessWithExitCode p bytes >>= doResult)
-      `catch` (\ (e :: SomeException) -> doException (showCreateProcessForUser p ++ " -> " ++ show e) e)
+      `catch` (\ (e :: IOException) -> doException (showCreateProcessForUser p ++ " -> " ++ show e) e)
     where
       doResult (ExitSuccess, out, _) = pipeline ps out
       doResult (code, _, err) = let message = (showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in doException message (userError message)
