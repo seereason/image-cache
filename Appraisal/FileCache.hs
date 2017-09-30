@@ -15,6 +15,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -55,8 +56,6 @@ import Control.Monad.Except (ExceptT, MonadError, catchError, throwError)
 import Control.Monad.Reader (mapReaderT, MonadReader(ask, local), ReaderT(ReaderT), runReaderT)
 import Control.Monad.Trans (MonadIO, MonadTrans(lift), liftIO)
 import Data.Acid (AcidState)
-import Data.Aeson.TH (deriveJSON)
-import Data.Aeson.Types (defaultOptions)
 import qualified Data.ByteString.Lazy.Char8 as Lazy
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -69,6 +68,7 @@ import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.SafeCopy (base, deriveSafeCopy)
 import Language.Haskell.TH.Lift (deriveLiftMany)
+import "th-typegraph" Data.Aeson.TH (deriveJSON, defaultOptions)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
 import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)

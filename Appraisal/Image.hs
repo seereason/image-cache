@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -40,8 +41,6 @@ import Control.Lens (Iso', iso, Lens', lens, view)
 #if MIN_VERSION_aeson(1,0,0)
 import Data.Aeson (ToJSONKey, FromJSONKey)
 #endif
-import Data.Aeson.TH (deriveJSON)
-import Data.Aeson.Types (defaultOptions)
 import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
@@ -51,6 +50,7 @@ import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
 import Data.Serialize (Serialize(..))
 import Language.Haskell.TH.Lift (deriveLiftMany)
+import "th-typegraph" Data.Aeson.TH (deriveJSON, defaultOptions)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import Test.HUnit
