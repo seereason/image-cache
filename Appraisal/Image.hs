@@ -38,9 +38,6 @@ module Appraisal.Image
 
 import Appraisal.FileCache (File(..), FileSource(..))
 import Control.Lens (Iso', iso, Lens', lens, view)
-#if MIN_VERSION_aeson(1,0,0)
-import Data.Aeson (ToJSONKey, FromJSONKey)
-#endif
 import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
@@ -50,7 +47,6 @@ import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
 import Data.Serialize (Serialize(..))
 import Language.Haskell.TH.Lift (deriveLiftMany)
-import "th-typegraph" Data.Aeson.TH (deriveJSON, defaultOptions)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import Test.HUnit
@@ -331,31 +327,6 @@ instance Pretty ImageKey where
     pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (show dpi) <> text "dpi) (" <> pPrint x <> text ")"
 
 type ImageCacheMap = Map ImageKey ImageFile
-
-$(deriveJSON defaultOptions ''Units)
-$(deriveJSON defaultOptions ''Dimension)
-$(deriveJSON defaultOptions ''ImageCrop)
-$(deriveJSON defaultOptions ''ImageSize)
-$(deriveJSON defaultOptions ''ImageSize_1)
-$(deriveJSON defaultOptions ''ImageKey)
-$(deriveJSON defaultOptions ''ImageKey_1)
-$(deriveJSON defaultOptions ''ImageType)
-$(deriveJSON defaultOptions ''ImageFile)
-
-#if MIN_VERSION_aeson(1,0,0)
-instance FromJSONKey Rational
-instance ToJSONKey Rational
-instance FromJSONKey ImageFile
-instance ToJSONKey ImageFile
-instance FromJSONKey ImageCrop
-instance ToJSONKey ImageCrop
-instance FromJSONKey ImageSize
-instance ToJSONKey ImageSize
-instance FromJSONKey ImageSize_1
-instance ToJSONKey ImageSize_1
-instance FromJSONKey ImageKey
-instance ToJSONKey ImageKey
-#endif
 
 instance Arbitrary Units where
     arbitrary = elements [Inches, Cm, Points]

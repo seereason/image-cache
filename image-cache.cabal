@@ -59,7 +59,6 @@ Library
                    Appraisal.Image
   Build-Depends:
     acid-state,
-    aeson,
     base >= 4,
     binary,
     bytestring,
