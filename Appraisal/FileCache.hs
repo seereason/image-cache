@@ -68,7 +68,6 @@ import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.SafeCopy (base, deriveSafeCopy)
 import Language.Haskell.TH.Lift (deriveLiftMany)
-import "th-typegraph" Data.Aeson.TH (deriveJSON, defaultOptions)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
 import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
@@ -303,7 +302,6 @@ $(deriveLiftMany [
    ''URI,
    ''URIAuth
   ])
-$(deriveJSON defaultOptions ''FileSource)
 
 -- |A local cache of a file obtained from a 'FileSource'.
 data File
@@ -347,6 +345,5 @@ instance Arbitrary FileSource where
 
 $(deriveSafeCopy 1 'base ''File)
 $(deriveLiftMany [''File])
-$(deriveJSON defaultOptions ''File)
 $(deriveSerialize [t|FileSource|])
 $(deriveSerialize [t|File|])
