@@ -82,9 +82,9 @@ file1 = TestCase $ do
       f fileAcidState = runMonadCacheT (runFileCacheT fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString))) fileAcidState
       -- f fileAcidState = runFileCacheT' fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString))
       expected :: (File, ByteString)
-      expected = (File {fileSource = Just (ThePath "/usr/share/doc/cron/THANKS"),
-                        fileChksum = "8f57348732b9755b264ef1c15b0e6485",
-                        fileMessages = []},
+      expected = (File {_fileSource = Just (ThePath "/usr/share/doc/cron/THANKS"),
+                        _fileChksum = "8f57348732b9755b264ef1c15b0e6485",
+                        _fileMessages = []},
                   (pack $ map (fromIntegral . ord) $ unlines
                    ["15 January 1990",
                     "Paul Vixie",

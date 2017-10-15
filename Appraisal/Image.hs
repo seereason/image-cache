@@ -16,10 +16,11 @@ module Appraisal.Image
     ( ImageSize(..), ImageSize_1(..)
     , approx
     , rationalIso
+    , rationalLens
     , ImageCrop(..)
     , Dimension(..)
     , Units(..)
-    , ImageFile(..)
+    , ImageFile(..), imageFile, imageFileType, imageFileWidth, imageFileHeight, imageFileMaxVal
     , imageFileArea
     , PixmapShape(..)
     , ImageType(..)
@@ -36,8 +37,8 @@ module Appraisal.Image
     , tests
     ) where
 
-import Appraisal.FileCache (File(..), FileSource(..))
-import Control.Lens (Iso', iso, Lens', lens, view)
+import Appraisal.FileCache (File(..))
+import Control.Lens (Iso', iso, Lens', lens, makeLenses, view)
 import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
@@ -45,7 +46,6 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
-import Data.Serialize (Serialize(..))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
@@ -261,26 +261,28 @@ instance Pretty ImageCrop where
 -- | A file containing an image plus meta info.
 data ImageFile
     = ImageFile
-      { imageFile :: File
-      , imageFileType :: ImageType
-      , imageFileWidth :: Int
-      , imageFileHeight :: Int
-      , imageFileMaxVal :: Int
+      { _imageFile :: File
+      , _imageFileType :: ImageType
+      , _imageFileWidth :: Int
+      , _imageFileHeight :: Int
+      , _imageFileMaxVal :: Int
       } deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
 
 instance PixmapShape ImageFile where
-    pixmapHeight = imageFileHeight
-    pixmapWidth = imageFileWidth
-    pixmapMaxVal = imageFileMaxVal
+    pixmapHeight = _imageFileHeight
+    pixmapWidth = _imageFileWidth
+    pixmapMaxVal = _imageFileMaxVal
 
 instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
+$(makeLenses ''ImageFile)
+
 -- |Return the area of an image in square pixels.
 imageFileArea :: ImageFile -> Int
-imageFileArea image = imageFileWidth image * imageFileHeight image
+imageFileArea image = view imageFileWidth image * view imageFileHeight image
 
 fileExtension :: ImageType -> String
 fileExtension JPEG = ".jpg"

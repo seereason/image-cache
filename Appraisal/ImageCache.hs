@@ -44,9 +44,9 @@ module Appraisal.ImageCache
 
 import Appraisal.AcidCache (MonadCache(..))
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.FileCache (CacheFile(..), File(..), FileCacheT, FileCacheTop, fileFromBytes, fileFromPath, fileFromURI,
+import Appraisal.FileCache (File(..), fileChksum, FileCacheT, FileCacheTop, fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmdViaTemp, loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO)
-import Appraisal.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..), ImageCacheMap,
+import Appraisal.Image (ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), ImageCacheMap,
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
 import Control.Exception (IOException, throw)
@@ -79,7 +79,7 @@ import Text.Regex (mkRegex, matchRegex)
 -- suitable extension (e.g. .jpg) for the benefit of software that
 -- depends on this, so the result might point to a symbolic link.
 imageFilePath :: MonadFileCache m => ImageFile -> m FilePath
-imageFilePath img = fileCachePath (imageFile img) >>= \ path -> return $ path ++ fileExtension (imageFileType img)
+imageFilePath img = fileCachePath (view imageFile img) >>= \ path -> return $ path ++ fileExtension (view imageFileType img)
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes :: MonadFileCacheIO m => ByteString -> m ImageFile
@@ -129,11 +129,11 @@ imageFileFromPnmfileOutput file typ out =
         case matchRegex pnmFileRegex (P.toString out) of
           Just [width, height, _, maxval] ->
             ensureExtensionLink file (fileExtension typ) >>=
-            (const . return $ ImageFile { imageFile = file
-                                        , imageFileType = typ
-                                        , imageFileWidth = read width
-                                        , imageFileHeight = read height
-                                        , imageFileMaxVal = if maxval == "" then 1 else read maxval })
+            (const . return $ ImageFile { _imageFile = file
+                                        , _imageFileType = typ
+                                        , _imageFileWidth = read width
+                                        , _imageFileHeight = read height
+                                        , _imageFileMaxVal = if maxval == "" then 1 else read maxval })
           _ -> error $ "Unexpected output from pnmfile: " ++ show out
   where
       pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
@@ -141,7 +141,7 @@ imageFileFromPnmfileOutput file typ out =
 -- | The image file names are just checksums.  This makes sure a link
 -- with a suitable extension (.jpg, .gif) also exists.
 ensureExtensionLink :: MonadFileCacheIO m => File -> String -> m ()
-ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksumL file) (path ++ ext)
+ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksum file) (path ++ ext)
 
 -- | Helper function to learn the 'ImageType' of a file by runing
 -- @file -b@.
@@ -169,7 +169,7 @@ getFileType path =
 uprightImage :: MonadFileCacheIO m => ImageFile -> m ImageFile
 uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
-  bs <- $logException $ loadBytes (imageFile orig)
+  bs <- $logException $ loadBytes (view imageFile orig)
   bs' <- $logException $ liftIO (normalizeOrientationCode (P.fromStrict bs))
   maybe (return orig) (\ bs'' -> $logException (fileFromBytes (P.toStrict bs'')) >>= makeImageFile) bs'
 
@@ -179,8 +179,8 @@ uprightImage orig = do
 scaleImage :: forall m. MonadFileCacheIO m => Double -> ImageFile -> m ImageFile
 scaleImage scale orig | approx (toRational scale) == 1 = return orig
 scaleImage scale orig = $logException $ do
-    path <- fileCachePath (imageFile orig)
-    let decoder = case imageFileType orig of
+    path <- fileCachePath (view imageFile orig)
+    let decoder = case view imageFileType orig of
                     JPEG -> showCommandForUser "jpegtopnm" [path]
                     PPM -> showCommandForUser "cat" [path]
                     GIF -> showCommandForUser "giftopnm" [path]
@@ -188,7 +188,7 @@ scaleImage scale orig = $logException $ do
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
         -- Probably we should always build a png here rather than
         -- whatever the original file type was?
-        encoder = case imageFileType orig of
+        encoder = case view imageFileType orig of
                     JPEG -> showCommandForUser "cjpeg" []
                     PPM -> showCommandForUser "cat" []
                     GIF -> showCommandForUser "ppmtogif" []
@@ -208,12 +208,12 @@ editImage crop file = $logException $
       [] ->
           return file
       _ ->
-          (loadBytes (imageFile file) >>=
+          (loadBytes (view imageFile file) >>=
            liftIO . pipeline commands >>=
            fileFromBytes >>=
            makeImageFile) `catchError` err
     where
-      commands = buildPipeline (imageFileType file) [cut, rotate] (latexImageFileType (imageFileType file))
+      commands = buildPipeline (view imageFileType file) [cut, rotate] (latexImageFileType (view imageFileType file))
       -- We can only embed JPEG and PNG images in a LaTeX
       -- includegraphics command, so here we choose which one to use.
       latexImageFileType GIF = PNG
@@ -300,14 +300,6 @@ pipe' :: [String] -> String
 pipe' = intercalate " | "
 
 $(makeLensesFor [("imageFile", "imageFileL")] ''ImageFile)
-
-instance CacheFile ImageFile where
-    fileSourceL = imageFileL . fileSourceL
-    fileChksumL =  imageFileL . fileChksumL
-    fileMessagesL = imageFileL . fileMessagesL
-    fileCachePath = fileCachePath . imageFile
-    fileFromFile = imageFileFromPath
-    fileFromBytes = imageFileFromBytes
 
 -- | Given a file cache monad and an opened image cache database,
 -- perform an image cache action.  This is just 'runFileCache'
