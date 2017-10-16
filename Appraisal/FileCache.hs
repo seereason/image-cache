@@ -45,6 +45,7 @@ module Appraisal.FileCache
     , fileFromURI               -- was importFile
     , fileFromPath
     , fileFromPathViaRename
+    , fileFromPathViaCopy
     , fileFromCmd
     , fileFromCmdViaTemp
     , cacheFile
@@ -77,7 +78,7 @@ import Data.SafeCopy (base, deriveSafeCopy)
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
-import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
+import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, renameFile)
 import System.Exit (ExitCode(..))
 import System.FilePath.Extra (writeFileReadable, makeReadableAndClose)
 import System.IO (openBinaryTempFile)
@@ -299,6 +300,19 @@ fileFromPathViaRename path = do
   dest <- fileCachePathIO file
   liftIO (logM "fileFromPathViaRename" DEBUG ("renameFile " <> path <> " " <> dest) >>
           renameFile path dest)
+  return (file, bytes)
+
+-- | Move a file into the file cache and incorporate it into a File.
+fileFromPathViaCopy :: MonadFileCacheIO m => FilePath -> m (File, P.ByteString)
+fileFromPathViaCopy path = do
+  bytes <- liftIO $ P.readFile path
+  let file = File { _fileSource = Just (ThePath path)
+                  , _fileChksum = md5' bytes
+                  , _fileMessages = [] }
+  -- cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
+  dest <- fileCachePathIO file
+  liftIO (logM "fileFromPathViaCopy" DEBUG ("copyFile " <> path <> " " <> dest) >>
+          copyFile path dest)
   return (file, bytes)
 
 -- | Given a file and a ByteString containing the expected contents,
