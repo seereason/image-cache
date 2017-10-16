@@ -8,7 +8,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
+
 module Appraisal.AcidCache
     ( -- * Cache declarations
       openValueCache
@@ -25,6 +28,7 @@ module Appraisal.AcidCache
     , cacheMap
     , cacheLook
     , cacheInsert
+    , cacheDelete
     ) where
 
 import Control.Exception (bracket)
@@ -33,7 +37,8 @@ import Control.Monad.State (MonadIO(..), MonadState(get, put), modify)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
 import Data.Generics (Typeable)
-import Data.Map as Map (fromList, insert, lookup, Map)
+import Data.Map as Map (delete, fromList, insert, lookup, Map)
+import Data.Proxy (Proxy)
 import Data.SafeCopy (SafeCopy)
 
 -- | Install a key/value pair into the cache.
@@ -61,7 +66,13 @@ lookValues keys =
 lookMap :: (Show key, SafeCopy key, Ord key, Show val, SafeCopy val, Typeable key, Typeable val) => Query (Map key val) (Map key val)
 lookMap = ask
 
-$(makeAcidic ''Map ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap])
+-- | Remove values from the database.
+deleteValues :: (Show key, SafeCopy key, Ord key, Show val, SafeCopy val, Typeable key, Typeable val) => [key] -> Update (Map key val) ()
+deleteValues keys =
+  do mp <- get
+     put $ foldr Map.delete mp keys
+
+$(makeAcidic ''Map ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValues])
 
 initCacheMap :: Ord key => Map key val
 initCacheMap = mempty
@@ -108,3 +119,8 @@ cacheMap :: MonadCache key val m => m (Map key val)
 cacheMap = do
   st <- askAcidState
   liftIO $ query st LookMap
+
+cacheDelete :: forall key val m. Show val => MonadCache key val m => Proxy val -> [key] -> m ()
+cacheDelete _ keys = do
+  (st :: AcidState (Map key val)) <- askAcidState
+  liftIO $ update st (DeleteValues keys)
