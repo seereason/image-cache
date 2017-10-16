@@ -76,8 +76,8 @@ import System.Exit (ExitCode(..))
 import System.FilePath.Extra (writeFileReadable, makeReadableAndClose)
 import System.IO (openBinaryTempFile)
 import System.Log.Logger (logM, Priority(DEBUG))
-import System.Process (proc, shell, showCommandForUser)
-import System.Process.ListLike (readCreateProcessWithExitCode)
+import System.Process (proc, shell{-, showCommandForUser-})
+--import System.Process.ListLike (readCreateProcessWithExitCode)
 import System.Unix.FilePath ((<++>))
 import Test.QuickCheck (Arbitrary(..), oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
@@ -182,55 +182,51 @@ data File
 $(makeLenses ''File)
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI :: MonadFileCacheIO m => String -> m (File, P.ByteString)
+fileFromURI ::
+    MonadFileCacheIO m
+    => String
+    -> m (File, P.ByteString)
 fileFromURI uri =
     do let cmd = "curl"
            args = ["-s", uri]
        (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' (proc cmd args) P.empty
        case code of
          ExitSuccess ->
-             do file <- fileFromBytes bytes
-                return (set fileSource (Just (TheURI uri)) file, bytes)
+             do (file, bytes') <- fileFromBytes bytes
+                return (set fileSource (Just (TheURI uri)) file, bytes')
          _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 
 -- |Read the contents of a local path into a File.
-fileFromPath :: MonadFileCacheIO m => FilePath -> m (File, P.ByteString)
-fileFromPath path =
-    do bytes <- liftIO $ P.readFile path
-       file <- fileFromBytes bytes
-       return (set fileSource (Just (ThePath path)) file, bytes)
-
--- | Move a file into the file cache and incorporate it into a File.
-#if 0
-fileFromFile :: (CacheFile file, MonadFileCache m) =>
-                FilePath        -- ^ The local pathname to copy into the cache
-             -> m file
-fileFromFile path = do
-    cksum <- (\ (_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
-    let file = File { _fileSource = Just (ThePath path)
-                    , _fileChksum = cksum
-                    , _fileMessages = [] }
-    dest <- fileCachePath file
-    liftIO (logM "fileFromFile" DEBUG ("renameFile " <> path <> " " <> dest) >>
-            renameFile path dest)
-    return file
-#endif
+fileFromPath ::
+    MonadFileCacheIO m
+    => FilePath
+    -> m (File, P.ByteString)
+fileFromPath path = do
+  bytes <- liftIO $ P.readFile path
+  (file, bytes') <- fileFromBytes bytes
+  return (set fileSource (Just (ThePath path)) file, bytes')
 
 -- | A shell command whose output becomes the contents of the file.
-fileFromCmd :: MonadFileCacheIO m => String -> m File
+fileFromCmd ::
+    MonadFileCacheIO m
+    => String
+    -> m (File, P.ByteString)
 fileFromCmd cmd = do
   (code, out, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
     ExitSuccess ->
-        do file <- fileFromBytes out
-           return $ set fileSource (Just (ThePath cmd)) file
+        do (file, bytes) <- fileFromBytes out
+           return $ (set fileSource (Just (ThePath cmd)) file, bytes)
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
 
 -- | Build a file from the output of a command.  This uses a temporary
 -- file to store the contents of the command while we checksum it.  This
 -- is to avoid reading the file contents into a Haskell ByteString, which
 -- seems to be slower than using a unix pipeline.
-fileFromCmdViaTemp :: forall m. MonadFileCacheIO m => String -> m File
+fileFromCmdViaTemp ::
+    forall m. MonadFileCacheIO m
+    => String
+    -> m (File, P.ByteString)
 fileFromCmdViaTemp cmd = do
   dir <- fileCacheTop
   (tmp, h) <- liftIO (openBinaryTempFile dir "scaled")
@@ -242,7 +238,7 @@ fileFromCmdViaTemp cmd = do
     ExitSuccess -> installFile tmp
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
     where
-      installFile :: FilePath -> m File
+      installFile :: FilePath -> m (File, P.ByteString)
       installFile tmp = fileFromFile tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
 
 -- | Given a file and a ByteString containing the expected contents,
@@ -296,22 +292,38 @@ instance Pretty File where
 fileCachePath :: MonadFileCache m => File -> m FilePath
 fileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> view fileChksum file
 
-fileFromFile :: MonadFileCacheIO m => FilePath -> m File
+fileCacheDir :: MonadFileCache m => File -> m FilePath
+fileCacheDir file = do
+  ver <- fileCacheTop
+  return $ ver <++> take 2 (view fileChksum file)
+
+fileCachePathIO :: MonadFileCacheIO m => File -> m FilePath
+fileCachePathIO file = do
+  dir <- fileCacheDir file
+  liftIO $ createDirectoryIfMissing True dir
+  fileCachePath file
+
+-- | Move a file into the file cache and incorporate it into a File.
+fileFromFile :: MonadFileCacheIO m => FilePath -> m (File, P.ByteString)
 fileFromFile path = do
-      cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
-      let file = File { _fileSource = Just (ThePath path)
-                      , _fileChksum = cksum
-                      , _fileMessages = [] }
-      dest <- fileCachePath file
-      liftIO (logM "fileFromFile" DEBUG ("renameFile " <> path <> " " <> dest) >>
-              renameFile path dest)
-      return file
+  bytes <- liftIO $ P.readFile path
+  let file = File { _fileSource = Just (ThePath path)
+                  , _fileChksum = md5' bytes
+                  , _fileMessages = [] }
+  -- cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
+  dest <- fileCachePathIO file
+  liftIO (logM "fileFromFile" DEBUG ("renameFile " <> path <> " " <> dest) >>
+          renameFile path dest)
+  return (file, bytes)
 
 -- | Turn the bytes in a ByteString into a File.  This is an IO
 -- operation because it saves the data into the local cache.  We
 -- use writeFileReadable because the files we create need to be
 -- read remotely by our backup program.
-fileFromBytes :: MonadFileCacheIO m => P.ByteString -> m File
+fileFromBytes ::
+    MonadFileCacheIO m
+    => P.ByteString
+    -> m (File, P.ByteString)
 fileFromBytes bytes =
       do let file = File { _fileSource = Nothing
                          , _fileChksum = md5' bytes
@@ -319,8 +331,8 @@ fileFromBytes bytes =
          path <- fileCachePath file
          exists <- liftIO $ doesFileExist path
          case exists of
-           True -> return file
-           False -> liftIO (writeFileReadable path bytes) >> return file
+           True -> return (file, bytes)
+           False -> liftIO (writeFileReadable path bytes) >> return (file, bytes)
 
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure []

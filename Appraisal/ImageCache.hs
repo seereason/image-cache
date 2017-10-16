@@ -45,7 +45,7 @@ module Appraisal.ImageCache
 import Appraisal.AcidCache (MonadCache(..))
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.FileCache (File(..), fileChksum, FileCacheT, FileCacheTop, fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmdViaTemp, loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO)
+                            fileFromCmd, {-fileFromCmdViaTemp,-} loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO)
 import Appraisal.Image (ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), ImageCacheMap,
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
@@ -87,19 +87,19 @@ imageFileFromBytes bs = fileFromBytes bs >>= makeImageFile
 
 -- | Find or create a cached image file by downloading from this URI.
 imageFileFromURI :: MonadFileCacheIO m => URI -> m ImageFile
-imageFileFromURI uri = fileFromURI (uriToString id uri "") >>= makeImageFile . fst
+imageFileFromURI uri = fileFromURI (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
 imageFileFromPath :: MonadFileCacheIO m => FilePath -> m ImageFile
-imageFileFromPath path = fileFromPath path >>= makeImageFile . fst
+imageFileFromPath path = fileFromPath path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
-makeImageFile :: forall m. MonadFileCacheIO m => File -> m ImageFile
-makeImageFile file = $logException $ do
+makeImageFile :: forall m. MonadFileCacheIO m => (File, ByteString) -> m ImageFile
+makeImageFile (file, bytes) = $logException $ do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
-    (getFileType path >>= $logException . imageFileFromType path file) `catchError` handle
+    (getFileType bytes >>= $logException . imageFileFromType path file) `catchError` handle
     where
       handle :: IOError -> m ImageFile
       handle e =
@@ -145,16 +145,16 @@ ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureL
 
 -- | Helper function to learn the 'ImageType' of a file by runing
 -- @file -b@.
-getFileType :: MonadFileCacheIO m => FilePath -> m ImageType
-getFileType path =
-    liftIO (readProcessWithExitCode cmd args P.empty) `catchError` err >>= return . test . (\ (_, out, _) -> out)
+getFileType :: MonadFileCacheIO m => P.ByteString -> m ImageType
+getFileType bytes =
+    liftIO (readProcessWithExitCode cmd args bytes) `catchError` err >>= return . test . (\ (_, out, _) -> out)
     where
       cmd = "file"
-      args = ["-b", path]
+      args = ["-b", "-"]
       err (e :: IOError) =
           $logException $ fail ("getFileType Failure: " ++ showCommandForUser cmd args ++ " -> " ++ show e)
       test :: P.ByteString -> ImageType
-      test s = maybe (error $ "ImageFile.getFileType - Not an image: " ++ path ++ "(Ident string: " ++ show s ++ ")") id (foldr (testre (P.toString s)) Nothing tests)
+      test s = maybe (error $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") id (foldr (testre (P.toString s)) Nothing tests)
       testre _ _ (Just result) = Just result
       testre s (re, typ) Nothing = maybe Nothing (const (Just typ)) (matchRegex re s)
       -- Any more?
@@ -194,10 +194,10 @@ scaleImage scale orig = $logException $ do
                     GIF -> showCommandForUser "ppmtogif" []
                     PNG -> showCommandForUser "pnmtopng" []
         cmd = pipe' [decoder, scaler, encoder]
-    -- fileFromCmd ver cmd >>= buildImage
-    fileFromCmdViaTemp cmd >>= buildImage
+    fileFromCmd cmd >>= buildImage
+    -- fileFromCmdViaTemp cmd >>= buildImage
     where
-      buildImage :: File -> m ImageFile
+      buildImage :: (File, ByteString) -> m ImageFile
       buildImage file = makeImageFile file `catchError` (\ e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)
 
 -- | Find or create a cached image which is a cropped version of
