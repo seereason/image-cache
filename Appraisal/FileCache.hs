@@ -293,9 +293,7 @@ fileCachePath :: MonadFileCache m => File -> m FilePath
 fileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> view fileChksum file
 
 fileCacheDir :: MonadFileCache m => File -> m FilePath
-fileCacheDir file = do
-  ver <- fileCacheTop
-  return $ ver <++> take 2 (view fileChksum file)
+fileCacheDir _file = fileCacheTop
 
 fileCachePathIO :: MonadFileCacheIO m => File -> m FilePath
 fileCachePathIO file = do
