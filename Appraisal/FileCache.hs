@@ -34,8 +34,9 @@ module Appraisal.FileCache
     , runFileCache
     -- Types
     , Checksum
-    , FileSource(..), fileSource, fileChksum, fileMessages
+    , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
     , File(..)
+    , File_1(..)
     , fileURI
     , fileCacheURI
     , addMessage
@@ -75,7 +76,7 @@ import Data.Digest.Pure.MD5 (md5)
 import Data.Generics (Data(..), Typeable)
 import Data.Map (Map)
 import Data.Monoid ((<>))
-import Data.SafeCopy (base, deriveSafeCopy)
+import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
@@ -185,7 +186,14 @@ data File
     = File { _fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
            , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
+           , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
            } deriving (Show, Read, Eq, Ord, Data, Typeable)
+
+instance Migrate File where
+    type MigrateFrom File = File_1
+    migrate (File_1 s c m) = File s c m ""
+
+data File_1 = File_1 (Maybe FileSource) Checksum [String] deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 $(makeLenses ''File)
 
@@ -219,13 +227,15 @@ md5' = show . md5 . Lazy.fromChunks . (: [])
 fileFromBytes ::
     MonadFileCacheIO m
     => (P.ByteString -> m a)
+    -> (a -> String)
     -> P.ByteString
     -> m (File, a)
-fileFromBytes byteStringInfo bytes =
+fileFromBytes byteStringInfo toFileExt bytes =
       do a <- byteStringInfo bytes
          let file = File { _fileSource = Nothing
                          , _fileChksum = md5' bytes
-                         , _fileMessages = [] }
+                         , _fileMessages = []
+                         , _fileExt = toFileExt a }
          path <- fileCachePathIO file
          exists <- liftIO $ doesFileExist path
          unless exists (liftIO (writeFileReadable path bytes))
@@ -235,24 +245,26 @@ fileFromBytes byteStringInfo bytes =
 fileFromPath ::
     MonadFileCacheIO m
     => (P.ByteString -> m a)
+    -> (a -> String)
     -> FilePath
     -> m (File, a)
-fileFromPath byteStringInfo path = do
+fileFromPath byteStringInfo toFileExt path = do
   bytes <- liftIO $ P.readFile path
-  (file, a) <- fileFromBytes byteStringInfo bytes
+  (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
   return (set fileSource (Just (ThePath path)) file, a)
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
     MonadFileCacheIO m
     => (P.ByteString -> m a)
+    -> (a -> String)
     -> String
     -> m (File, a)
-fileFromCmd byteStringInfo cmd = do
+fileFromCmd byteStringInfo toFileExt cmd = do
   (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
     ExitSuccess ->
-        do (file, a) <- fileFromBytes byteStringInfo bytes
+        do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
            return $ (set fileSource (Just (ThePath cmd)) file, a)
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
 
@@ -260,15 +272,16 @@ fileFromCmd byteStringInfo cmd = do
 fileFromURI ::
     MonadFileCacheIO m
     => (P.ByteString -> m a)
+    -> (a -> String)
     -> String
     -> m (File, a)
-fileFromURI byteStringInfo uri =
+fileFromURI byteStringInfo toFileExt uri =
     do let cmd = "curl"
            args = ["-s", uri]
        (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' (proc cmd args) P.empty
        case code of
          ExitSuccess ->
-             do (file, bytes') <- fileFromBytes byteStringInfo bytes
+             do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
                 return (set fileSource (Just (TheURI uri)) file, bytes')
          _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 
@@ -279,8 +292,9 @@ fileFromURI byteStringInfo uri =
 fileFromCmdViaTemp ::
     forall m. MonadFileCacheIO m
     => String
+    -> String
     -> m File
-fileFromCmdViaTemp cmd = do
+fileFromCmdViaTemp ext cmd = do
   dir <- fileCacheTop
   (tmp, h) <- liftIO (openBinaryTempFile dir "scaled")
   let cmd' = cmd ++ " > " ++ tmp
@@ -292,27 +306,29 @@ fileFromCmdViaTemp cmd = do
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
     where
       installFile :: FilePath -> m File
-      installFile tmp = fileFromPathViaRename tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
+      installFile tmp = fileFromPathViaRename ext tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
 
 -- | Move a file into the file cache and incorporate it into a File.
-fileFromPathViaRename :: MonadFileCacheIO m => FilePath -> m File
-fileFromPathViaRename path = do
+fileFromPathViaRename :: MonadFileCacheIO m => String -> FilePath -> m File
+fileFromPathViaRename ext path = do
   cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
   let file = File { _fileSource = Just (ThePath path)
                   , _fileChksum = cksum
-                  , _fileMessages = [] }
+                  , _fileMessages = []
+                  , _fileExt = ext }
   dest <- fileCachePathIO file
   liftIO (logM "fileFromPathViaRename" DEBUG ("renameFile " <> path <> " " <> dest) >>
           renameFile path dest)
   return file
 
 -- | Move a file into the file cache and incorporate it into a File.
-fileFromPathViaCopy :: MonadFileCacheIO m => FilePath -> m File
-fileFromPathViaCopy path = do
+fileFromPathViaCopy :: MonadFileCacheIO m => String -> FilePath -> m File
+fileFromPathViaCopy ext path = do
   cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
   let file = File { _fileSource = Just (ThePath path)
                   , _fileChksum = cksum
-                  , _fileMessages = [] }
+                  , _fileMessages = []
+                  , _fileExt = ext }
   dest <- fileCachePathIO file
   liftIO (logM "fileFromPathViaCopy" DEBUG ("copyFile " <> path <> " " <> dest) >>
           copyFile path dest)
@@ -340,7 +356,7 @@ loadBytes file =
          False -> $logException $ fail $ "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
 
 instance Pretty File where
-    pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")
+    pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
 
 -- | The full path name for the local cache of the file.
 fileCachePath :: MonadFileCache m => File -> m FilePath
@@ -356,7 +372,7 @@ fileCachePathIO file = do
   fileCachePath file
 
 instance Arbitrary File where
-    arbitrary = File <$> arbitrary <*> arbitrary <*> pure []
+    arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
 
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
@@ -364,7 +380,8 @@ instance Arbitrary FileSource where
 $(deriveSafeCopy 1 'base ''FileSource)
 $(deriveSafeCopy 0 'base ''URI)
 $(deriveSafeCopy 0 'base ''URIAuth)
-$(deriveSafeCopy 1 'base ''File)
+$(deriveSafeCopy 2 'extension ''File)
+$(deriveSafeCopy 1 'base ''File_1)
 $(deriveLiftMany [
    ''FileSource,
    ''URI,

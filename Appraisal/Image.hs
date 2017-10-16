@@ -22,6 +22,7 @@ module Appraisal.Image
     , Dimension(..)
     , Units(..)
     , ImageFile(..), imageFile, imageFileType, imageFileWidth, imageFileHeight, imageFileMaxVal
+    , ImageFile_0(..)
     , imageFileArea
     , PixmapShape(..)
     , ImageType(..)
@@ -270,7 +271,8 @@ instance Pretty ImageSize where
 instance Pretty ImageCrop where
     pPrint (ImageCrop t b l r _) = text $ "crop (" <> show (b, l) <> " -> " <> show (t, r) <> ")"
 
--- | A file containing an image plus meta info.
+-- | A file containing an image plus meta info. This type is the same as
+-- ImageFile_0, we just need to migrate the File
 data ImageFile
     = ImageFile
       { _imageFile :: File
@@ -279,6 +281,21 @@ data ImageFile
       , _imageFileHeight :: Int
       , _imageFileMaxVal :: Int
       } deriving (Show, Read, Eq, Ord, Data, Typeable)
+
+data ImageFile_0
+    = ImageFile_0 File ImageType Int Int Int
+      deriving (Show, Read, Eq, Ord, Data, Typeable)
+
+-- This migration just corrects the value of _fileExt, which is
+-- a function of the image file type.
+instance Migrate ImageFile where
+  type MigrateFrom ImageFile = ImageFile_0
+  migrate (ImageFile_0 f t w h m) =
+      ImageFile (f {_fileExt = case t of
+                                 JPEG -> ".jpg"
+                                 GIF -> ".gif"
+                                 PPM -> ".ppm"
+                                 PNG -> ".png"}) t w h m
 
 data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
 
@@ -421,7 +438,8 @@ $(deriveSafeCopy 0 'base ''ImageCrop)
 $(deriveSafeCopy 1 'base ''ImageKey_1)
 $(deriveSafeCopy 2 'extension ''ImageKey)
 $(deriveSafeCopy 0 'base ''ImageType)
-$(deriveSafeCopy 0 'base ''ImageFile)
+$(deriveSafeCopy 0 'base ''ImageFile_0)
+$(deriveSafeCopy 1 'extension ''ImageFile)
 
 $(deriveLiftMany [
    ''ImageFile,

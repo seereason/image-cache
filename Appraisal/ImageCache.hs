@@ -83,15 +83,15 @@ imageFilePath img = fileCachePath (view imageFile img) >>= \ path -> return $ pa
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes :: MonadFileCacheIO m => ByteString -> m ImageFile
-imageFileFromBytes bs = fileFromBytes (liftIO . getFileType) bs >>= makeImageFile
+imageFileFromBytes bs = fileFromBytes (liftIO . getFileType) fileExtension bs >>= makeImageFile
 
 -- | Find or create a cached image file by downloading from this URI.
 imageFileFromURI :: MonadFileCacheIO m => URI -> m ImageFile
-imageFileFromURI uri = fileFromURI (liftIO . getFileType) (uriToString id uri "") >>= makeImageFile
+imageFileFromURI uri = fileFromURI (liftIO . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
 imageFileFromPath :: MonadFileCacheIO m => FilePath -> m ImageFile
-imageFileFromPath path = fileFromPath (liftIO . getFileType) path >>= makeImageFile
+imageFileFromPath path = fileFromPath (liftIO . getFileType) fileExtension path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
@@ -151,7 +151,7 @@ uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
   bs <- $logException $ loadBytes (view imageFile orig)
   bs' <- $logException $ liftIO (normalizeOrientationCode (P.fromStrict bs))
-  maybe (return orig) (\ bs'' -> $logException (fileFromBytes (liftIO . getFileType)  (P.toStrict bs'')) >>= makeImageFile) bs'
+  maybe (return orig) (\ bs'' -> $logException (fileFromBytes (liftIO . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
 
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
@@ -174,7 +174,7 @@ scaleImage scale orig = $logException $ do
                     GIF -> showCommandForUser "ppmtogif" []
                     PNG -> showCommandForUser "pnmtopng" []
         cmd = pipe' [decoder, scaler, encoder]
-    fileFromCmd (liftIO . getFileType) cmd >>= buildImage
+    fileFromCmd (liftIO . getFileType) fileExtension cmd >>= buildImage
     -- fileFromCmdViaTemp cmd >>= buildImage
     where
       buildImage :: (File, ImageType) -> m ImageFile
@@ -190,7 +190,7 @@ editImage crop file = $logException $
       _ ->
           (loadBytes (view imageFile file) >>=
            liftIO . pipeline commands >>=
-           fileFromBytes (liftIO . getFileType) >>=
+           fileFromBytes (liftIO . getFileType) fileExtension >>=
            makeImageFile) `catchError` err
     where
       commands = buildPipeline (view imageFileType file) [cut, rotate] (latexImageFileType (view imageFileType file))
