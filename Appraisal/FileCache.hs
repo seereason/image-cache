@@ -223,7 +223,7 @@ fileFromBytes bytes =
       do let file = File { _fileSource = Nothing
                          , _fileChksum = md5' bytes
                          , _fileMessages = [] }
-         path <- fileCachePath file
+         path <- fileCachePathIO file
          exists <- liftIO $ doesFileExist path
          case exists of
            True -> return (file, bytes)
