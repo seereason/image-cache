@@ -46,6 +46,7 @@ module Appraisal.FileCache
     , File(..)
     , fileFromBytes
     , fileCachePath
+    , fileCachePathIO
     ) where
 
 import Appraisal.AcidCache (runMonadCacheT)
