@@ -83,8 +83,8 @@ import System.Exit (ExitCode(..))
 import System.FilePath.Extra (writeFileReadable, makeReadableAndClose)
 import System.IO (openBinaryTempFile)
 import System.Log.Logger (logM, Priority(DEBUG))
-import System.Process (proc, shell{-, showCommandForUser-})
---import System.Process.ListLike (readCreateProcessWithExitCode)
+import System.Process (proc, shell, showCommandForUser)
+import System.Process.ListLike (readCreateProcessWithExitCode)
 import System.Unix.FilePath ((<++>))
 import Test.QuickCheck (Arbitrary(..), oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
@@ -274,7 +274,7 @@ fileFromURI uri =
 fileFromCmdViaTemp ::
     forall m. MonadFileCacheIO m
     => String
-    -> m (File, P.ByteString)
+    -> m File
 fileFromCmdViaTemp cmd = do
   dir <- fileCacheTop
   (tmp, h) <- liftIO (openBinaryTempFile dir "scaled")
@@ -286,34 +286,32 @@ fileFromCmdViaTemp cmd = do
     ExitSuccess -> installFile tmp
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
     where
-      installFile :: FilePath -> m (File, P.ByteString)
+      installFile :: FilePath -> m File
       installFile tmp = fileFromPathViaRename tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
 
 -- | Move a file into the file cache and incorporate it into a File.
-fileFromPathViaRename :: MonadFileCacheIO m => FilePath -> m (File, P.ByteString)
+fileFromPathViaRename :: MonadFileCacheIO m => FilePath -> m File
 fileFromPathViaRename path = do
-  bytes <- liftIO $ P.readFile path
+  cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
   let file = File { _fileSource = Just (ThePath path)
-                  , _fileChksum = md5' bytes
+                  , _fileChksum = cksum
                   , _fileMessages = [] }
-  -- cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
   dest <- fileCachePathIO file
   liftIO (logM "fileFromPathViaRename" DEBUG ("renameFile " <> path <> " " <> dest) >>
           renameFile path dest)
-  return (file, bytes)
+  return file
 
 -- | Move a file into the file cache and incorporate it into a File.
-fileFromPathViaCopy :: MonadFileCacheIO m => FilePath -> m (File, P.ByteString)
+fileFromPathViaCopy :: MonadFileCacheIO m => FilePath -> m File
 fileFromPathViaCopy path = do
-  bytes <- liftIO $ P.readFile path
+  cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
   let file = File { _fileSource = Just (ThePath path)
-                  , _fileChksum = md5' bytes
+                  , _fileChksum = cksum
                   , _fileMessages = [] }
-  -- cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
   dest <- fileCachePathIO file
   liftIO (logM "fileFromPathViaCopy" DEBUG ("copyFile " <> path <> " " <> dest) >>
           copyFile path dest)
-  return (file, bytes)
+  return file
 
 -- | Given a file and a ByteString containing the expected contents,
 -- verify the contents.  If it isn't installed or isn't correct,
