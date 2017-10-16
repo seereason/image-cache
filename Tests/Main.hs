@@ -79,8 +79,7 @@ file1 = TestCase $ do
           assertEqual "file1" expected value1
     where
       f :: AcidState (Map String String) -> IO (File, ByteString)
-      f fileAcidState = runMonadCacheT (runFileCacheT fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString))) fileAcidState
-      -- f fileAcidState = runFileCacheT' fileCacheDir (fileFromPath oldfile :: FileM (File, ByteString))
+      f fileAcidState = runMonadCacheT (runFileCacheT fileCacheDir (fileFromPath return oldfile :: FileM (File, ByteString))) fileAcidState
       expected :: (File, ByteString)
       expected = (File {_fileSource = Just (ThePath "/usr/share/doc/cron/THANKS"),
                         _fileChksum = "8f57348732b9755b264ef1c15b0e6485",

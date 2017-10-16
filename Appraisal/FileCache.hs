@@ -59,6 +59,7 @@ import Appraisal.AcidCache (runMonadCacheT)
 import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
 import Control.Exception (Exception, IOException)
 import Control.Lens (makeLenses, over, set, view)
+import Control.Monad (unless)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.Except (ExceptT, MonadError, catchError, throwError)
 import Control.Monad.Reader (mapReaderT, MonadReader(ask, local), ReaderT(ReaderT), runReaderT)
@@ -217,53 +218,57 @@ md5' = show . md5 . Lazy.fromChunks . (: [])
 -- read remotely by our backup program.
 fileFromBytes ::
     MonadFileCacheIO m
-    => P.ByteString
-    -> m (File, P.ByteString)
-fileFromBytes bytes =
-      do let file = File { _fileSource = Nothing
+    => (P.ByteString -> m a)
+    -> P.ByteString
+    -> m (File, a)
+fileFromBytes byteStringInfo bytes =
+      do a <- byteStringInfo bytes
+         let file = File { _fileSource = Nothing
                          , _fileChksum = md5' bytes
                          , _fileMessages = [] }
          path <- fileCachePathIO file
          exists <- liftIO $ doesFileExist path
-         case exists of
-           True -> return (file, bytes)
-           False -> liftIO (writeFileReadable path bytes) >> return (file, bytes)
+         unless exists (liftIO (writeFileReadable path bytes))
+         return (file, a)
 
 -- |Read the contents of a local path into a File.
 fileFromPath ::
     MonadFileCacheIO m
-    => FilePath
-    -> m (File, P.ByteString)
-fileFromPath path = do
+    => (P.ByteString -> m a)
+    -> FilePath
+    -> m (File, a)
+fileFromPath byteStringInfo path = do
   bytes <- liftIO $ P.readFile path
-  (file, bytes') <- fileFromBytes bytes
-  return (set fileSource (Just (ThePath path)) file, bytes')
+  (file, a) <- fileFromBytes byteStringInfo bytes
+  return (set fileSource (Just (ThePath path)) file, a)
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
     MonadFileCacheIO m
-    => String
-    -> m (File, P.ByteString)
-fileFromCmd cmd = do
-  (code, out, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
+    => (P.ByteString -> m a)
+    -> String
+    -> m (File, a)
+fileFromCmd byteStringInfo cmd = do
+  (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
     ExitSuccess ->
-        do (file, bytes) <- fileFromBytes out
-           return $ (set fileSource (Just (ThePath cmd)) file, bytes)
+        do (file, a) <- fileFromBytes byteStringInfo bytes
+           return $ (set fileSource (Just (ThePath cmd)) file, a)
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
     MonadFileCacheIO m
-    => String
-    -> m (File, P.ByteString)
-fileFromURI uri =
+    => (P.ByteString -> m a)
+    -> String
+    -> m (File, a)
+fileFromURI byteStringInfo uri =
     do let cmd = "curl"
            args = ["-s", uri]
        (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' (proc cmd args) P.empty
        case code of
          ExitSuccess ->
-             do (file, bytes') <- fileFromBytes bytes
+             do (file, bytes') <- fileFromBytes byteStringInfo bytes
                 return (set fileSource (Just (TheURI uri)) file, bytes')
          _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
 

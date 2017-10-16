@@ -46,7 +46,7 @@ import Appraisal.AcidCache (MonadCache(..))
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.FileCache (File(..), fileChksum, FileCacheT, FileCacheTop, fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, {-fileFromCmdViaTemp,-} loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO)
-import Appraisal.Image (ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), ImageCacheMap,
+import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), ImageCacheMap,
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
 import Control.Exception (IOException, throw)
@@ -72,7 +72,7 @@ import Numeric (fromRat, showFFloat)
 import System.Exit (ExitCode(..))
 import System.Log.Logger (logM, Priority(ERROR))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
-import System.Process.ListLike (readCreateProcessWithExitCode, readProcessWithExitCode, showCreateProcessForUser)
+import System.Process.ListLike (readCreateProcessWithExitCode, showCreateProcessForUser)
 import Text.Regex (mkRegex, matchRegex)
 
 -- | Return the local pathname of an image file.  The path will have a
@@ -83,23 +83,23 @@ imageFilePath img = fileCachePath (view imageFile img) >>= \ path -> return $ pa
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes :: MonadFileCacheIO m => ByteString -> m ImageFile
-imageFileFromBytes bs = fileFromBytes bs >>= makeImageFile
+imageFileFromBytes bs = fileFromBytes (liftIO . getFileType) bs >>= makeImageFile
 
 -- | Find or create a cached image file by downloading from this URI.
 imageFileFromURI :: MonadFileCacheIO m => URI -> m ImageFile
-imageFileFromURI uri = fileFromURI (uriToString id uri "") >>= makeImageFile
+imageFileFromURI uri = fileFromURI (liftIO . getFileType) (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
 imageFileFromPath :: MonadFileCacheIO m => FilePath -> m ImageFile
-imageFileFromPath path = fileFromPath path >>= makeImageFile
+imageFileFromPath path = fileFromPath (liftIO . getFileType) path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
-makeImageFile :: forall m. MonadFileCacheIO m => (File, ByteString) -> m ImageFile
-makeImageFile (file, bytes) = $logException $ do
+makeImageFile :: forall m. MonadFileCacheIO m => (File, ImageType) -> m ImageFile
+makeImageFile (file, ityp) = $logException $ do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
-    (getFileType bytes >>= $logException . imageFileFromType path file) `catchError` handle
+    ($logException $ imageFileFromType path file ityp) `catchError` handle
     where
       handle :: IOError -> m ImageFile
       handle e =
@@ -143,26 +143,6 @@ imageFileFromPnmfileOutput file typ out =
 ensureExtensionLink :: MonadFileCacheIO m => File -> String -> m ()
 ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksum file) (path ++ ext)
 
--- | Helper function to learn the 'ImageType' of a file by runing
--- @file -b@.
-getFileType :: MonadFileCacheIO m => P.ByteString -> m ImageType
-getFileType bytes =
-    liftIO (readProcessWithExitCode cmd args bytes) `catchError` err >>= return . test . (\ (_, out, _) -> out)
-    where
-      cmd = "file"
-      args = ["-b", "-"]
-      err (e :: IOError) =
-          $logException $ fail ("getFileType Failure: " ++ showCommandForUser cmd args ++ " -> " ++ show e)
-      test :: P.ByteString -> ImageType
-      test s = maybe (error $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") id (foldr (testre (P.toString s)) Nothing tests)
-      testre _ _ (Just result) = Just result
-      testre s (re, typ) Nothing = maybe Nothing (const (Just typ)) (matchRegex re s)
-      -- Any more?
-      tests = [(mkRegex "Netpbm P[BGPP]M \"rawbits\" image data$", PPM)
-              ,(mkRegex "JPEG image data", JPEG)
-              ,(mkRegex "PNG image data", PNG)
-              ,(mkRegex "GIF image data", GIF)]
-
 -- | Find or create a version of some image with its orientation
 -- corrected based on the EXIF orientation flag.  If the image is
 -- already upright this will return the original ImageFile.
@@ -171,7 +151,7 @@ uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
   bs <- $logException $ loadBytes (view imageFile orig)
   bs' <- $logException $ liftIO (normalizeOrientationCode (P.fromStrict bs))
-  maybe (return orig) (\ bs'' -> $logException (fileFromBytes (P.toStrict bs'')) >>= makeImageFile) bs'
+  maybe (return orig) (\ bs'' -> $logException (fileFromBytes (liftIO . getFileType)  (P.toStrict bs'')) >>= makeImageFile) bs'
 
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
@@ -194,10 +174,10 @@ scaleImage scale orig = $logException $ do
                     GIF -> showCommandForUser "ppmtogif" []
                     PNG -> showCommandForUser "pnmtopng" []
         cmd = pipe' [decoder, scaler, encoder]
-    fileFromCmd cmd >>= buildImage
+    fileFromCmd (liftIO . getFileType) cmd >>= buildImage
     -- fileFromCmdViaTemp cmd >>= buildImage
     where
-      buildImage :: (File, ByteString) -> m ImageFile
+      buildImage :: (File, ImageType) -> m ImageFile
       buildImage file = makeImageFile file `catchError` (\ e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)
 
 -- | Find or create a cached image which is a cropped version of
@@ -210,7 +190,7 @@ editImage crop file = $logException $
       _ ->
           (loadBytes (view imageFile file) >>=
            liftIO . pipeline commands >>=
-           fileFromBytes >>=
+           fileFromBytes (liftIO . getFileType) >>=
            makeImageFile) `catchError` err
     where
       commands = buildPipeline (view imageFileType file) [cut, rotate] (latexImageFileType (view imageFileType file))

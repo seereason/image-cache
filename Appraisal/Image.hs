@@ -8,6 +8,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -24,6 +25,7 @@ module Appraisal.Image
     , imageFileArea
     , PixmapShape(..)
     , ImageType(..)
+    , getFileType
     , fileExtension
     , ImageKey(..)
     , ImageKey_1(..)
@@ -38,7 +40,14 @@ module Appraisal.Image
     ) where
 
 import Appraisal.FileCache (File(..))
+import Appraisal.Utils.ErrorWithIO (logException)
 import Control.Lens (Iso', iso, Lens', lens, makeLenses, view)
+import Control.Monad.Except (catchError)
+#ifdef LAZYIMAGES
+import qualified Data.ByteString.Lazy as P
+#else
+import qualified Data.ByteString.UTF8 as P
+#endif
 import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
@@ -49,9 +58,12 @@ import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
+import System.Process (showCommandForUser)
+import System.Process.ListLike (readProcessWithExitCode)
 import Test.HUnit
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
+import Text.Regex (mkRegex, matchRegex)
 
 -- |This can describe an image size in various ways.
 data ImageSize_1
@@ -269,6 +281,26 @@ data ImageFile
       } deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
+
+-- | Helper function to learn the 'ImageType' of a file by runing
+-- @file -b@.
+getFileType :: P.ByteString -> IO ImageType
+getFileType bytes =
+    readProcessWithExitCode cmd args bytes `catchError` err >>= return . test . (\ (_, out, _) -> out)
+    where
+      cmd = "file"
+      args = ["-b", "-"]
+      err (e :: IOError) =
+          $logException $ fail ("getFileType Failure: " ++ showCommandForUser cmd args ++ " -> " ++ show e)
+      test :: P.ByteString -> ImageType
+      test s = maybe (error $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") id (foldr (testre (P.toString s)) Nothing tests)
+      testre _ _ (Just result) = Just result
+      testre s (re, typ) Nothing = maybe Nothing (const (Just typ)) (matchRegex re s)
+      -- Any more?
+      tests = [(mkRegex "Netpbm P[BGPP]M \"rawbits\" image data$", PPM)
+              ,(mkRegex "JPEG image data", JPEG)
+              ,(mkRegex "PNG image data", PNG)
+              ,(mkRegex "GIF image data", GIF)]
 
 instance PixmapShape ImageFile where
     pixmapHeight = _imageFileHeight
