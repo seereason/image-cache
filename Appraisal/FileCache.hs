@@ -24,27 +24,32 @@
 {-# OPTIONS -Wall -fno-warn-orphans #-}
 
 module Appraisal.FileCache
-    ( MonadFileCache(fileCacheTop)
+    ( -- * Monad and Class
+      MonadFileCache(fileCacheTop)
     , FileCacheTop(..)
     , FileCacheT(unFileCacheT)
     , runFileCacheT
-    , Checksum
     , MonadFileCacheIO
     , runFileCacheIO
     , runFileCache
+    -- Types
+    , Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages
-    , fileFromURI               -- was importFile
-    , fileFromPath
-    , fileFromCmd
-    , fileFromCmdViaTemp
+    , File(..)
     , fileURI
     , fileCacheURI
-    , loadBytes
-    , cacheFile
     , addMessage
     , md5'
-    , File(..)
+    -- * Create Files
     , fileFromBytes
+    , fileFromURI               -- was importFile
+    , fileFromPath
+    , fileFromPathViaRename
+    , fileFromCmd
+    , fileFromCmdViaTemp
+    , cacheFile
+    -- * Query Files
+    , loadBytes
     , fileCachePath
     , fileCachePathIO
     ) where
@@ -83,8 +88,6 @@ import System.Unix.FilePath ((<++>))
 import Test.QuickCheck (Arbitrary(..), oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
-newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
-
 -- | Almost all file cache operations require IO, but constructing
 -- paths do not.  So MonadIO is not a superclass here.
 class Monad m => MonadFileCache m where
@@ -94,6 +97,8 @@ class Monad m => MonadFileCache m where
 -- reader monad for anything but MonadFileCache.
 -- instance MonadReader FileCacheTop m => MonadFileCache m where
 --     fileCacheTop = unFileCacheTop <$> ask
+
+newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
 -- | In order to avoid type ambiguities between different reader monads, we need
 -- a newtype wrapper around this ReaderT FileCacheTop.
@@ -151,6 +156,16 @@ runFileCacheT :: forall m a.
 runFileCacheT fileCacheDir action =
     runReaderT (unFileCacheT (ensureFileCacheTop >> action)) fileCacheDir
 
+-- | This is the class for operations that do require IO.  Almost all
+-- operations require IO, but you can build paths into the cache
+-- without it.
+class (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO m where
+    ensureFileCacheTop :: m () -- Create the fileCacheTop directory if necessary
+
+-- | Probably the only meaningful instance of MonadFileCacheIO.
+instance (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO m where
+    ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True
+
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
 -- store the original ByteString if that is all we began
@@ -163,16 +178,6 @@ data FileSource
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
 
--- | This is the class for operations that do require IO.  Almost all
--- operations require IO, but you can build paths into the cache
--- without it.
-class (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO m where
-    ensureFileCacheTop :: m () -- Create the fileCacheTop directory if necessary
-
--- | Probably the only meaningful instance of MonadFileCacheIO.
-instance (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO m where
-    ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True
-
 -- |A local cache of a file obtained from a 'FileSource'.
 data File
     = File { _fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
@@ -182,20 +187,46 @@ data File
 
 $(makeLenses ''File)
 
--- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI ::
+-- |Return the remote URI if the file resulted from downloading a URI.
+fileURI :: File -> Maybe URI
+fileURI file = case view fileSource file of
+                 Just (TheURI uri) -> maybe (parseRelativeReference uri) Just (parseURI uri)
+                 _ -> Nothing
+
+-- | Build a URI for the locally cached version of the file given the
+-- uri of the cache home directory.
+fileCacheURI :: URI -> File -> URI
+fileCacheURI cacheDirectoryURI file =
+    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> view fileChksum file}
+
+-- |Add a message to the file message list.
+addMessage :: String -> File -> File
+addMessage message file = over fileMessages (++ [message]) file
+
+md5' :: P.ByteString -> String
+#ifdef LAZYIMAGES
+md5' = show . md5
+#else
+md5' = show . md5 . Lazy.fromChunks . (: [])
+#endif
+
+-- | Turn the bytes in a ByteString into a File.  This is an IO
+-- operation because it saves the data into the local cache.  We
+-- use writeFileReadable because the files we create need to be
+-- read remotely by our backup program.
+fileFromBytes ::
     MonadFileCacheIO m
-    => String
+    => P.ByteString
     -> m (File, P.ByteString)
-fileFromURI uri =
-    do let cmd = "curl"
-           args = ["-s", uri]
-       (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' (proc cmd args) P.empty
-       case code of
-         ExitSuccess ->
-             do (file, bytes') <- fileFromBytes bytes
-                return (set fileSource (Just (TheURI uri)) file, bytes')
-         _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
+fileFromBytes bytes =
+      do let file = File { _fileSource = Nothing
+                         , _fileChksum = md5' bytes
+                         , _fileMessages = [] }
+         path <- fileCachePath file
+         exists <- liftIO $ doesFileExist path
+         case exists of
+           True -> return (file, bytes)
+           False -> liftIO (writeFileReadable path bytes) >> return (file, bytes)
 
 -- |Read the contents of a local path into a File.
 fileFromPath ::
@@ -220,10 +251,25 @@ fileFromCmd cmd = do
            return $ (set fileSource (Just (ThePath cmd)) file, bytes)
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
 
+-- |Retrieve a URI using curl and turn the resulting data into a File.
+fileFromURI ::
+    MonadFileCacheIO m
+    => String
+    -> m (File, P.ByteString)
+fileFromURI uri =
+    do let cmd = "curl"
+           args = ["-s", uri]
+       (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' (proc cmd args) P.empty
+       case code of
+         ExitSuccess ->
+             do (file, bytes') <- fileFromBytes bytes
+                return (set fileSource (Just (TheURI uri)) file, bytes')
+         _ -> $logException $ fail $ "fileFromURI Failure: " ++ cmd ++ " -> " ++ show code
+
 -- | Build a file from the output of a command.  This uses a temporary
 -- file to store the contents of the command while we checksum it.  This
 -- is to avoid reading the file contents into a Haskell ByteString, which
--- seems to be slower than using a unix pipeline.
+-- may be slower than using a unix pipeline.  Though it shouldn't be.
 fileFromCmdViaTemp ::
     forall m. MonadFileCacheIO m
     => String
@@ -240,7 +286,20 @@ fileFromCmdViaTemp cmd = do
     ExitFailure _ -> error $ "Failure building file:\n " ++ show cmd ++ " -> " ++ show code
     where
       installFile :: FilePath -> m (File, P.ByteString)
-      installFile tmp = fileFromFile tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
+      installFile tmp = fileFromPathViaRename tmp `catchError` (\ e -> throwError (userError $ "fileFromCmdViaTemp - install failed: " ++ show e))
+
+-- | Move a file into the file cache and incorporate it into a File.
+fileFromPathViaRename :: MonadFileCacheIO m => FilePath -> m (File, P.ByteString)
+fileFromPathViaRename path = do
+  bytes <- liftIO $ P.readFile path
+  let file = File { _fileSource = Just (ThePath path)
+                  , _fileChksum = md5' bytes
+                  , _fileMessages = [] }
+  -- cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
+  dest <- fileCachePathIO file
+  liftIO (logM "fileFromPathViaRename" DEBUG ("renameFile " <> path <> " " <> dest) >>
+          renameFile path dest)
+  return (file, bytes)
 
 -- | Given a file and a ByteString containing the expected contents,
 -- verify the contents.  If it isn't installed or isn't correct,
@@ -254,18 +313,6 @@ cacheFile file bytes = do
                           then $logException $ fail "cacheFile - Checksum error"
                           else return file
 
--- |Return the remote URI if the file resulted from downloading a URI.
-fileURI :: File -> Maybe URI
-fileURI file = case view fileSource file of
-                 Just (TheURI uri) -> maybe (parseRelativeReference uri) Just (parseURI uri)
-                 _ -> Nothing
-
--- | Build a URI for the locally cached version of the file given the
--- uri of the cache home directory.
-fileCacheURI :: URI -> File -> URI
-fileCacheURI cacheDirectoryURI file =
-    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> view fileChksum file}
-
 -- | Read and return the contents of the file from the cache as a ByteString.
 loadBytes :: MonadFileCacheIO m => File -> m P.ByteString
 loadBytes file =
@@ -274,17 +321,6 @@ loadBytes file =
        case md5' bytes == view fileChksum file of
          True -> return bytes
          False -> $logException $ fail $ "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
-
--- |Add a message to the file message list.
-addMessage :: String -> File -> File
-addMessage message file = over fileMessages (++ [message]) file
-
-md5' :: P.ByteString -> String
-#ifdef LAZYIMAGES
-md5' = show . md5
-#else
-md5' = show . md5 . Lazy.fromChunks . (: [])
-#endif
 
 instance Pretty File where
     pPrint (File _ cksum _) = text ("File(" <> show cksum <> ")")
@@ -302,43 +338,11 @@ fileCachePathIO file = do
   liftIO $ createDirectoryIfMissing True dir
   fileCachePath file
 
--- | Move a file into the file cache and incorporate it into a File.
-fileFromFile :: MonadFileCacheIO m => FilePath -> m (File, P.ByteString)
-fileFromFile path = do
-  bytes <- liftIO $ P.readFile path
-  let file = File { _fileSource = Just (ThePath path)
-                  , _fileChksum = md5' bytes
-                  , _fileMessages = [] }
-  -- cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
-  dest <- fileCachePathIO file
-  liftIO (logM "fileFromFile" DEBUG ("renameFile " <> path <> " " <> dest) >>
-          renameFile path dest)
-  return (file, bytes)
-
--- | Turn the bytes in a ByteString into a File.  This is an IO
--- operation because it saves the data into the local cache.  We
--- use writeFileReadable because the files we create need to be
--- read remotely by our backup program.
-fileFromBytes ::
-    MonadFileCacheIO m
-    => P.ByteString
-    -> m (File, P.ByteString)
-fileFromBytes bytes =
-      do let file = File { _fileSource = Nothing
-                         , _fileChksum = md5' bytes
-                         , _fileMessages = [] }
-         path <- fileCachePath file
-         exists <- liftIO $ doesFileExist path
-         case exists of
-           True -> return (file, bytes)
-           False -> liftIO (writeFileReadable path bytes) >> return (file, bytes)
-
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure []
 
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
-
 
 $(deriveSafeCopy 1 'base ''FileSource)
 $(deriveSafeCopy 0 'base ''URI)
