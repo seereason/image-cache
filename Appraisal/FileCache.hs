@@ -52,7 +52,11 @@ module Appraisal.FileCache
     , cacheFile
     -- * Query Files
     , loadBytes
+    , fileDir
+    , filePath
     , fileCachePath
+    , oldFileCachePath
+    , fileCacheDir
     , fileCachePathIO
     ) where
 
@@ -360,10 +364,13 @@ instance Pretty File where
 
 -- | The full path name for the local cache of the file.
 fileCachePath :: MonadFileCache m => File -> m FilePath
-fileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> view fileChksum file
+fileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> filePath file
+
+oldFileCachePath :: MonadFileCache m => File -> m FilePath
+oldFileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> view fileChksum file
 
 fileCacheDir :: MonadFileCache m => File -> m FilePath
-fileCacheDir _file = fileCacheTop
+fileCacheDir file = fileCacheTop >>= \ver -> return $ ver <++> fileDir file
 
 fileCachePathIO :: MonadFileCacheIO m => File -> m FilePath
 fileCachePathIO file = do
@@ -371,8 +378,17 @@ fileCachePathIO file = do
   liftIO $ createDirectoryIfMissing True dir
   fileCachePath file
 
+filePath :: File -> FilePath
+filePath file = fileDir file <++> view fileChksum file <> view fileExt file
+
+fileDir :: File -> FilePath
+fileDir file = take 2 (view fileChksum file)
+
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
+
+instance Arbitrary File_1 where
+    arbitrary = File_1 <$> arbitrary <*> arbitrary <*> pure []
 
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
@@ -389,3 +405,4 @@ $(deriveLiftMany [
    ''File])
 $(deriveSerialize [t|FileSource|])
 $(deriveSerialize [t|File|])
+$(deriveSerialize [t|File_1|])

@@ -401,6 +401,14 @@ instance Arbitrary ImageFile where
                           <*> choose (1,5000)
                           <*> choose (1,255)
 
+instance Arbitrary ImageFile_0 where
+    arbitrary = ImageFile_0
+                          <$> arbitrary
+                          <*> arbitrary
+                          <*> choose (1,5000)
+                          <*> choose (1,5000)
+                          <*> choose (1,255)
+
 instance Arbitrary ImageCrop where
     arbitrary = ImageCrop <$> choose (0,100)
                           <*> choose (0,100)
@@ -429,6 +437,7 @@ $(deriveSerialize [t|ImageKey_1|])
 $(deriveSerialize [t|ImageKey|])
 $(deriveSerialize [t|ImageType|])
 $(deriveSerialize [t|ImageFile|])
+$(deriveSerialize [t|ImageFile_0|])
 
 $(deriveSafeCopy 1 'base ''ImageSize_1)
 $(deriveSafeCopy 2 'extension ''ImageSize)

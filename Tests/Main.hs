@@ -41,7 +41,7 @@ tests = TestList [Exif.tests, LaTeX.tests, acid1, file1]
 -- The directory that holds the acid state event logs and checkpoints.
 acidDir = "Tests/acid"
 fileAcidDir = "Tests/fileacid"
-fileCacheDir = FileCacheTop "Tests/filecache"
+fileCacheDir' = FileCacheTop "Tests/filecache"
 
 -- The oldest file in /usr/share/doc
 oldfile :: FilePath
@@ -79,7 +79,7 @@ file1 = TestCase $ do
           assertEqual "file1" expected value1
     where
       f :: AcidState (Map String String) -> IO (File, ByteString)
-      f fileAcidState = runMonadCacheT (runFileCacheT fileCacheDir (fileFromPath return (pure "") oldfile :: FileM (File, ByteString))) fileAcidState
+      f fileAcidState = runMonadCacheT (runFileCacheT fileCacheDir' (fileFromPath return (pure "") oldfile :: FileM (File, ByteString))) fileAcidState
       expected :: (File, ByteString)
       expected = (File {_fileSource = Just (ThePath "/usr/share/doc/cron/THANKS"),
                         _fileChksum = "8f57348732b9755b264ef1c15b0e6485",

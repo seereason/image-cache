@@ -23,6 +23,7 @@ module Appraisal.AcidCache
     , LookValue(..)
     , LookValues(..)
     , LookMap(..)
+    , DeleteValues(..)
     -- * Monad class for cached map
     , MonadCache(askAcidState, build)
     , cacheMap

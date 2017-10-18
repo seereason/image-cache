@@ -79,7 +79,7 @@ import Text.Regex (mkRegex, matchRegex)
 -- suitable extension (e.g. .jpg) for the benefit of software that
 -- depends on this, so the result might point to a symbolic link.
 imageFilePath :: MonadFileCache m => ImageFile -> m FilePath
-imageFilePath img = fileCachePath (view imageFile img) >>= \ path -> return $ path ++ fileExtension (view imageFileType img)
+imageFilePath img = fileCachePath (view imageFile img)
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes :: MonadFileCacheIO m => ByteString -> m ImageFile
@@ -128,20 +128,19 @@ imageFileFromPnmfileOutput :: MonadFileCacheIO m => File -> ImageType -> P.ByteS
 imageFileFromPnmfileOutput file typ out =
         case matchRegex pnmFileRegex (P.toString out) of
           Just [width, height, _, maxval] ->
-            ensureExtensionLink file (fileExtension typ) >>=
-            (const . return $ ImageFile { _imageFile = file
-                                        , _imageFileType = typ
-                                        , _imageFileWidth = read width
-                                        , _imageFileHeight = read height
-                                        , _imageFileMaxVal = if maxval == "" then 1 else read maxval })
+            return $ ImageFile { _imageFile = file
+                               , _imageFileType = typ
+                               , _imageFileWidth = read width
+                               , _imageFileHeight = read height
+                               , _imageFileMaxVal = if maxval == "" then 1 else read maxval }
           _ -> error $ "Unexpected output from pnmfile: " ++ show out
   where
       pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
 
 -- | The image file names are just checksums.  This makes sure a link
 -- with a suitable extension (.jpg, .gif) also exists.
-ensureExtensionLink :: MonadFileCacheIO m => File -> String -> m ()
-ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksum file) (path ++ ext)
+-- ensureExtensionLink :: MonadFileCacheIO m => File -> String -> m ()
+-- ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksum file) (path ++ ext)
 
 -- | Find or create a version of some image with its orientation
 -- corrected based on the EXIF orientation flag.  If the image is
