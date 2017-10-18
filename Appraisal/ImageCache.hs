@@ -166,13 +166,12 @@ scaleImage scale orig = $logException $ do
                     GIF -> showCommandForUser "giftopnm" [path]
                     PNG -> showCommandForUser "pngtopnm" [path]
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
-        -- Probably we should always build a png here rather than
-        -- whatever the original file type was?
+        -- To save space, build a jpeg here rather than the original file type.
         encoder = case view imageFileType orig of
                     JPEG -> showCommandForUser "cjpeg" []
-                    PPM -> showCommandForUser "cat" []
-                    GIF -> showCommandForUser "ppmtogif" []
-                    PNG -> showCommandForUser "pnmtopng" []
+                    PPM -> showCommandForUser {-"cat"-} "cjpeg" []
+                    GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
+                    PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
         cmd = pipe' [decoder, scaler, encoder]
     fileFromCmd (liftIO . getFileType) fileExtension cmd >>= buildImage
     -- fileFromCmdViaTemp cmd >>= buildImage
@@ -196,10 +195,10 @@ editImage crop file = $logException $
       commands = buildPipeline (view imageFileType file) [cut, rotate] (latexImageFileType (view imageFileType file))
       -- We can only embed JPEG and PNG images in a LaTeX
       -- includegraphics command, so here we choose which one to use.
-      latexImageFileType GIF = PNG
-      latexImageFileType PPM = PNG
+      latexImageFileType GIF = JPEG
+      latexImageFileType PPM = JPEG
       latexImageFileType JPEG = JPEG
-      latexImageFileType PNG = PNG
+      latexImageFileType PNG = JPEG
       cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
               (0, 0, 0, 0) -> Nothing
               (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
