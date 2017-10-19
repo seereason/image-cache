@@ -334,7 +334,7 @@ fileFromPathViaCopy ext path = do
                   , _fileMessages = []
                   , _fileExt = ext }
   dest <- fileCachePathIO file
-  liftIO (logM "fileFromPathViaCopy" DEBUG ("copyFile " <> path <> " " <> dest) >>
+  liftIO (-- logM "fileFromPathViaCopy" DEBUG ("copyFile " <> path <> " " <> dest) >>
           copyFile path dest)
   return file
 
