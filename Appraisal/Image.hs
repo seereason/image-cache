@@ -37,6 +37,7 @@ module Appraisal.Image
     , heightInInches
     , lens_saneSize
     , defaultSize
+    , fixKey
     , tests
     ) where
 
@@ -255,9 +256,9 @@ inches sz =
                 (_, Points) -> 7227 % 100
 
 instance Pretty Dimension where
-    pPrint TheHeight = text "h"
-    pPrint TheWidth = text "w"
-    pPrint TheArea = text "a"
+    pPrint TheHeight = text "height"
+    pPrint TheWidth = text "width"
+    pPrint TheArea = text "area"
     pPrint x = text (show x)
 
 instance Pretty Units where
@@ -266,10 +267,10 @@ instance Pretty Units where
     pPrint Points = text "pt"
 
 instance Pretty ImageSize where
-    pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> show sz <> " ") <> pPrint u
+    pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> showRational sz <> " ") <> pPrint u
 
 instance Pretty ImageCrop where
-    pPrint (ImageCrop t b l r _) = text $ "crop (" <> show (b, l) <> " -> " <> show (t, r) <> ")"
+    pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
 
 -- | A file containing an image plus meta info. This type is the same as
 -- ImageFile_0, we just need to migrate the File
@@ -372,10 +373,10 @@ instance Migrate ImageKey where
     migrate (ImageUpright_1 k) = ImageUpright k
 
 instance Pretty ImageKey where
-    pPrint (ImageOriginal x) = pPrint x
+    pPrint (ImageOriginal x) = text "ImageOriginal"
     pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
-    pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (show dpi) <> text "dpi) (" <> pPrint x <> text ")"
+    pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
 
 type ImageCacheMap = Map ImageKey ImageFile
 
@@ -427,6 +428,14 @@ instance Arbitrary ImageKey_1 where
                       , ImageCropped_1 <$> arbitrary <*> arbitrary
                       , ImageScaled_1 <$> arbitrary <*> arbitrary <*> arbitrary
                       , ImageUpright_1 <$> arbitrary ]
+
+-- | Remove null crops
+fixKey :: ImageKey -> ImageKey
+fixKey key@(ImageOriginal _) = key
+fixKey (ImageCropped crop key) | crop == def = fixKey key
+fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
+fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
+fixKey (ImageUpright key) = ImageUpright (fixKey key)
 
 $(deriveSerialize [t|ImageSize_1|])
 $(deriveSerialize [t|ImageSize|])
