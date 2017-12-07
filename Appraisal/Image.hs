@@ -57,7 +57,9 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
+import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.Lift (deriveLiftMany)
+import Language.Haskell.TH.PprLib (ptext)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import System.Process (showCommandForUser)
@@ -377,6 +379,8 @@ instance Pretty ImageKey where
     pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
+
+instance Ppr ImageKey where ppr = ptext . show
 
 type ImageCacheMap = Map ImageKey ImageFile
 
