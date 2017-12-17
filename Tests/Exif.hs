@@ -12,8 +12,10 @@ import Test.HUnit
 
 test' :: Int -> ByteString -> (Either ErrorCall (Int, Int64, Bool)) -> Test
 test' n bs expected = do
-  TestCase (try (evaluate (runGet getEXIFOrientationCode bs)) >>= \ r ->
-            assertEqual ("Exif test " ++ show n) expected r)
+  TestCase (do r <- try (evaluate (runGet getEXIFOrientationCode bs))
+               case r of
+                 Left (ErrorCall s) -> assertEqual ("Exif test " ++ show n) expected (Left (ErrorCall s))
+                 _ -> assertEqual ("Exif test " ++ show n) expected r)
 
 tests :: Test
 tests =
