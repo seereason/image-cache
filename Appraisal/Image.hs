@@ -36,6 +36,7 @@ module Appraisal.Image
     , widthInInches'
     , heightInInches
     , lens_saneSize
+    , SaneSize(SaneSize)
     , defaultSize
     , fixKey
     , tests
@@ -237,6 +238,10 @@ saneSize sz =
 
 lens_saneSize :: Iso' ImageSize ImageSize
 lens_saneSize = iso saneSize saneSize
+
+-- | A wrapper type to suggest that lens_saneSize has been applied to
+-- the ImageSize within.
+newtype SaneSize a = SaneSize {unSaneSize :: a} deriving (Read, Show, Eq, Ord, Typeable, Data)
 
 tests :: Test
 tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
