@@ -35,8 +35,8 @@ module Appraisal.Image
     , widthInInches
     , widthInInches'
     , heightInInches
-    , lens_saneSize
-    , SaneSize(SaneSize)
+    , saneSize
+    , SaneSize(unSaneSize)
     , defaultSize
     , fixKey
     , tests
@@ -221,8 +221,8 @@ heightInInches p s =
 widthInInches' :: PixmapShape a => a -> ImageSize -> ImageSize
 widthInInches' p s = s {units = Inches, size = approx (widthInInches p s), dim = TheWidth}
 
-saneSize :: ImageSize -> ImageSize
-saneSize sz =
+saneSize :: ImageSize -> SaneSize ImageSize
+saneSize sz = SaneSize $
     case (dim sz, inches sz) of
       (TheArea, n) | n < minArea -> sz {units = Inches, size = minArea}
       (TheArea, n) | n > maxArea -> sz {units = Inches, size = maxArea}
@@ -236,8 +236,10 @@ saneSize sz =
       minArea = 625 % 10000
       maxArea = 625
 
-lens_saneSize :: Iso' ImageSize ImageSize
-lens_saneSize = iso saneSize saneSize
+-- Surely, SaneSize should be a class so we could apply it to things
+-- other than ImageSize.  But for the moment it is what it is.
+instance Default (SaneSize ImageSize) where
+    def = saneSize def
 
 -- | A wrapper type to suggest that lens_saneSize has been applied to
 -- the ImageSize within.
@@ -245,8 +247,8 @@ newtype SaneSize a = SaneSize {unSaneSize :: a} deriving (Read, Show, Eq, Ord, T
 
 tests :: Test
 tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
-                               (ImageSize {dim = TheHeight, size = 0.25, units = Inches})
-                               (view lens_saneSize (ImageSize {dim = TheHeight, size = 0.0, units = Inches})))
+                               (SaneSize (ImageSize {dim = TheHeight, size = 0.25, units = Inches}))
+                               (saneSize (ImageSize {dim = TheHeight, size = 0.0, units = Inches})))
                  ]
 
 defaultSize :: ImageSize
