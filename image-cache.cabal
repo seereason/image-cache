@@ -7,7 +7,7 @@ Maintainer:     David Fox <dsf@seereason.com>
 Homepage:       http://src.seereason.com/image-cache
 Synopsis:       Support for image file processing and caching
 Cabal-version:  >= 1.8
-build-type:     Custom
+build-type:     Simple
 description:
   This package includes the following modules, from higher to lower level functionality:
   .
@@ -74,6 +74,7 @@ Library
     lens,
     mtl,
     network-uri,
+    pretty >= 1.1.2,
     process,
     process-extras >= 0.7,
     pureMD5,
@@ -91,12 +92,11 @@ Library
     unix,
     Unixutils,
     utf8-string
-  if flag(pretty-112)
-    Build-Depends: pretty >= 1.1.2
-  else
-    Build-Depends: pretty < 1.1.2, prettyclass
+  if impl(ghcjs)
+    Build-Depends: Cabal
 
-Executable image-cache-tests
+test-suite image-cache-tests
+  type: exitcode-stdio-1.0
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs
   Build-Depends:
