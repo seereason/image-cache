@@ -382,7 +382,7 @@ instance Migrate ImageKey where
     migrate (ImageUpright_1 k) = ImageUpright k
 
 instance Pretty ImageKey where
-    pPrint (ImageOriginal x) = text "ImageOriginal"
+    pPrint (ImageOriginal _) = text "ImageOriginal"
     pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
@@ -402,6 +402,9 @@ instance Arbitrary Dimension where
 
 instance Arbitrary ImageSize where
     arbitrary = ImageSize <$> arbitrary <*> ((% 100) <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
+
+instance Arbitrary a => Arbitrary (SaneSize a) where
+    arbitrary = SaneSize <$> arbitrary
 
 instance Arbitrary ImageSize_1 where
     arbitrary = ImageSize_1 <$> arbitrary <*> (fromInteger <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
@@ -462,6 +465,7 @@ $(deriveSerialize [t|ImageFile_0|])
 
 $(deriveSafeCopy 1 'base ''ImageSize_1)
 $(deriveSafeCopy 2 'extension ''ImageSize)
+$(deriveSafeCopy 1 'base ''SaneSize)
 $(deriveSafeCopy 0 'base ''Dimension)
 $(deriveSafeCopy 0 'base ''Units)
 $(deriveSafeCopy 0 'base ''ImageCrop)
@@ -478,5 +482,6 @@ $(deriveLiftMany [
    ''ImageSize,
    ''Units,
    ''ImageCrop,
-   ''Dimension
+   ''Dimension,
+   ''SaneSize
   ])
