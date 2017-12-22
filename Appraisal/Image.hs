@@ -450,6 +450,7 @@ fixKey (ImageUpright key) = ImageUpright (fixKey key)
 
 $(deriveSerialize [t|ImageSize_1|])
 $(deriveSerialize [t|ImageSize|])
+$(deriveSerialize [t|SaneSize ImageSize|])
 $(deriveSerialize [t|Dimension|])
 $(deriveSerialize [t|Units|])
 $(deriveSerialize [t|ImageCrop|])
