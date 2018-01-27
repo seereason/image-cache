@@ -17,6 +17,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -58,6 +59,8 @@ module Appraisal.FileCache
     , oldFileCachePath
     , fileCacheDir
     , fileCachePathIO
+    -- * Utility
+    , allFiles
     ) where
 
 import Appraisal.AcidCache (runMonadCacheT)
@@ -84,8 +87,9 @@ import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
-import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, renameFile)
+import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile)
 import System.Exit (ExitCode(..))
+import System.FilePath ((</>))
 import System.FilePath.Extra (writeFileReadable, makeReadableAndClose)
 import System.IO (openBinaryTempFile)
 import System.Log.Logger (logM, Priority(DEBUG))
@@ -392,6 +396,19 @@ instance Arbitrary File_1 where
 
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
+
+-- | Scan all the file cache directories for files without using
+-- the database.
+allFiles :: FileCacheTop -> MonadIO m => m [FilePath]
+allFiles top = do
+  dirs <- liftIO $ liftIO (listDirectory (unFileCacheTop top))
+  concat <$> mapM (\dir -> let dir' = unFileCacheTop top </> dir in
+                           fmap (dir' </>) <$> liftIO (listDirectory dir')) dirs
+
+listDirectory :: FilePath -> IO [FilePath]
+listDirectory path =
+  (filter f) <$> (getDirectoryContents path)
+  where f filename = filename /= "." && filename /= ".."
 
 $(deriveSafeCopy 1 'base ''FileSource)
 $(deriveSafeCopy 0 'base ''URI)

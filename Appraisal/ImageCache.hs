@@ -44,11 +44,11 @@ module Appraisal.ImageCache
 
 import Appraisal.AcidCache (MonadCache(..))
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.FileCache (File(..), fileChksum, FileCacheT, FileCacheTop, fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
+import Appraisal.FileCache (File(..), {-fileChksum,-} FileCacheT, FileCacheTop, fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, {-fileFromCmdViaTemp,-} loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO)
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), ImageCacheMap,
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
-import Appraisal.Utils.ErrorWithIO (logException, ensureLink)
+import Appraisal.Utils.ErrorWithIO ({-ensureLink,-} logException)
 import Control.Exception (IOException, throw)
 import Control.Lens (makeLensesFor, view)
 import Control.Monad.Catch (MonadCatch(catch))

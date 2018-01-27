@@ -40,6 +40,10 @@ module Appraisal.Image
     , defaultSize
     , fixKey
     , tests
+    , readRationalMaybe
+    , showRational
+    -- * validation tools
+    , validateJPG
     ) where
 
 import Appraisal.FileCache (File(..))
@@ -54,21 +58,29 @@ import qualified Data.ByteString.UTF8 as P
 import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
+import Data.Text (unpack)
+import Data.Text.Encoding (decodeUtf8)
 import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.PprLib (ptext)
 import Language.Haskell.TH.TypeGraph.Serialize (deriveSerialize)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
-import System.Process (showCommandForUser)
-import System.Process.ListLike (readProcessWithExitCode)
-import Test.HUnit
+import System.Exit (ExitCode)
+import System.Process (proc, showCommandForUser)
+import System.Process.ListLike (readCreateProcess, readProcessWithExitCode)
+import System.Process.ByteString ()
+import Test.HUnit (assertEqual, Test(..))
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import Text.Regex (mkRegex, matchRegex)
+
+import Data.Maybe (catMaybes)
+import Text.Parsec
+import Data.Char (isSpace)
 
 -- |This can describe an image size in various ways.
 data ImageSize_1
@@ -117,8 +129,12 @@ rationalIso = iso showRational (readRational 0)
 showRational :: Rational -> String
 showRational x = showSigned (showFFloat Nothing) 0 (fromRat x :: Double) ""
 
-readRationalMaybe :: String -> Maybe Rational
-readRationalMaybe = listToMaybe . map fst . filter (null . snd) . readSigned readFloat
+readRationalMaybe :: Monad m => String -> m Rational
+readRationalMaybe s =
+    case (map fst $ filter (null . snd) $ readSigned readFloat s) of
+      [r] -> return r
+      [] -> error $ "readRationalMaybe " ++ s
+      _rs -> error $ "readRationalMaybe " ++ s
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
 -- mapRatio f r = f (numerator r) % f (denominator r)
@@ -450,6 +466,110 @@ fixKey (ImageCropped crop key) | crop == def = fixKey key
 fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
 fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
 fixKey (ImageUpright key) = ImageUpright (fixKey key)
+
+data Format = Binary | Gray | Color deriving Show
+data RawOrPlain = Raw | Plain deriving Show
+data Pnmfile = Pnmfile Format RawOrPlain (Integer, Integer, Maybe Integer) deriving Show
+
+-- | Check whether the outputs of extractbb is valid by comparing it
+-- to the output of pnmfile.
+validateJPG :: FilePath -> IO (Either String (Integer, Integer))
+validateJPG path = do
+  (_code, bs, _) <- readCreateProcess (proc "jpegtopnm" [path]) mempty :: IO (ExitCode, P.ByteString, P.ByteString)
+  (_code, s1', _) <- readCreateProcess (proc "pnmfile" []) bs :: IO (ExitCode, P.ByteString, P.ByteString)
+  let s1 = unpack (decodeUtf8 s1')
+  case parse parsePnmfileOutput path s1 of
+    Left e -> return (Left ("Error parsing " ++ s1 ++ ": " ++ show e))
+    Right (Pnmfile _ _ (w, h, _)) -> do
+      (_code, s2, _) <- readCreateProcess (proc "extractbb" ["-O", path]) ("" :: String) :: IO (ExitCode, String, String)
+      case parse parseExtractBBOutput path s2 of
+        Left e -> return (Left ("Error parsing " ++ show s2 ++ ": " ++ show e))
+        Right (ExtractBB (l, t, r, b) _) ->
+          if l /= 0 || t /= 0 || r < 1 || b < 1 || r > 1000000 || b > 1000000
+          then return (Left (path ++ ": image data error\n\npnmfile ->\n" ++ s1 ++ "\nextractbb ->\n" ++ s2))
+          else return (Right (w, h))
+
+-- | Parse the output of the pnmfile command (based on examination of
+-- its C source code.)
+parsePnmfileOutput :: Parsec String () Pnmfile
+parsePnmfileOutput = do
+  r <- go'
+  case r of
+    [x] -> return x
+    [] -> fail "parsePnmfileOutput"
+    _xs -> fail "multi"
+  where
+    go' = catMaybes <$> many ((Just <$> go) <|> (const Nothing <$> anyChar))
+    go = do
+      _ <- char 'P'
+      format <- (\c -> case c of
+                         'B' -> Binary
+                         'G' -> Gray
+                         'P' -> Color) <$> oneOf "BGP"
+      _ <- string "M "
+      rawOrPlain <- (\s -> case s of
+                             "plain" -> Plain
+                             "raw" -> Raw) <$> (string "plain" <|> string "raw")
+      _ <- string ", "
+      w <- many1 (oneOf "-0123456789")
+      _ <- string " by "
+      h <- many1 (oneOf "-0123456789")
+      _ <- spaces
+      mv <- optionMaybe (string "maxval " >> many1 digit)
+      _ <- newline
+      return $ Pnmfile format rawOrPlain (read w, read h, fmap read mv)
+
+data ExtractBB =
+    ExtractBB (Integer, Integer, Integer, Integer)
+              (Hires, Hires, Hires, Hires) deriving Show
+
+data Hires = Inf | Rational Rational deriving Show
+
+-- | Parse the output of extractbb (based on trial and error.)
+parseExtractBBOutput :: Parsec String () ExtractBB
+parseExtractBBOutput = do
+  _ <- title
+  _ <- creator
+  bb <- boundingBox
+  hbb <- hiResBoundingBox
+  creationDate
+  return $ ExtractBB bb hbb
+    where
+      title :: Parsec String () String
+      title = string "%%Title:" >> spaces >> many (noneOf "\n") >>= \r -> newline >> return r
+
+      creator = string "%%Creator:" >> spaces >> many (noneOf "\n") >> newline
+
+      boundingBox :: Parsec String () (Integer, Integer, Integer, Integer)
+      boundingBox = do
+        _ <- string "%%BoundingBox:"
+        spaces
+        l <- many1 (satisfy (not . isSpace))
+        _ <- many1 space
+        t <- many1 (satisfy (not . isSpace))
+        _ <- many1 space
+        r <- many1 (satisfy (not . isSpace))
+        _ <- many1 space
+        b <- many1 (satisfy (not . isSpace))
+        _ <- many newline
+        return (read l, read t, read r, read b)
+
+      hiResBoundingBox :: Parsec String () (Hires, Hires, Hires, Hires)
+      hiResBoundingBox = do
+        _ <- string "%%HiResBoundingBox:"
+        spaces
+        (l :: Hires) <- (const Inf <$> string "inf") <|> (many1 (satisfy (not . isSpace)) >>= readRationalMaybe >>= return . Rational)
+        _ <- many1 space
+        t <- (const Inf <$> string "inf") <|> (many1 (satisfy (not . isSpace)) >>= readRationalMaybe >>= return . Rational)
+        _ <- many1 space
+        r <- (const Inf <$> string "inf") <|> (many1 (satisfy (not . isSpace)) >>= readRationalMaybe >>= return . Rational)
+        _ <- many1 space
+        b <- (const Inf <$> string "inf") <|> (many1 (satisfy (not . isSpace)) >>= readRationalMaybe >>= return . Rational)
+        _ <- newline
+        maybe (fail "") return (pure (l, t, r, b))
+
+      creationDate :: Parsec String () ()
+      creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
 $(deriveSerialize [t|ImageSize_1|])
 $(deriveSerialize [t|ImageSize|])
