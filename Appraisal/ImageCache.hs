@@ -30,6 +30,7 @@ module Appraisal.ImageCache
       MonadImageCache
     , MonadImageCacheIO
     , runImageCacheIO
+    , runImageCacheIO'
     -- * ImageFile upload
     , imageFileFromBytes
     , imageFileFromURI
@@ -45,14 +46,14 @@ module Appraisal.ImageCache
 import Appraisal.AcidCache (MonadCache(..))
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.FileCache (File(..), {-fileChksum,-} FileCacheT, FileCacheTop, fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, {-fileFromCmdViaTemp,-} loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO)
+                            fileFromCmd, {-fileFromCmdViaTemp,-} loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO, runFileCacheIO')
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), ImageCacheMap,
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.Utils.ErrorWithIO ({-ensureLink,-} logException)
 import Control.Exception (IOException, throw)
 import Control.Lens (makeLensesFor, view)
 import Control.Monad.Catch (MonadCatch(catch))
-import Control.Monad.Except (catchError, MonadError)
+import Control.Monad.Except (catchError, ExceptT, MonadError)
 import Control.Monad.Reader (MonadReader(ask), ReaderT)
 import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
@@ -283,13 +284,23 @@ $(makeLensesFor [("imageFile", "imageFileL")] ''ImageFile)
 -- perform an image cache action.  This is just 'runFileCache'
 -- with its arguments reversed to match an older version of the
 -- function.
-runImageCacheIO :: forall key val m a.
-                   (MonadIO m, MonadCatch m, MonadError IOException m) =>
-                   FileCacheT (ReaderT (AcidState (Map key val)) m) a
-                -> FileCacheTop
-                -> AcidState (Map key val)
-                -> m a
-runImageCacheIO action fileCacheDir fileAcidState = runFileCacheIO fileAcidState fileCacheDir action
+runImageCacheIO ::
+    forall key val m a. (MonadIO m, MonadCatch m, MonadError IOException m)
+    => FileCacheT (ReaderT (AcidState (Map key val)) m) a
+    -> FileCacheTop
+    -> AcidState (Map key val)
+    -> m a
+runImageCacheIO action fileCacheDir fileAcidState =
+    runFileCacheIO fileAcidState fileCacheDir action
+
+runImageCacheIO' ::
+    (MonadImageCacheIO e (FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m))))
+    => AcidState (Map key val)
+    -> FileCacheTop
+    -> FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m)) a
+    -> m (Either e a)
+runImageCacheIO' fileAcidState fileCacheDir action =
+    runFileCacheIO' fileAcidState fileCacheDir action
 
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
