@@ -4,10 +4,9 @@ module Appraisal.Exif
     , getEXIFOrientationCode
     ) where
 
-import Control.Exception (ErrorCall, try, evaluate)
 import Control.Monad (when)
 import Data.ByteString.Lazy (ByteString, pack, unpack, take, drop, concat)
-import Data.Binary.Get (getLazyByteString, Get, skip, bytesRead, runGet,
+import Data.Binary.Get (getLazyByteString, Get, skip, bytesRead, runGetOrFail,
                         getWord16be, getWord32be, getWord16le, getWord32le)
 import Data.Word (Word16, Word32)
 import GHC.Int (Int64)
@@ -25,21 +24,21 @@ import System.Process.ByteString.Lazy (readCreateProcessWithExitCode)
 --
 -- This is an IO operation because it runs jpegtran(1) to perform the
 -- transformation on the jpeg image.
-normalizeOrientationCode :: ByteString -> IO (Maybe ByteString)
+normalizeOrientationCode :: ByteString -> IO (Either String ByteString)
 normalizeOrientationCode bs = do
-  result <- try (evaluate $ runGet getEXIFOrientationCode bs) :: IO (Either ErrorCall (Int, Int64, Bool))
+  let result = runGetOrFail getEXIFOrientationCode bs :: (Either (ByteString, Int64, String) (ByteString, Int64, (Int, Int64, Bool)))
   case result of
-    Right (2, pos, flag) -> transform ["-flip", "horizontal"] pos flag
-    Right (3, pos, flag) -> transform ["-rotate", "180"] pos flag
-    Right (4, pos, flag) -> transform ["-flip", "vertical"] pos flag
-    Right (5, pos, flag) -> transform ["-transpose"] pos flag
-    Right (6, pos, flag) -> transform ["-rotate", "90"] pos flag
-    Right (7, pos, flag) -> transform ["-transverse"] pos flag
-    Right (8, pos, flag) -> transform ["-rotate", "270"] pos flag
-    _ -> return Nothing
-    -- x -> error $ "Invalid orientation code: " ++ show x
+    Right (_, _, (2, pos, flag)) -> transform ["-flip", "horizontal"] pos flag
+    Right (_, _, (3, pos, flag)) -> transform ["-rotate", "180"] pos flag
+    Right (_, _, (4, pos, flag)) -> transform ["-flip", "vertical"] pos flag
+    Right (_, _, (5, pos, flag)) -> transform ["-transpose"] pos flag
+    Right (_, _, (6, pos, flag)) -> transform ["-rotate", "90"] pos flag
+    Right (_, _, (7, pos, flag)) -> transform ["-transverse"] pos flag
+    Right (_, _, (8, pos, flag)) -> transform ["-rotate", "270"] pos flag
+    Right x -> return $ Left $ "Unexpected exif orientation code: " ++ show x
+    Left x -> return $ Left $ "Failure parsing exif orientation code: " ++ show x
     where
-      transform :: [String] -> Int64 -> Bool -> IO (Maybe ByteString)
+      transform :: [String] -> Int64 -> Bool -> IO (Either String ByteString)
       transform args pos isMotorola = do
         let cmd = "jpegtran"
             args' = (["-copy", "all"] ++ args)
@@ -49,8 +48,8 @@ normalizeOrientationCode bs = do
             bs' = concat [hd, flag, tl]
         (result, out, err) <- readCreateProcessWithExitCode (proc cmd args') bs'
         case result of
-          ExitSuccess -> return (Just out)
-          ExitFailure n -> error (showCommandForUser cmd args' ++ " -> " ++ show n ++ "\n error output: " ++ show err)
+          ExitSuccess -> return $ Right out
+          ExitFailure n -> return $ Left $ showCommandForUser cmd args' ++ " -> " ++ show n ++ "\n error output: " ++ show err
 
 -- | Read the orientation code of a JPEG file, returning its value,
 -- the offset of the two byte code in the file, and the "isMotorola"
@@ -58,7 +57,7 @@ normalizeOrientationCode bs = do
 getEXIFOrientationCode :: Get (Int, Int64, Bool)
 getEXIFOrientationCode = do
   getLazyByteString 4 >>= doJPEGHeader
-  headerLength <- getWord16be >>= return . markerParameterLength
+  headerLength <- getWord16be >>= markerParameterLength
   getLazyByteString 6 >>= testEXIFHead
   isMotorola <- getLazyByteString 2 >>= discoverByteOrder
   getLazyByteString 2 >>= checkTagMark isMotorola
@@ -68,44 +67,44 @@ getEXIFOrientationCode = do
   findOrientationTag isMotorola (headerLength - 8) numberOfTags (offset + 2)
     where
       doJPEGHeader :: Monad m => ByteString -> m ()
-      doJPEGHeader x = when (unpack x /= [0xff, 0xd8, 0xff, 0xe1] && unpack x /= [0xff, 0xd8, 0xff, 0xe0]) (error $ "Invalid JPEG header: " ++ show (unpack x))
+      doJPEGHeader x = when (unpack x /= [0xff, 0xd8, 0xff, 0xe1] && unpack x /= [0xff, 0xd8, 0xff, 0xe0]) (fail $ "Invalid JPEG header: " ++ show (unpack x))
 
-      markerParameterLength :: Word16 -> Int64
+      markerParameterLength :: Word16 -> Get Int64
       markerParameterLength w
-          | w < 8 = error $ "Length field much too short: " ++ show w
-          | w < 20 = error $ "Length field too short: " ++ show w
-          | otherwise = fromIntegral $ w - 8
+          | w < 8 = fail $ "Length field much too short: " ++ show w
+          | w < 20 = fail $ "Length field too short: " ++ show w
+          | otherwise = return $ fromIntegral $ w - 8
 
-      testEXIFHead :: Monad m => ByteString -> m ()
-      testEXIFHead x = when (unpack x /= [0x45, 0x78, 0x69, 0x66, 0x0, 0x0]) (error $ "Invalid EXIF header: " ++ show (unpack x))
+      testEXIFHead :: ByteString -> Get ()
+      testEXIFHead x = when (unpack x /= [0x45, 0x78, 0x69, 0x66, 0x0, 0x0]) (fail $ "Invalid EXIF header: " ++ show (unpack x))
 
-      discoverByteOrder :: Monad m => ByteString -> m Bool
+      discoverByteOrder :: ByteString -> Get Bool
       discoverByteOrder x =
           case unpack x of
             [0x49, 0x49] -> return True
             [0x4d, 0x4d] -> return False
-            s -> error $ "Invalid byte order: " ++ show s
+            s -> fail $ "Invalid byte order: " ++ show s
 
-      checkTagMark :: Monad m => Bool -> ByteString -> m ()
-      checkTagMark True x = when (unpack x /= [0x2a, 0x0]) (error $ "Invalid tag mark True: " ++ show (unpack x))
-      checkTagMark False x = when (unpack x /= [0x0, 0x2a]) (error $ "Invalid tag mark False: " ++ show (unpack x))
+      checkTagMark :: Bool -> ByteString -> Get ()
+      checkTagMark True x = when (unpack x /= [0x2a, 0x0]) (fail $ "Invalid tag mark True: " ++ show (unpack x))
+      checkTagMark False x = when (unpack x /= [0x0, 0x2a]) (fail $ "Invalid tag mark False: " ++ show (unpack x))
 
-      testIFDOffset :: Monad m => Int64 -> Word32 -> m Word32
-      testIFDOffset len x = if x > 0xffff || fromIntegral x > len - 2 then error ("Invalid IFD offset: " ++ show x) else return x
+      testIFDOffset :: Int64 -> Word32 -> Get Word32
+      testIFDOffset len x = if x > 0xffff || fromIntegral x > len - 2 then fail ("Invalid IFD offset: " ++ show x) else return x
 
-      testNumberOfTags :: Monad m => Word16 -> m Word16
-      testNumberOfTags n = if n > 0 then return n else error "No tags"
+      testNumberOfTags :: Word16 -> Get Word16
+      testNumberOfTags n = if n > 0 then return n else fail "No tags"
 
 findOrientationTag :: Bool -> Int64 -> Word16 -> Word32 -> Get (Int, Int64, Bool)
 findOrientationTag isMotorola headerLength numberOfTags offset = do
-    when  (fromIntegral offset > headerLength - 12 || numberOfTags < 1) (error "No orientation tag")
+    when  (fromIntegral offset > headerLength - 12 || numberOfTags < 1) (fail "No orientation tag")
     tagnum <- getWord16Motorola isMotorola
     case tagnum of
       0x0112 -> do
         skip 6
         pos <- bytesRead
         flag <- getWord16Motorola isMotorola
-        if flag < 1 || flag > 8 then error "Invalid orientation flag" else return (fromIntegral flag, pos, isMotorola)
+        if flag < 1 || flag > 8 then fail "Invalid orientation flag" else return (fromIntegral flag, pos, isMotorola)
       _ -> do
         skip 10
         findOrientationTag isMotorola headerLength (numberOfTags - 1) (offset + 12)

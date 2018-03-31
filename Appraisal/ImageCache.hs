@@ -150,7 +150,7 @@ uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
   bs <- $logException $ loadBytes (view imageFile orig)
   bs' <- $logException $ liftIO (normalizeOrientationCode (P.fromStrict bs))
-  maybe (return orig) (\ bs'' -> $logException (fileFromBytes (liftIO . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
+  either (const (return orig)) (\bs'' -> $logException (fileFromBytes (liftIO . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
 
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
