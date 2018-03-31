@@ -10,6 +10,7 @@ module Appraisal.Utils.ErrorWithIO
     , readCreateProcessWithExitCode'
     -- , logExceptionM
     , logException
+    , logAndFail
     ) where
 
 import Control.Exception (throw)
@@ -124,3 +125,6 @@ logException =
     [| \ action -> let f :: MonadIO m => SomeException -> m a
                        f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (show $__LOC__) ++ " -> " ++ show (V e))) >> throw e in
                    action `catch` f |]
+
+logAndFail :: ExpQ
+logAndFail = [|\msg -> liftIO (logM "logFailure" ERROR msg) >> fail msg|]

@@ -64,7 +64,7 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.AcidCache (runMonadCacheT)
-import Appraisal.Utils.ErrorWithIO (logException, readCreateProcessWithExitCode')
+import Appraisal.Utils.ErrorWithIO (logAndFail, logException, readCreateProcessWithExitCode')
 import Control.Exception (Exception, IOException)
 import Control.Lens (makeLenses, over, set, view)
 import Control.Monad (unless)
@@ -351,7 +351,7 @@ cacheFile file bytes = do
   (loadBytes file >>= checkBytes) `catchError` (\ _e -> liftIO (writeFileReadable path bytes) >> return file)
     where
       checkBytes loaded = if loaded == bytes
-                          then $logException $ fail "cacheFile - Checksum error"
+                          then $logAndFail "cacheFile - Checksum error"
                           else return file
 
 -- | Read and return the contents of the file from the cache as a ByteString.
@@ -361,7 +361,7 @@ loadBytes file =
        bytes <- liftIO (P.readFile path)
        case md5' bytes == view fileChksum file of
          True -> return bytes
-         False -> $logException $ fail $ "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
+         False -> $logAndFail $ "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
