@@ -19,6 +19,7 @@ module Appraisal.Image
     , rationalIso
     , rationalLens
     , ImageCrop(..)
+    , Dimension_0(..)
     , Dimension(..)
     , Units(..)
     , ImageFile(..), imageFile, imageFileType, imageFileWidth, imageFileHeight, imageFileMaxVal
@@ -149,12 +150,25 @@ data ImageSize
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
 
+data Dimension_0
+    = TheHeight_0
+    | TheWidth_0
+    | TheArea_0
+    | Invalid String
+    deriving (Show, Read, Eq, Ord, Typeable, Data)
+
 data Dimension
     = TheHeight
     | TheWidth
     | TheArea
-    | Invalid String
     deriving (Show, Read, Eq, Ord, Typeable, Data)
+
+instance Migrate Dimension where
+    type MigrateFrom Dimension = Dimension_0
+    migrate TheHeight_0 = TheHeight
+    migrate TheWidth_0 = TheWidth
+    migrate TheArea_0 = TheArea
+    migrate (Invalid _) = error "Unexpected Dimension_0"
 
 data Units
     = Inches
@@ -413,8 +427,11 @@ instance Arbitrary Units where
 instance Arbitrary ImageType where
     arbitrary = elements [PPM, JPEG, GIF, PNG]
 
+instance Arbitrary Dimension_0 where
+    arbitrary = oneof [pure TheHeight_0, pure TheWidth_0, pure TheArea_0, Invalid <$> arbitrary]
+
 instance Arbitrary Dimension where
-    arbitrary = oneof [pure TheHeight, pure TheWidth, pure TheArea, Invalid <$> arbitrary]
+    arbitrary = oneof [pure TheHeight, pure TheWidth, pure TheArea]
 
 instance Arbitrary ImageSize where
     arbitrary = ImageSize <$> arbitrary <*> ((% 100) <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
@@ -574,6 +591,7 @@ parseExtractBBOutput = do
 $(deriveSerialize [t|ImageSize_1|])
 $(deriveSerialize [t|ImageSize|])
 $(deriveSerialize [t|SaneSize ImageSize|])
+$(deriveSerialize [t|Dimension_0|])
 $(deriveSerialize [t|Dimension|])
 $(deriveSerialize [t|Units|])
 $(deriveSerialize [t|ImageCrop|])
@@ -586,7 +604,8 @@ $(deriveSerialize [t|ImageFile_0|])
 $(deriveSafeCopy 1 'base ''ImageSize_1)
 $(deriveSafeCopy 2 'extension ''ImageSize)
 $(deriveSafeCopy 1 'base ''SaneSize)
-$(deriveSafeCopy 0 'base ''Dimension)
+$(deriveSafeCopy 0 'base ''Dimension_0)
+$(deriveSafeCopy 1 'extension ''Dimension)
 $(deriveSafeCopy 0 'base ''Units)
 $(deriveSafeCopy 0 'base ''ImageCrop)
 $(deriveSafeCopy 1 'base ''ImageKey_1)
