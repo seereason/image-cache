@@ -123,7 +123,7 @@ __LOC__ = lift =<< location
 logException :: ExpQ
 logException =
     [| \ action -> let f :: MonadIO m => SomeException -> m a
-                       f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (show $__LOC__) ++ " -> " ++ show (V e))) >> throw e in
+                       f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throw e in
                    action `catch` f |]
 
 logAndFail :: ExpQ

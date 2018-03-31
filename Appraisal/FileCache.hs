@@ -33,7 +33,6 @@ module Appraisal.FileCache
     , runFileCacheT
     , MonadFileCacheIO
     , runFileCacheIO
-    , runFileCacheIO'
     -- Types
     , Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
@@ -145,6 +144,7 @@ instance MonadError e m => MonadError e (FileCacheT m) where
 instance MonadFileCache m => MonadFileCache (ExceptT IOException m) where
     fileCacheTop = lift fileCacheTop
 
+#if 0
 runFileCacheIO :: forall key val m a.
                   (MonadIO m, MonadCatch m, MonadError IOException m) =>
                   AcidState (Map key val)
@@ -153,15 +153,16 @@ runFileCacheIO :: forall key val m a.
                -> m a
 runFileCacheIO fileAcidState fileCacheDir action =
     runMonadCacheT (runFileCacheT fileCacheDir action) fileAcidState
-
-runFileCacheIO' ::
+#else
+runFileCacheIO ::
     MonadFileCacheIO e (FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m)))
     => AcidState (Map key val)
     -> FileCacheTop
     -> FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m)) a
     -> m (Either e a)
-runFileCacheIO' fileAcidState fileCacheDir action =
+runFileCacheIO fileAcidState fileCacheDir action =
     runExceptT (runMonadCacheT (runReaderT (unFileCacheT (ensureFileCacheTop >> action)) fileCacheDir) fileAcidState)
+#endif
 
 -- | Like runFileCacheIO, but without the MonadIO superclass.  No acid
 -- state value is passed because you need IO to use acid state.
