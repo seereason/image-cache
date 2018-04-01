@@ -170,13 +170,9 @@ runFileCacheIO fileAcidState fileCacheDir action =
 runFileCache :: FileCacheTop -> FileCacheT m a -> m a
 runFileCache fileCacheDir action = runReaderT (unFileCacheT action) fileCacheDir
 
-runFileCacheT ::
-    forall m a. (MonadIO m, MonadCatch m, MonadError IOException m)
-    => FileCacheTop
-    -> FileCacheT m a
-    -> m a
+runFileCacheT :: FileCacheTop -> FileCacheT m a -> m a
 runFileCacheT fileCacheDir action =
-    runReaderT (unFileCacheT (ensureFileCacheTop >> action)) fileCacheDir
+    runReaderT (unFileCacheT action) fileCacheDir
 
 -- | This is the class for operations that do require IO.  Almost all
 -- operations require IO, but you can build paths into the cache
