@@ -208,7 +208,6 @@ scaleFromDPI dpi sz file =
       -- If we want an area of 9 square inches, and the dpi is 100, and the image
       -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
       TheArea -> Just (rsqrt (inches sz * dpi * dpi / (w * h)))
-      _ -> fail "Invalid dimension"
     where
       w = fromIntegral (pixmapWidth file)
       h = fromIntegral (pixmapHeight file)
@@ -219,7 +218,6 @@ widthInInches p s =
       TheWidth -> toInches (units s) (size s)
       TheHeight -> widthInInches p (s {dim = TheWidth, size = approx (size s / r)})
       TheArea -> widthInInches p (s {dim = TheWidth, size = approx (rsqrt (size s / r))})
-      _ -> error "Invalid dimension"
     where
       r :: Rational
       r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
@@ -237,7 +235,6 @@ heightInInches p s =
       TheHeight -> toInches (units s) (size s)
       TheWidth -> heightInInches p (s {dim = TheHeight, size = approx (size s / r)})
       TheArea -> heightInInches p (s {dim = TheHeight, size = approx (rsqrt (size s / r))})
-      _ -> error "Invalid dimension"
     where
       r :: Rational
       r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
@@ -298,7 +295,6 @@ instance Pretty Dimension where
     pPrint TheHeight = text "height"
     pPrint TheWidth = text "width"
     pPrint TheArea = text "area"
-    pPrint x = text (show x)
 
 instance Pretty Units where
     pPrint Inches = text "in"
