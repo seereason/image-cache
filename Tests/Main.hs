@@ -7,7 +7,9 @@
 module Main where
 
 import Appraisal.AcidCache
+import Appraisal.AcidCacheInst (runMonadCacheT)
 import Appraisal.FileCache
+import Appraisal.FileCacheInst (FileCacheT, runFileCacheT)
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO)
 import Cache (loadImageCache)
 import Control.Exception (catch, SomeException)

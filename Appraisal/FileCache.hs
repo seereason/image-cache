@@ -27,11 +27,7 @@
 module Appraisal.FileCache
     ( -- * Monad and Class
       HasFileCacheTop(fileCacheTop)
-    , FileCacheT(unFileCacheT)
-    , runFileCache
-    , runFileCacheT
-    , MonadFileCacheIO
-    , runFileCacheIO
+    , MonadFileCacheIO(ensureFileCacheTop)
     -- Types
     , Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
@@ -62,110 +58,43 @@ module Appraisal.FileCache
     , allFiles
     ) where
 
-import Appraisal.AcidCache (runMonadCacheT)
-import Appraisal.Utils.ErrorWithIO (logAndFail, logException, readCreateProcessWithExitCode')
-import Control.Exception (Exception, IOException)
-import Control.Lens (makeLenses, over, set, view)
-import Control.Monad (unless)
-import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
-import Control.Monad.Except (catchError, ExceptT, MonadError, runExceptT, throwError)
-import Control.Monad.Reader (mapReaderT, MonadReader(ask, local), ReaderT(ReaderT), runReaderT)
-import Control.Monad.Trans (MonadIO, MonadTrans(lift), liftIO)
-import Data.Acid (AcidState)
-import qualified Data.ByteString.Lazy.Char8 as Lazy
+import Appraisal.Utils.ErrorWithIO ( logAndFail, logException, readCreateProcessWithExitCode' )
+import Control.Exception ( IOException )
+import Control.Lens ( makeLenses, over, set, view )
+import Control.Monad ( unless )
+import Control.Monad.Catch ( MonadCatch )
+import Control.Monad.Except ( MonadError(..) )
+import Control.Monad.Trans ( MonadIO(..) )
+import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString as P
 #endif
-import Data.Digest.Pure.MD5 (md5)
-import Data.Generics (Data(..), Typeable)
-import Data.Map (Map)
-import Data.Monoid ((<>))
-import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
-import Data.THUnify.Serialize (deriveSerialize)
-import Language.Haskell.TH.Lift (deriveLiftMany)
-import Network.URI (URI(..), URIAuth(..), parseRelativeReference, parseURI)
-import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile)
-import System.Exit (ExitCode(..))
-import System.FilePath ((</>))
-import System.FilePath.Extra (writeFileReadable, makeReadableAndClose)
-import System.IO (openBinaryTempFile)
-import System.Log.Logger (logM, Priority(DEBUG))
-import System.Process (proc, shell, showCommandForUser)
-import System.Process.ListLike (readCreateProcessWithExitCode)
-import System.Unix.FilePath ((<++>))
-import Test.QuickCheck (Arbitrary(..), oneof)
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
-
--- | In order to avoid type ambiguities between different reader monads, we need
--- a newtype wrapper around this ReaderT FileCacheTop.
-newtype FileCacheT m a = FileCacheT {unFileCacheT :: ReaderT FilePath m a} deriving (Monad, Applicative, Functor)
+import Data.Digest.Pure.MD5 ( md5 )
+import Data.Generics ( Data(..), Typeable )
+import Data.Monoid ( (<>) )
+import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..) )
+import Data.THUnify.Serialize ( deriveSerialize )
+import Language.Haskell.TH.Lift ( deriveLiftMany )
+import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
+import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
+import System.Exit ( ExitCode(..) )
+import System.FilePath ( (</>) )
+import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
+import System.IO ( openBinaryTempFile )
+import System.Log.Logger ( logM, Priority(DEBUG) )
+import System.Process ( proc, shell, showCommandForUser )
+import System.Process.ListLike ( readCreateProcessWithExitCode )
+import System.Unix.FilePath ( (<++>) )
+import Test.QuickCheck ( Arbitrary(..), oneof )
+import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 -- | Class of monads with a 'FilePath' value containing the top
 -- of a 'FileCache'.
 -- paths do not.  So MonadIO is not a superclass here.
 class Monad m => HasFileCacheTop m where
     fileCacheTop :: m FilePath
-
--- | Get 'fileCacheTop' from the wrapped reader monad.
-instance (Monad m, Monad (FileCacheT m)) => HasFileCacheTop (FileCacheT m) where
-    -- fileCacheTop :: FileCacheT m FilePath
-    fileCacheTop = FileCacheT (ReaderT return)
-
-mapFileCacheT :: (m a -> m a) -> FileCacheT m a -> FileCacheT m a
-mapFileCacheT f = FileCacheT . mapReaderT f . unFileCacheT
-
-instance MonadTrans FileCacheT where
-    lift = FileCacheT . lift
-instance MonadReader r m => MonadReader r (FileCacheT m) where
-    ask = lift ask
-    local = mapFileCacheT . local
-instance MonadIO m => MonadIO (FileCacheT m) where
-    liftIO = FileCacheT . liftIO
-instance MonadThrow m => MonadThrow (FileCacheT m) where
-    throwM e = lift $ throwM e
-instance MonadCatch m => MonadCatch (FileCacheT m) where
-    catch :: forall e a. Exception e => FileCacheT m a -> (e -> FileCacheT m a) -> FileCacheT m a
-    catch (FileCacheT m) c = FileCacheT $ m `catch` (unFileCacheT . c)
--- Hmm, familiar...
-instance MonadError e m => MonadError e (FileCacheT m) where
-    throwError :: e -> FileCacheT m a
-    throwError e = lift $ throwError e
-    catchError :: FileCacheT m a -> (e -> FileCacheT m a) -> FileCacheT m a
-    catchError (FileCacheT m) c = FileCacheT $ m `catchError` (unFileCacheT . c)
-instance HasFileCacheTop m => HasFileCacheTop (ExceptT IOException m) where
-    fileCacheTop = lift fileCacheTop
-
-#if 0
-runFileCacheIO :: forall key val m a.
-                  (MonadIO m, MonadCatch m, MonadError IOException m) =>
-                  AcidState (Map key val)
-               -> FileCacheTop
-               -> FileCacheT (ReaderT (AcidState (Map key val)) m) a
-               -> m a
-runFileCacheIO fileAcidState fileCacheDir action =
-    runMonadCacheT (runFileCacheT fileCacheDir action) fileAcidState
-#else
-runFileCacheIO ::
-    MonadFileCacheIO e (FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m)))
-    => AcidState (Map key val)
-    -> FilePath
-    -> FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m)) a
-    -> m (Either e a)
-runFileCacheIO fileAcidState fileCacheDir action =
-    runExceptT (runMonadCacheT (runReaderT (unFileCacheT (ensureFileCacheTop >> action)) fileCacheDir) fileAcidState)
-#endif
-
--- | Like runFileCacheIO, but without the MonadIO superclass.  No acid
--- state value is passed because you need IO to use acid state.
--- Typical use is to construct paths to the file cache.
-runFileCache :: FilePath -> FileCacheT m a -> m a
-runFileCache fileCacheDir action = runReaderT (unFileCacheT action) fileCacheDir
-
-runFileCacheT :: FilePath -> FileCacheT m a -> m a
-runFileCacheT fileCacheDir action =
-    runReaderT (unFileCacheT action) fileCacheDir
 
 -- | This is the class for operations that do require IO.  Almost all
 -- operations require IO, but you can build paths into the cache

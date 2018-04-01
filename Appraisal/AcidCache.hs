@@ -16,7 +16,6 @@ module Appraisal.AcidCache
     ( -- * Cache declarations
       openValueCache
     , withValueCache
-    , runMonadCacheT
     -- * Cached map events
     , PutValue(..)
     , PutValues(..)
@@ -33,7 +32,7 @@ module Appraisal.AcidCache
     ) where
 
 import Control.Exception (bracket)
-import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
+import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.State (MonadIO(..), MonadState(get, put), modify)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
@@ -85,10 +84,6 @@ openValueCache path = openLocalStateFrom path initCacheMap
 withValueCache :: (Show key, Ord key, Typeable key, SafeCopy key, Typeable val, Show val, SafeCopy val) =>
                   FilePath -> (AcidState (Map key val) -> IO a) -> IO a
 withValueCache path f = bracket (openValueCache path) createCheckpointAndClose $ f
-
--- | Given the AcidState object for the cache, Run an action in the CacheIO monad.
-runMonadCacheT :: ReaderT (AcidState (Map key val)) m a -> AcidState (Map key val) -> m a
-runMonadCacheT action st = runReaderT action st
 
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
