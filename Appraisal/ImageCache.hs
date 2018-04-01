@@ -44,8 +44,8 @@ module Appraisal.ImageCache
 
 import Appraisal.AcidCache (MonadCache(..))
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.FileCache (File(..), {-fileChksum,-} FileCacheT, FileCacheTop, fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, {-fileFromCmdViaTemp,-} loadBytes, MonadFileCache, MonadFileCacheIO, runFileCacheIO)
+import Appraisal.FileCache (File(..), {-fileChksum,-} FileCacheT, fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
+                            fileFromCmd, {-fileFromCmdViaTemp,-} HasFileCacheTop, loadBytes, MonadFileCacheIO, runFileCacheIO)
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), ImageCacheMap,
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.Utils.ErrorWithIO ({-ensureLink,-} logException)
@@ -78,7 +78,7 @@ import Text.Regex (mkRegex, matchRegex)
 -- | Return the local pathname of an image file.  The path will have a
 -- suitable extension (e.g. .jpg) for the benefit of software that
 -- depends on this, so the result might point to a symbolic link.
-imageFilePath :: MonadFileCache m => ImageFile -> m FilePath
+imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
 imageFilePath img = fileCachePath (view imageFile img)
 
 -- | Find or create a cached image matching this ByteString.
@@ -296,7 +296,7 @@ runImageCacheIO action fileCacheDir fileAcidState =
 runImageCacheIO ::
     (MonadImageCacheIO e (FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m))))
     => FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m)) a
-    -> FileCacheTop
+    -> FilePath
     -> AcidState (Map key val)
     -> m (Either e a)
 runImageCacheIO action fileCacheDir fileAcidState =
@@ -319,8 +319,8 @@ instance (MonadReader (AcidState ImageCacheMap) m, MonadFileCacheIO IOException 
       img <- build key
       $logException $ editImage crop img
 
-class (MonadCache ImageKey ImageFile m, MonadFileCache m) => MonadImageCache m
-instance (MonadCache ImageKey ImageFile m, MonadFileCache m) => MonadImageCache m
+class (MonadCache ImageKey ImageFile m{-, MonadFileCache m-}) => MonadImageCache m
+instance (MonadCache ImageKey ImageFile m{-, MonadFileCache m-}) => MonadImageCache m
 
 class (MonadImageCache m, MonadFileCacheIO e m) => MonadImageCacheIO e m
 instance (MonadImageCache m, MonadFileCacheIO e m) => MonadImageCacheIO e m

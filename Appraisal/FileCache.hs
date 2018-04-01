@@ -26,8 +26,7 @@
 
 module Appraisal.FileCache
     ( -- * Monad and Class
-      MonadFileCache(fileCacheTop)
-    , FileCacheTop(..)
+      HasFileCacheTop(fileCacheTop)
     , FileCacheT(unFileCacheT)
     , runFileCache
     , runFileCacheT
@@ -99,26 +98,20 @@ import System.Unix.FilePath ((<++>))
 import Test.QuickCheck (Arbitrary(..), oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
--- | Almost all file cache operations require IO, but constructing
--- paths do not.  So MonadIO is not a superclass here.
-class Monad m => MonadFileCache m where
-    fileCacheTop :: m FilePath
-
--- This instance is omitted because it prevents us from using the
--- reader monad for anything but MonadFileCache.
--- instance MonadReader FileCacheTop m => MonadFileCache m where
---     fileCacheTop = unFileCacheTop <$> ask
-
-newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
-
 -- | In order to avoid type ambiguities between different reader monads, we need
 -- a newtype wrapper around this ReaderT FileCacheTop.
-newtype FileCacheT m a = FileCacheT {unFileCacheT :: ReaderT FileCacheTop m a} deriving (Monad, Applicative, Functor)
+newtype FileCacheT m a = FileCacheT {unFileCacheT :: ReaderT FilePath m a} deriving (Monad, Applicative, Functor)
+
+-- | Class of monads with a 'FilePath' value containing the top
+-- of a 'FileCache'.
+-- paths do not.  So MonadIO is not a superclass here.
+class Monad m => HasFileCacheTop m where
+    fileCacheTop :: m FilePath
 
 -- | Get 'fileCacheTop' from the wrapped reader monad.
-instance (Monad m, Monad (FileCacheT m)) => MonadFileCache (FileCacheT m) where
+instance (Monad m, Monad (FileCacheT m)) => HasFileCacheTop (FileCacheT m) where
     -- fileCacheTop :: FileCacheT m FilePath
-    fileCacheTop = FileCacheT (ReaderT (return . unFileCacheTop))
+    fileCacheTop = FileCacheT (ReaderT return)
 
 mapFileCacheT :: (m a -> m a) -> FileCacheT m a -> FileCacheT m a
 mapFileCacheT f = FileCacheT . mapReaderT f . unFileCacheT
@@ -141,7 +134,7 @@ instance MonadError e m => MonadError e (FileCacheT m) where
     throwError e = lift $ throwError e
     catchError :: FileCacheT m a -> (e -> FileCacheT m a) -> FileCacheT m a
     catchError (FileCacheT m) c = FileCacheT $ m `catchError` (unFileCacheT . c)
-instance MonadFileCache m => MonadFileCache (ExceptT IOException m) where
+instance HasFileCacheTop m => HasFileCacheTop (ExceptT IOException m) where
     fileCacheTop = lift fileCacheTop
 
 #if 0
@@ -157,7 +150,7 @@ runFileCacheIO fileAcidState fileCacheDir action =
 runFileCacheIO ::
     MonadFileCacheIO e (FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m)))
     => AcidState (Map key val)
-    -> FileCacheTop
+    -> FilePath
     -> FileCacheT (ReaderT (AcidState (Map key val)) (ExceptT e m)) a
     -> m (Either e a)
 runFileCacheIO fileAcidState fileCacheDir action =
@@ -167,21 +160,21 @@ runFileCacheIO fileAcidState fileCacheDir action =
 -- | Like runFileCacheIO, but without the MonadIO superclass.  No acid
 -- state value is passed because you need IO to use acid state.
 -- Typical use is to construct paths to the file cache.
-runFileCache :: FileCacheTop -> FileCacheT m a -> m a
+runFileCache :: FilePath -> FileCacheT m a -> m a
 runFileCache fileCacheDir action = runReaderT (unFileCacheT action) fileCacheDir
 
-runFileCacheT :: FileCacheTop -> FileCacheT m a -> m a
+runFileCacheT :: FilePath -> FileCacheT m a -> m a
 runFileCacheT fileCacheDir action =
     runReaderT (unFileCacheT action) fileCacheDir
 
 -- | This is the class for operations that do require IO.  Almost all
 -- operations require IO, but you can build paths into the cache
 -- without it.
-class (MonadFileCache m, MonadCatch m, MonadError e m, MonadIO m) => MonadFileCacheIO e m where
+class (HasFileCacheTop m, MonadCatch m, MonadError e m, MonadIO m) => MonadFileCacheIO e m where
     ensureFileCacheTop :: m () -- Create the fileCacheTop directory if necessary
 
 -- | Probably the only meaningful instance of MonadFileCacheIO.
-instance (MonadFileCache m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO IOException m where
+instance (HasFileCacheTop m, MonadCatch m, MonadError IOException m, MonadIO m) => MonadFileCacheIO IOException m where
     ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True
 
 -- |The original source if the file is saved, in case
@@ -374,13 +367,13 @@ instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
 
 -- | The full path name for the local cache of the file.
-fileCachePath :: MonadFileCache m => File -> m FilePath
+fileCachePath :: HasFileCacheTop m => File -> m FilePath
 fileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> filePath file
 
-oldFileCachePath :: MonadFileCache m => File -> m FilePath
+oldFileCachePath :: HasFileCacheTop m => File -> m FilePath
 oldFileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> view fileChksum file
 
-fileCacheDir :: MonadFileCache m => File -> m FilePath
+fileCacheDir :: HasFileCacheTop m => File -> m FilePath
 fileCacheDir file = fileCacheTop >>= \ver -> return $ ver <++> fileDir file
 
 fileCachePathIO :: MonadFileCacheIO IOException m => File -> m FilePath
@@ -406,10 +399,11 @@ instance Arbitrary FileSource where
 
 -- | Scan all the file cache directories for files without using
 -- the database.
-allFiles :: FileCacheTop -> MonadIO m => m [FilePath]
-allFiles top = do
-  dirs <- liftIO $ liftIO (listDirectory (unFileCacheTop top))
-  concat <$> mapM (\dir -> let dir' = unFileCacheTop top </> dir in
+allFiles :: MonadFileCacheIO e m => m [FilePath]
+allFiles = do
+  top <- fileCacheTop
+  dirs <- liftIO $ liftIO (listDirectory top)
+  concat <$> mapM (\dir -> let dir' = top </> dir in
                            fmap (dir' </>) <$> liftIO (listDirectory dir')) dirs
 
 listDirectory :: FilePath -> IO [FilePath]

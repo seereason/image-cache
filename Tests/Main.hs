@@ -41,7 +41,7 @@ tests = TestList [Exif.tests, LaTeX.tests, acid1, file1]
 -- The directory that holds the acid state event logs and checkpoints.
 acidDir = "Tests/acid"
 fileAcidDir = "Tests/fileacid"
-fileCacheDir' = FileCacheTop "Tests/filecache"
+fileCacheDir' = "Tests/filecache"
 
 -- The oldest file in /usr/share/doc
 oldfile :: FilePath
@@ -56,7 +56,7 @@ instance MonadCache String String AcidM where
     askAcidState = ask
     build = return . reverse
 
-instance MonadCache String String m => MonadCache String String (ReaderT FileCacheTop m) where
+instance MonadCache String String m => MonadCache String String (ReaderT FilePath m) where
     askAcidState = lift askAcidState
     build = lift . build
 
