@@ -49,7 +49,7 @@ module Appraisal.Image
 
 import Appraisal.FileCache (File(..))
 import Appraisal.Utils.ErrorWithIO (logException)
-import Control.Lens (Iso', iso, Lens', lens, makeLenses, view)
+import Control.Lens (_2, Iso', iso, Lens', lens, makeLenses, view)
 import Control.Monad.Except (catchError)
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -77,7 +77,7 @@ import System.Process.ByteString ()
 import Test.HUnit (assertEqual, Test(..))
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
-import Text.Regex (mkRegex, matchRegex)
+import Text.Regex (Regex, mkRegex, matchRegex)
 
 import Data.Maybe (catMaybes)
 import Text.Parsec
@@ -119,13 +119,13 @@ approx x = approxRational x (1 % 10000)
 -- it only understands strings like "15 % 4", not "15" or "3.5".
 -- If an invalid string is input this returns 0.
 rationalLens :: Lens' Rational String
-rationalLens = lens showRational (\r s -> fromMaybe r (readRationalMaybe s))
+rationalLens = lens showRational (\r s -> either (const r) id (readRationalMaybe s))
 
 rationalIso :: Iso' Rational String
 rationalIso = iso showRational (readRational 0)
     where
       readRational :: Rational -> String -> Rational
-      readRational d = fromMaybe d . readRationalMaybe
+      readRational d = either (const d) id . readRationalMaybe
 
 showRational :: Rational -> String
 showRational x = showSigned (showFFloat Nothing) 0 (fromRat x :: Double) ""
@@ -134,8 +134,8 @@ readRationalMaybe :: Monad m => String -> m Rational
 readRationalMaybe s =
     case (map fst $ filter (null . snd) $ readSigned readFloat s) of
       [r] -> return r
-      [] -> error $ "readRationalMaybe " ++ s
-      _rs -> error $ "readRationalMaybe " ++ s
+      [] -> fail $ "readRationalMaybe " ++ s
+      _rs -> fail $ "readRationalMaybe " ++ s
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
 -- mapRatio f r = f (numerator r) % f (denominator r)
@@ -339,14 +339,13 @@ data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable,
 -- @file -b@.
 getFileType :: P.ByteString -> IO ImageType
 getFileType bytes =
-    readProcessWithExitCode cmd args bytes `catchError` err >>= return . test . (\ (_, out, _) -> out)
+    readProcessWithExitCode cmd args bytes >>= test . view _2
     where
       cmd = "file"
       args = ["-b", "-"]
-      err (e :: IOError) =
-          $logException $ fail ("getFileType Failure: " ++ showCommandForUser cmd args ++ " -> " ++ show e)
-      test :: P.ByteString -> ImageType
-      test s = maybe (error $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") id (foldr (testre (P.toString s)) Nothing tests)
+      test :: Monad m => P.ByteString -> m ImageType
+      test s = maybe (fail $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") return (foldr (testre (P.toString s)) Nothing tests)
+      testre :: String -> (Regex, ImageType) -> Maybe ImageType -> Maybe ImageType
       testre _ _ (Just result) = Just result
       testre s (re, typ) Nothing = maybe Nothing (const (Just typ)) (matchRegex re s)
       -- Any more?
