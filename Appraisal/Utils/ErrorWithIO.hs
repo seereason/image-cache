@@ -15,7 +15,7 @@ module Appraisal.Utils.ErrorWithIO
     ) where
 
 import Control.Monad.Catch (catchJust)
-import Control.Monad.Except (MonadError)
+import Control.Monad.Except (MonadError(catchError, throwError))
 import Control.Monad.Trans (MonadIO, liftIO)
 import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
 import Debug.Show (V(V))

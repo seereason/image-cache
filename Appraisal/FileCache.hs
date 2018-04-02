@@ -34,6 +34,8 @@ module Appraisal.FileCache
     , ensureFileCacheTop
     , FileCacheT
     , runFileCacheT
+    , runFileCacheTop
+    , runFileCache
     -- Types
     , Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
@@ -68,11 +70,10 @@ import Appraisal.Utils.ErrorWithIO ( logAndFail, logException, readCreateProcess
 import Control.Exception ( IOException, try )
 import Control.Lens (_2, makeLenses, over, set, view)
 import Control.Monad ( unless )
---import Control.Monad.Catch ( MonadThrow(throwM) )
 import Control.Monad.Except (ExceptT, MonadError(..), runExceptT)
+import Control.Monad.Identity (Identity, runIdentity)
 import Control.Monad.Reader (mapReaderT, MonadReader(ask, local), ReaderT, runReaderT)
 import Control.Monad.Trans (lift, MonadIO(..), MonadTrans)
---import Data.Acid ( AcidState )
 import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -95,7 +96,7 @@ import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
 import System.Log.Logger ( logM, Priority(DEBUG) )
 import System.Process ( CreateProcess, proc, shell, showCommandForUser )
-import System.Process.ListLike ( readCreateProcessWithExitCode )
+import System.Process.ListLike (readCreateProcessWithExitCode, showCreateProcessForUser)
 import System.Unix.FilePath ( (<++>) )
 import Test.QuickCheck ( Arbitrary(..), oneof )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
@@ -107,6 +108,11 @@ data FileError
     | Description String FileError
     | Failure String
     deriving (Show)
+
+#if !MIN_VERSION_process(1,4,3)
+instance Show CreateProcess where
+  show = showCreateProcessForUser
+#endif
 
 instance Show (V FileError) where show (V x) = show x
 
@@ -123,11 +129,10 @@ class Monad m => HasFileCacheTop m where
 -- without it.
 newtype FileCacheT st e m a = FileCacheT {unFileCacheT :: ReaderT (st, FilePath) (ExceptT e m) a} deriving (Monad, Applicative, Functor)
 
+type FileCache st e a = FileCacheT st e Identity a
+
 instance MonadTrans (FileCacheT st e) where
     lift = FileCacheT . lift . lift
-
-mapFileCacheT :: (ExceptT e m a -> ExceptT e m a) -> FileCacheT st e m a -> FileCacheT st e m a
-mapFileCacheT f = FileCacheT . mapReaderT f . unFileCacheT
 
 instance MonadIO m => MonadIO (FileCacheT st e m) where
     liftIO = FileCacheT . liftIO
@@ -152,6 +157,23 @@ runFileCacheT ::
     -> m (Either e a)
 runFileCacheT fileAcidState (FileCacheTop fileCacheDir) action =
     runExceptT (runReaderT (unFileCacheT action) (fileAcidState, fileCacheDir))
+
+runFileCacheTop ::
+       FileCacheTop
+    -> FileCacheT () e m a
+    -> m (Either e a)
+runFileCacheTop (FileCacheTop fileCacheDir) action =
+    runExceptT (runReaderT (unFileCacheT action) ((), fileCacheDir))
+
+runFileCache ::
+       FileCacheTop
+    -> FileCache () () a
+    -> a
+runFileCache (FileCacheTop fileCacheDir) action =
+    (\(Right x) -> x) $ runIdentity (runExceptT (runReaderT (unFileCacheT action) ((), fileCacheDir)))
+
+mapFileCacheT :: (ExceptT e m a -> ExceptT e m a) -> FileCacheT st e m a -> FileCacheT st e m a
+mapFileCacheT f = FileCacheT . mapReaderT f . unFileCacheT
 
 ensureFileCacheTop :: MonadIO m => FileCacheT st FileError m ()
 ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True . unFileCacheTop
