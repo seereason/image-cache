@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -9,12 +10,13 @@ module Main where
 import Appraisal.AcidCache
 import Appraisal.AcidCacheInst (runMonadCacheT)
 import Appraisal.FileCache
-import Appraisal.FileCacheInst (FileCacheT, runFileCacheT)
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO)
 import Cache (loadImageCache)
-import Control.Exception (catch, SomeException)
+import Control.Exception (catch, IOException, SomeException, try)
+import Control.Monad.Except -- (catchError, ExceptT, throwError)
 import Control.Monad.Reader (ask, ReaderT, runReaderT)
-import Control.Monad.Trans (lift)
+import Control.Monad.Trans (lift, liftIO)
+import Control.Monad.Trans.Either (EitherT(runEitherT))
 import Data.Acid (AcidState)
 import Data.ByteString (ByteString, pack)
 import Data.Char (ord)
@@ -50,7 +52,7 @@ oldfile :: FilePath
 oldfile = "/usr/share/doc/cron/THANKS"
 
 type AcidM = ReaderT (AcidState (Map String String)) IO
-type FileM = FileCacheT AcidM
+type FileM = FileCacheT (AcidState (Map String String)) IOException IO
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
@@ -74,19 +76,35 @@ acid1 = TestCase $ do
                           (Nothing, fromList [], "!dlrow ,olleH", Just "!dlrow ,olleH", fromList [("Hello, world!","!dlrow ,olleH")])
                           (value1, value2, value3, value4, value5)
 
+#if 0
+newtype FIO a = FIO {unFIO :: IO a}
+
+instance Functor FIO where fmap f (FIO a) = FIO (fmap f a)
+instance Applicative FIO where
+    pure = FIO . pure
+    f <*> a = FIO (unFIO f <*> unFIO a)
+instance Monad FIO where a >>= f = FIO (unFIO a >>= unFIO . f)
+instance MonadIO FIO where liftIO = FIO
+#endif
+
+-- runEitherT :: EitherT e m a -> m (Either e a)
+
 file1 :: Test
 file1 = TestCase $ do
           removeRecursiveSafely fileAcidDir
-          value1 <- withValueCache fileAcidDir f
+          Right value1 <- either Left (either Left Right) <$> withValueCache fileAcidDir (runEitherT . f) :: IO (Either FileError (File, ByteString))
           assertEqual "file1" expected value1
     where
-      f :: AcidState (Map String String) -> IO (File, ByteString)
-      f fileAcidState = runMonadCacheT (runFileCacheT fileCacheDir' (fileFromPath return (pure "") oldfile :: FileM (File, ByteString))) fileAcidState
+      f :: AcidState (Map String String) -> EitherT FileError IO (Either FileError (File, ByteString))
+      f fileAcidState =
+          runFileCacheT fileAcidState fileCacheDir'
+            (fileFromPath return (pure "") oldfile :: FileCacheT st FileError (EitherT FileError IO) (File, ByteString))
+             {-liftIO (try (fileFromPath return (pure "") oldfile) >>= either (throwError . IOException) return)-}
       expected :: (File, ByteString)
       expected = (File {_fileSource = Just (ThePath "/usr/share/doc/cron/THANKS"),
-                        _fileChksum = "8f57348732b9755b264ef1c15b0e6485",
-                        _fileMessages = [],
-                        _fileExt = "" },
+                         _fileChksum = "8f57348732b9755b264ef1c15b0e6485",
+                         _fileMessages = [],
+                         _fileExt = "" },
                   (pack $ map (fromIntegral . ord) $ unlines
                    ["15 January 1990",
                     "Paul Vixie",

@@ -54,7 +54,6 @@ Library
   Exposed-modules: Appraisal.AcidCache
                    Appraisal.AcidCacheInst
                    Appraisal.FileCache
-                   Appraisal.FileCacheInst
                    Appraisal.ImageCache
                    Appraisal.ImageCacheInst
                    Appraisal.Exif
@@ -111,6 +110,7 @@ test-suite image-cache-tests
     bytestring,
     containers,
     directory,
+    either,
     filemanip-extra,
     filepath,
     HaTeX,

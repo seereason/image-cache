@@ -81,7 +81,8 @@ openValueCache :: (Show key, Ord key, Typeable key, SafeCopy key, Typeable val, 
                   FilePath -> IO (AcidState (Map key val))
 openValueCache path = openLocalStateFrom path initCacheMap
 
-withValueCache :: (Show key, Ord key, Typeable key, SafeCopy key, Typeable val, Show val, SafeCopy val) =>
+withValueCache :: (Typeable key, Show key, SafeCopy key, Ord key,
+                   Typeable val, Show val, SafeCopy val) =>
                   FilePath -> (AcidState (Map key val) -> IO a) -> IO a
 withValueCache path f = bracket (openValueCache path) createCheckpointAndClose $ f
 

@@ -11,6 +11,7 @@ module Appraisal.Utils.ErrorWithIO
     -- , logExceptionM
     , logException
     , logAndFail
+    , logAndThrow
     ) where
 
 import Control.Exception (throw)
@@ -128,3 +129,6 @@ logException =
 
 logAndFail :: ExpQ
 logAndFail = [|\msg -> liftIO (logM "logFailure" ERROR msg) >> fail msg|]
+
+logAndThrow :: ExpQ
+logAndThrow = [|\e -> liftIO (logM "logFailure" ERROR (show e)) >> throwError e|]

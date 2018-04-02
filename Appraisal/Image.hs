@@ -48,9 +48,9 @@ module Appraisal.Image
     ) where
 
 import Appraisal.FileCache (File(..))
-import Appraisal.Utils.ErrorWithIO (logException)
+--import Appraisal.Utils.ErrorWithIO (logException)
 import Control.Lens (_2, Iso', iso, Lens', lens, makeLenses, view)
-import Control.Monad.Except (catchError)
+--import Control.Monad.Except (catchError)
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
 #else
@@ -59,7 +59,7 @@ import qualified Data.ByteString.UTF8 as P
 import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
-import Data.Maybe (fromMaybe)
+--import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
@@ -71,7 +71,7 @@ import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import System.Exit (ExitCode)
-import System.Process (proc, showCommandForUser)
+import System.Process (proc{-, showCommandForUser-})
 import System.Process.ListLike (readCreateProcess, readProcessWithExitCode)
 import System.Process.ByteString ()
 import Test.HUnit (assertEqual, Test(..))
