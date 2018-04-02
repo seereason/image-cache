@@ -39,22 +39,26 @@ module Appraisal.ImageCache
     , uprightImage
     , scaleImage
     , editImage
+    -- * Instance
+    , runImageCacheIO
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
+import Appraisal.AcidCache ( MonadCache(..) )
 import Appraisal.FileCache (FileCacheT, FileError(..), File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, {-fileFromCmdViaTemp,-} HasFileCacheTop, loadBytes)
+                            fileFromCmd, {-fileFromCmdViaTemp,-} HasFileCacheTop, loadBytes, runFileCacheT)
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), {-ImageCacheMap,-}
-                        fileExtension, imageFileType, PixmapShape(..), {-scaleFromDPI,-} approx)
+                        fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
+import Appraisal.Image ()
 import Appraisal.Utils.ErrorWithIO ({-ensureLink,-} logException, logAndThrow)
 import Control.Exception (IOException, throw)
-import Control.Lens (makeLensesFor, view)
+import Control.Lens (_1, makeLensesFor, view)
 import Control.Monad.Catch (MonadCatch(catch))
 import Control.Monad.Except (catchError, throwError)
+import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
 import Data.ByteString (ByteString)
-import Data.List (intercalate)
 import qualified Data.ByteString.Lazy as P (fromStrict, toStrict)
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -62,9 +66,11 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString.UTF8 as P
 import qualified Data.ByteString as P
 #endif
+import Data.List (intercalate)
+import Data.Maybe ( fromMaybe )
 import Data.Map (Map)
 import Network.URI (URI, uriToString)
-import Numeric (showFFloat)
+import Numeric (fromRat, showFFloat)
 import System.Exit (ExitCode(..))
 import System.Log.Logger (logM, Priority(ERROR))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
@@ -278,3 +284,31 @@ type MonadImageCache m = MonadCache ImageKey ImageFile m
 
 class (MonadImageCache m, MonadFileCacheIO st e m) => MonadImageCacheIO st e m
 -}
+
+-- | Build a MonadCache instance for images on top of a MonadFileCache
+-- instance and a reader for the acid state.
+instance (MonadIO m, MonadCatch m) => MonadCache ImageKey ImageFile (FileCacheT (AcidState (Map ImageKey ImageFile)) FileError m) where
+    askAcidState = view _1 <$> ask
+    build (ImageOriginal img) = return img
+    build (ImageUpright key) = do
+      img <- build key
+      $logException $ uprightImage img
+    build (ImageScaled sz dpi key) = do
+      img <- build key
+      let scale = scaleFromDPI dpi sz img
+      $logException $ scaleImage (fromRat (fromMaybe 1 scale)) img
+    build (ImageCropped crop key) = do
+      img <- build key
+      $logException $ editImage crop img
+
+-- | Given a file cache monad and an opened image cache database,
+-- perform an image cache action.  This is just 'runFileCache'
+-- with its arguments reversed to match an older version of the
+-- function.
+runImageCacheIO ::
+    (MonadIO m)
+    => AcidState (Map key val)
+    -> FilePath
+    -> FileCacheT (AcidState (Map key val)) e m a
+    -> m (Either e a)
+runImageCacheIO = runFileCacheT

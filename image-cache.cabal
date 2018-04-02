@@ -52,10 +52,8 @@ Library
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP
   Exposed-modules: Appraisal.AcidCache
-                   Appraisal.AcidCacheInst
                    Appraisal.FileCache
                    Appraisal.ImageCache
-                   Appraisal.ImageCacheInst
                    Appraisal.Exif
                    Appraisal.Utils.ErrorWithIO
                    Appraisal.Image

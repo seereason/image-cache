@@ -8,7 +8,6 @@
 module Main where
 
 import Appraisal.AcidCache
-import Appraisal.AcidCacheInst (runMonadCacheT)
 import Appraisal.FileCache
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO)
 import Cache (loadImageCache)
@@ -75,17 +74,6 @@ acid1 = TestCase $ do
           assertEqual "acid1"
                           (Nothing, fromList [], "!dlrow ,olleH", Just "!dlrow ,olleH", fromList [("Hello, world!","!dlrow ,olleH")])
                           (value1, value2, value3, value4, value5)
-
-#if 0
-newtype FIO a = FIO {unFIO :: IO a}
-
-instance Functor FIO where fmap f (FIO a) = FIO (fmap f a)
-instance Applicative FIO where
-    pure = FIO . pure
-    f <*> a = FIO (unFIO f <*> unFIO a)
-instance Monad FIO where a >>= f = FIO (unFIO a >>= unFIO . f)
-instance MonadIO FIO where liftIO = FIO
-#endif
 
 -- runEitherT :: EitherT e m a -> m (Either e a)
 
