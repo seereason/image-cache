@@ -28,6 +28,7 @@
 module Appraisal.FileCache
     ( FileError(..)
       -- * Monad and Class
+    , FileCacheTop(..)
     , HasFileCacheTop(fileCacheTop)
     -- , MonadFileCacheIO
     , ensureFileCacheTop
@@ -106,11 +107,13 @@ data FileError
     | Failure String
     deriving (Show)
 
+newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
+
 -- | Class of monads with a 'FilePath' value containing the top
 -- of a 'FileCache'.
 -- paths do not.  So MonadIO is not a superclass here.
 class Monad m => HasFileCacheTop m where
-    fileCacheTop :: m FilePath
+    fileCacheTop :: m FileCacheTop
 
 -- | This is the class for operations that do require IO.  Almost all
 -- operations require IO, but you can build paths into the cache
@@ -123,8 +126,6 @@ instance MonadTrans (FileCacheT st e) where
 mapFileCacheT :: (ExceptT e m a -> ExceptT e m a) -> FileCacheT st e m a -> FileCacheT st e m a
 mapFileCacheT f = FileCacheT . mapReaderT f . unFileCacheT
 
--- type MonadFileCacheIO st e m = (MonadIO m, HasFileCacheTop m, MonadReader (st, FilePath) m, MonadError e m, MonadCatch m)
-
 instance MonadIO m => MonadIO (FileCacheT st e m) where
     liftIO = FileCacheT . liftIO
 
@@ -136,7 +137,7 @@ instance (MonadThrow m, MonadCatch m) => MonadCatch (FileCacheT st e m) where
     catch (FileCacheT m) c = FileCacheT $ m `catch` (unFileCacheT . c)
 
 instance (Monad m, MonadReader (st, FilePath) (FileCacheT st e m)) => HasFileCacheTop (FileCacheT st e m) where
-    fileCacheTop = view _2 <$> ask
+    fileCacheTop = (FileCacheTop . view _2) <$> ask
 
 instance Monad m {-MonadError e m-} => MonadError e (FileCacheT st e m) where
     throwError :: e -> FileCacheT st e m a
@@ -157,7 +158,7 @@ runFileCacheT fileAcidState fileCacheDir action =
     runExceptT (runReaderT (unFileCacheT action) (fileAcidState, fileCacheDir))
 
 ensureFileCacheTop :: MonadIO m => FileCacheT st FileError m ()
-ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True
+ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True . unFileCacheTop
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -285,7 +286,7 @@ fileFromCmdViaTemp ::
     -> String
     -> FileCacheT st FileError m File
 fileFromCmdViaTemp ext cmd = do
-  dir <- fileCacheTop
+  FileCacheTop dir <- fileCacheTop
   (tmp, h) <- liftIO (openBinaryTempFile dir "scaled")
   let cmd' = cmd ++ " > " ++ tmp
   liftIO (makeReadableAndClose h)
@@ -363,13 +364,13 @@ instance Pretty File where
 
 -- | The full path name for the local cache of the file.
 fileCachePath :: HasFileCacheTop m => File -> m FilePath
-fileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> filePath file
+fileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
 
 oldFileCachePath :: HasFileCacheTop m => File -> m FilePath
-oldFileCachePath file = fileCacheTop >>= \ver -> return $ ver <++> view fileChksum file
+oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> view fileChksum file
 
 fileCacheDir :: HasFileCacheTop m => File -> m FilePath
-fileCacheDir file = fileCacheTop >>= \ver -> return $ ver <++> fileDir file
+fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
 
 fileCachePathIO :: MonadIO m => File -> FileCacheT st FileError m FilePath
 fileCachePathIO file = do
@@ -396,7 +397,7 @@ instance Arbitrary FileSource where
 -- the database.
 allFiles :: (MonadIO m, MonadReader (st, FilePath) (FileCacheT st e m)) => FileCacheT st e m [FilePath]
 allFiles = do
-  top <- fileCacheTop
+  FileCacheTop top <- fileCacheTop
   dirs <- liftIO $ liftIO (listDirectory top)
   concat <$> mapM (\dir -> let dir' = top </> dir in
                            fmap (dir' </>) <$> liftIO (listDirectory dir')) dirs
