@@ -44,7 +44,7 @@ tests = TestList [Exif.tests, LaTeX.tests, acid1, file1]
 -- The directory that holds the acid state event logs and checkpoints.
 acidDir = "Tests/acid"
 fileAcidDir = "Tests/fileacid"
-fileCacheDir' = "Tests/filecache"
+fileCacheDir' = FileCacheTop "Tests/filecache"
 
 -- The oldest file in /usr/share/doc
 oldfile :: FilePath

@@ -14,8 +14,8 @@ module Appraisal.Utils.ErrorWithIO
     , logAndThrow
     ) where
 
-import Control.Exception (throw)
-import Control.Monad.Catch (catch, catchJust, SomeException)
+import Control.Monad.Catch (catchJust)
+import Control.Monad.Except (MonadError)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
 import Debug.Show (V(V))
@@ -123,9 +123,9 @@ __LOC__ = lift =<< location
 -- exception.
 logException :: ExpQ
 logException =
-    [| \ action -> let f :: MonadIO m => SomeException -> m a
-                       f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throw e in
-                   action `catch` f |]
+    [| \ action -> let f :: (MonadIO m, MonadError e m, Show (V e)) => e -> m a
+                       f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throwError e in
+                   action `catchError` f |]
 
 logAndFail :: ExpQ
 logAndFail = [|\msg -> liftIO (logM "logFailure" ERROR msg) >> fail msg|]

@@ -68,7 +68,7 @@ import Appraisal.Utils.ErrorWithIO ( logAndFail, logException, readCreateProcess
 import Control.Exception ( IOException, try )
 import Control.Lens (_2, makeLenses, over, set, view)
 import Control.Monad ( unless )
-import Control.Monad.Catch ( MonadCatch(catch), MonadThrow(throwM) )
+--import Control.Monad.Catch ( MonadThrow(throwM) )
 import Control.Monad.Except (ExceptT, MonadError(..), runExceptT)
 import Control.Monad.Reader (mapReaderT, MonadReader(ask, local), ReaderT, runReaderT)
 import Control.Monad.Trans (lift, MonadIO(..), MonadTrans)
@@ -85,6 +85,7 @@ import Data.Generics ( Data(..), Typeable )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..) )
 import Data.THUnify.Serialize ( deriveSerialize )
+import Debug.Show (V(V))
 import Language.Haskell.TH.Lift ( deriveLiftMany )
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
@@ -106,6 +107,8 @@ data FileError
     | Description String FileError
     | Failure String
     deriving (Show)
+
+instance Show (V FileError) where show (V x) = show x
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
@@ -129,17 +132,10 @@ mapFileCacheT f = FileCacheT . mapReaderT f . unFileCacheT
 instance MonadIO m => MonadIO (FileCacheT st e m) where
     liftIO = FileCacheT . liftIO
 
-instance MonadThrow m => MonadThrow (FileCacheT st e m) where
-    throwM e = lift $ throwM e
-
-instance (MonadThrow m, MonadCatch m) => MonadCatch (FileCacheT st e m) where
-    -- catch :: forall e a. Exception e => FileCacheT st e m a -> (e -> FileCacheT st e m a) -> FileCacheT st e m a
-    catch (FileCacheT m) c = FileCacheT $ m `catch` (unFileCacheT . c)
-
 instance (Monad m, MonadReader (st, FilePath) (FileCacheT st e m)) => HasFileCacheTop (FileCacheT st e m) where
     fileCacheTop = (FileCacheTop . view _2) <$> ask
 
-instance Monad m {-MonadError e m-} => MonadError e (FileCacheT st e m) where
+instance Monad m => MonadError e (FileCacheT st e m) where
     throwError :: e -> FileCacheT st e m a
     throwError e = FileCacheT $ throwError e
     catchError :: FileCacheT st e m a -> (e -> FileCacheT st e m a) -> FileCacheT st e m a
@@ -151,10 +147,10 @@ instance Monad m => MonadReader (st, FilePath) (FileCacheT st e m) where
 
 runFileCacheT ::
        st
-    -> FilePath
+    -> FileCacheTop
     -> FileCacheT st e m a
     -> m (Either e a)
-runFileCacheT fileAcidState fileCacheDir action =
+runFileCacheT fileAcidState (FileCacheTop fileCacheDir) action =
     runExceptT (runReaderT (unFileCacheT action) (fileAcidState, fileCacheDir))
 
 ensureFileCacheTop :: MonadIO m => FileCacheT st FileError m ()
@@ -261,7 +257,7 @@ fileFromCmd byteStringInfo toFileExt cmd = do
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
-    forall st m a. (MonadIO m, MonadCatch m)
+    forall st m a. (MonadIO m{-, MonadCatch m-})
     => (P.ByteString -> m a)
     -> (a -> String)
     -> String

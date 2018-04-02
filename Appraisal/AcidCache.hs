@@ -18,6 +18,8 @@ module Appraisal.AcidCache
       openValueCache
     , withValueCache
     -- * Cached map events
+    , AcidVal
+    , AcidKey
     , PutValue(..)
     , PutValues(..)
     , LookValue(..)

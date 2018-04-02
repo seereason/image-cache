@@ -45,7 +45,7 @@ module Appraisal.ImageCache
 
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.AcidCache ( MonadCache(..) )
-import Appraisal.FileCache (FileCacheT, FileError(..), File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
+import Appraisal.FileCache (FileCacheT, FileCacheTop(..), FileError(..), File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, {-fileFromCmdViaTemp,-} HasFileCacheTop, loadBytes, runFileCacheT)
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), {-ImageCacheMap,-}
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
@@ -53,7 +53,7 @@ import Appraisal.Image ()
 import Appraisal.Utils.ErrorWithIO ({-ensureLink,-} logException, logAndThrow)
 import Control.Exception (IOException, throw)
 import Control.Lens (_1, makeLensesFor, view)
-import Control.Monad.Catch (MonadCatch(catch))
+--import Control.Monad.Catch (MonadCatch(catch))
 import Control.Monad.Except (catchError, throwError)
 import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.Trans (liftIO, MonadIO)
@@ -84,20 +84,20 @@ imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
 imageFilePath img = fileCachePath (view imageFile img)
 
 -- | Find or create a cached image matching this ByteString.
-imageFileFromBytes :: (MonadIO m, MonadCatch m) => ByteString -> FileCacheT st FileError m ImageFile
+imageFileFromBytes :: MonadIO m => ByteString -> FileCacheT st FileError m ImageFile
 imageFileFromBytes bs = fileFromBytes (liftIO . getFileType) fileExtension bs >>= makeImageFile
 
 -- | Find or create a cached image file by downloading from this URI.
-imageFileFromURI :: (MonadIO m, MonadCatch m) => URI -> FileCacheT st FileError m ImageFile
+imageFileFromURI :: MonadIO m => URI -> FileCacheT st FileError m ImageFile
 imageFileFromURI uri = fileFromURI (liftIO . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
-imageFileFromPath :: (MonadIO m, MonadCatch m) => FilePath -> FileCacheT st FileError m ImageFile
+imageFileFromPath :: MonadIO m => FilePath -> FileCacheT st FileError m ImageFile
 imageFileFromPath path = fileFromPath (liftIO . getFileType) fileExtension path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
-makeImageFile :: forall st m. (MonadIO m, MonadCatch m) => (File, ImageType) -> FileCacheT st FileError m ImageFile
+makeImageFile :: forall st m. MonadIO m => (File, ImageType) -> FileCacheT st FileError m ImageFile
 makeImageFile (file, ityp) = $logException $ do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
@@ -105,7 +105,7 @@ makeImageFile (file, ityp) = $logException $ do
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
-imageFileFromType :: (MonadIO m, MonadCatch m) => FilePath -> File -> ImageType -> FileCacheT st FileError m ImageFile
+imageFileFromType :: MonadIO m => FilePath -> File -> ImageType -> FileCacheT st FileError m ImageFile
 imageFileFromType path file typ = do
   -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
   let cmd = case typ of
@@ -122,7 +122,7 @@ imageFileFromType path file typ = do
     ExitFailure _ -> error $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
 
 -- | Helper function to load a PNM file.
-imageFileFromPnmfileOutput :: (MonadIO m, MonadCatch m) => File -> ImageType -> P.ByteString -> m ImageFile
+imageFileFromPnmfileOutput :: MonadIO m => File -> ImageType -> P.ByteString -> m ImageFile
 imageFileFromPnmfileOutput file typ out =
         case matchRegex pnmFileRegex (P.toString out) of
           Just [width, height, _, maxval] ->
@@ -143,7 +143,7 @@ imageFileFromPnmfileOutput file typ out =
 -- | Find or create a version of some image with its orientation
 -- corrected based on the EXIF orientation flag.  If the image is
 -- already upright this will return the original ImageFile.
-uprightImage :: (MonadIO m, MonadCatch m) => ImageFile -> FileCacheT st FileError m ImageFile
+uprightImage :: MonadIO m => ImageFile -> FileCacheT st FileError m ImageFile
 uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
   bs <- $logException $ loadBytes (view imageFile orig)
@@ -153,7 +153,7 @@ uprightImage orig = do
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
 -- of the old other than size.
-scaleImage :: forall st m. (MonadIO m, MonadCatch m) => Double -> ImageFile -> FileCacheT st FileError m ImageFile
+scaleImage :: forall st m. MonadIO m => Double -> ImageFile -> FileCacheT st FileError m ImageFile
 scaleImage scale orig | approx (toRational scale) == 1 = return orig
 scaleImage scale orig = $logException $ do
     path <- fileCachePath (view imageFile orig)
@@ -178,7 +178,7 @@ scaleImage scale orig = $logException $ do
 
 -- | Find or create a cached image which is a cropped version of
 -- another.
-editImage :: (MonadIO m, MonadCatch m) => ImageCrop -> ImageFile -> FileCacheT st FileError m ImageFile
+editImage :: MonadIO m => ImageCrop -> ImageFile -> FileCacheT st FileError m ImageFile
 editImage crop file = $logException $
     case commands of
       [] ->
@@ -230,7 +230,7 @@ pipeline :: [CreateProcess] -> P.ByteString -> IO P.ByteString
 pipeline [] bytes = return bytes
 pipeline (p : ps) bytes =
     (readCreateProcessWithExitCode p bytes >>= doResult)
-      `catch` (\ (e :: IOException) -> doException (showCreateProcessForUser p ++ " -> " ++ show e) e)
+      `catchError` (\ (e :: IOException) -> doException (showCreateProcessForUser p ++ " -> " ++ show e) e)
     where
       doResult (ExitSuccess, out, _) = pipeline ps out
       doResult (code, _, err) = let message = (showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in doException message (userError message)
@@ -287,7 +287,7 @@ class (MonadImageCache m, MonadFileCacheIO st e m) => MonadImageCacheIO st e m
 
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
-instance (MonadIO m, MonadCatch m) => MonadCache ImageKey ImageFile (FileCacheT (AcidState (Map ImageKey ImageFile)) FileError m) where
+instance MonadIO m => MonadCache ImageKey ImageFile (FileCacheT (AcidState (Map ImageKey ImageFile)) FileError m) where
     askAcidState = view _1 <$> ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do
@@ -308,7 +308,7 @@ instance (MonadIO m, MonadCatch m) => MonadCache ImageKey ImageFile (FileCacheT 
 runImageCacheIO ::
     (MonadIO m)
     => AcidState (Map key val)
-    -> FilePath
+    -> FileCacheTop
     -> FileCacheT (AcidState (Map key val)) e m a
     -> m (Either e a)
 runImageCacheIO = runFileCacheT
