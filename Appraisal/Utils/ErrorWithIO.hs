@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, ScopedTypeVariables, TemplateHaskell #-}
+{-# LANGUAGE CPP, FlexibleContexts, MultiParamTypeClasses, ScopedTypeVariables, TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 module Appraisal.Utils.ErrorWithIO
     ( ErrorWithIO
@@ -8,16 +8,19 @@ module Appraisal.Utils.ErrorWithIO
     , ensureLink
     , readCreateProcess'
     , readCreateProcessWithExitCode'
+#if 0
     -- , logExceptionM
     , logException
     , logAndFail
     , logAndThrow
+#endif
     ) where
 
 import Control.Monad.Catch (catchJust)
 import Control.Monad.Except (MonadError(catchError, throwError))
 import Control.Monad.Trans (MonadIO, liftIO)
 import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
+import Data.String (fromString)
 import Debug.Show (V(V))
 import GHC.IO.Exception (IOException(ioe_description))
 import Language.Haskell.TH
@@ -67,54 +70,7 @@ instance Pretty CmdSpec where
     pPrint (ShellCommand s) = text s
     pPrint (RawCommand path args) = text (showCommandForUser path args)
 
-{-
-instance Lift Exp where
-    lift (VarE name) =
-        recConE 'VarE ...
-    lift (ConE Name) =
-        recConE 'ConE ...
-    lift (LitE Lit) =
-        recConE 'LitE ...
-    lift (AppE Exp Exp) =
-        recConE 'AppE ...
-    lift (InfixE (Maybe Exp) Exp (Maybe Exp)) =
-        recConE 'InfixE ...
-    lift (UInfixE Exp Exp Exp) =
-        recConE 'UInfixE ...
-    lift (ParensE Exp) =
-        recConE 'ParensE ...
-    lift (LamE [Pat] Exp) =
-        recConE 'LamE ..
-    lift (LamCaseE [Match]) =
-        recConE 'LamCaseE ..
-    lift (TupE [Exp]) =
-        recConE 'TupE ..
-    lift (UnboxedTupE [Exp]) =
-        recConE 'UnboxedTupE ..
-    lift (CondE Exp Exp Exp) =
-        recConE 'CondE ..
-    lift (MultiIfE [(Guard, Exp)]) =
-        recConE 'MultiIfE ..
-    lift (LetE [Dec] Exp) =
-        recConE 'LetE ..
-    lift (CaseE Exp [Match]) =
-        recConE 'CaseE ..
-    lift (DoE [Stmt]) =
-        recConE 'DoE ..
-    lift (CompE [Stmt]) =
-        recConE 'CompE ..
-    lift (ArithSeqE Range) =
-        recConE 'ArithSeqE ..
-    lift (ListE [Exp]) =
-        recConE 'ListE ..
-    lift (SigE Exp Type) =
-        recConE 'SigE ..
-    lift (RecConE Name [FieldExp]) =
-        recConE 'RecConE ..
-    lift (RecUpdE Exp [FieldExp]) =
-        recConE 'RecUpdE ..
--}
-
+#if 0
 __LOC__ :: Q Exp
 __LOC__ = lift =<< location
 
@@ -123,12 +79,12 @@ __LOC__ = lift =<< location
 -- exception.
 logException :: ExpQ
 logException =
-    [| \ action -> let f :: (MonadIO m, MonadError e m, Show (V e)) => e -> m a
-                       f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throwError e in
+    [| \ action -> let f e = liftIOToF (logM "logException" ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throwError e in
                    action `catchError` f |]
 
 logAndFail :: ExpQ
-logAndFail = [|\msg -> liftIO (logM "logFailure" ERROR msg) >> fail msg|]
+logAndFail = [|\s -> liftIOToF (logM "logFailure" ERROR (show e)) >> throwError (fromString s)|]
 
 logAndThrow :: ExpQ
-logAndThrow = [|\e -> liftIO (logM "logFailure" ERROR (show e)) >> throwError e|]
+logAndThrow = [|\e -> liftIOToF (logM "logFailure" ERROR (show e)) >> throwError e|]
+#endif
