@@ -71,7 +71,12 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
-import Control.Exception (ErrorCall(ErrorCallWithLocation), Exception(fromException), IOException, SomeException, throw, try)
+#if MIN_VERSION_base(4,9,0)
+import Control.Exception (ErrorCall(ErrorCallWithLocation))
+#else
+import Control.Exception (ErrorCall(ErrorCall))
+#endif
+import Control.Exception (Exception(fromException), IOException, SomeException, throw, try)
 import Control.Lens (_2, makeLenses, over, set, view)
 import Control.Monad ( unless )
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
@@ -92,7 +97,7 @@ import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..) )
 import Data.String (IsString(fromString))
 import Data.THUnify.Serialize ( deriveSerialize )
 import Debug.Show (V(V))
-import Language.Haskell.TH (ExpQ, Exp, location, Q)
+import Language.Haskell.TH (ExpQ, Exp, location, pprint, Q)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany, lift)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
@@ -169,14 +174,18 @@ liftIOToF io = (FileCacheT . liftIO . runExceptT . withExceptT toFileError . Exc
       logErrorCall :: IO (Either SomeException a) -> IO (Either SomeException a)
       logErrorCall x =
           x >>= either (\e -> case fromException e :: Maybe ErrorCall of
+#if MIN_VERSION_base(4,9,0)
                                 Just (ErrorCallWithLocation msg loc) -> logM "FileCache.hs" ERROR (show loc ++ ": " ++ msg) >> return (Left e)
+#else
+                                Just (Control.Exception.ErrorCall msg) -> logM "FileCache.hs" ERROR msg >> return (Left e)
+#endif
                                 _ -> return (Left e)) (return . Right)
       toFileError :: SomeException -> FileError
       toFileError e =
           maybe (throw e)
                 id
                 (msum [fmap IOException (fromException e :: Maybe IOException),
-                       fmap ErrorCall (fromException e :: Maybe ErrorCall)])
+                       fmap Appraisal.FileCache.ErrorCall (fromException e :: Maybe ErrorCall)])
 
 #else
 liftIOToF io = (f5 io) >>= liftEither
