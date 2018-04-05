@@ -20,7 +20,7 @@ import System.Process.ByteString.Lazy (readCreateProcessWithExitCode)
 -- image into the "normal" orientation and change the orientation flag
 -- to 1.  The result is the new bytestring.  If the old bytestring was
 -- already normalized, or absolutely anything else goes wrong, the
--- result is Nothing.  This means the original bytestring should be used.
+-- result is a Left.  This means the original bytestring should be used.
 --
 -- This is an IO operation because it runs jpegtran(1) to perform the
 -- transformation on the jpeg image.
