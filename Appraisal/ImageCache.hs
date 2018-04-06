@@ -68,7 +68,7 @@ import qualified Data.ByteString as P
 import Data.List (intercalate)
 import Data.Maybe ( fromMaybe )
 import Data.Map (Map)
-import Language.Haskell.TH (pprint)
+--import Language.Haskell.TH (pprint)
 import Network.URI (URI, uriToString)
 import Numeric (fromRat, showFFloat)
 import System.Exit (ExitCode(..))
