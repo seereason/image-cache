@@ -27,6 +27,7 @@
 
 module Appraisal.FileCache
     ( FileError(..)
+    , logFileError
       -- * Monad and Class
     , FileCacheTop(..)
     , HasFileCacheTop(fileCacheTop)
@@ -136,6 +137,13 @@ instance Show CreateProcess where
 #endif
 
 instance Show (V FileError) where show (V x) = show x
+
+logFileError :: String -> FileError -> IO ()
+logFileError prefix (Description s e) = logM prefix ERROR (" - error description: " ++ s) >> logFileError prefix e
+logFileError prefix (FunctionName n e) = logM prefix ERROR (" - error function " ++ n) >> logFileError prefix e
+logFileError prefix (IOException e) = logM prefix ERROR (" - IO exception: " ++ show e)
+logFileError prefix (Failure s) = logM prefix ERROR (" - failure: " ++ s)
+logFileError prefix (Command cmd code) = logM prefix ERROR (" - shell command failed: " ++ show cmd ++ " -> " ++ show code)
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
