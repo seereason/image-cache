@@ -12,6 +12,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveFunctor, DeriveGeneric, DeriveAnyClass #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -96,8 +97,9 @@ import Data.Generics ( Data(..), Typeable )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..) )
 import Data.String (IsString(fromString))
-import Data.THUnify.Serialize ( deriveSerialize )
+import Data.Serialize (Serialize)
 import Debug.Show (V(V))
+import GHC.Generics (Generic)
 import Language.Haskell.TH (ExpQ, Exp, location, pprint, Q)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany, lift)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
@@ -285,7 +287,7 @@ ensureFileCacheTop = fileCacheTop >>= liftIOToF . createDirectoryIfMissing True 
 data FileSource
     = TheURI String
     | ThePath FilePath
-    deriving (Show, Read, Eq, Ord, Data, Typeable)
+    deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
@@ -296,13 +298,13 @@ data File
            , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
-           } deriving (Show, Read, Eq, Ord, Data, Typeable)
+           } deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
 
 instance Migrate File where
     type MigrateFrom File = File_1
     migrate (File_1 s c m) = File s c m ""
 
-data File_1 = File_1 (Maybe FileSource) Checksum [String] deriving (Show, Read, Eq, Ord, Data, Typeable)
+data File_1 = File_1 (Maybe FileSource) Checksum [String] deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
 
 $(makeLenses ''File)
 
@@ -553,6 +555,3 @@ $(TH.deriveLiftMany [
    ''URI,
    ''URIAuth,
    ''File])
-$(deriveSerialize [t|FileSource|])
-$(deriveSerialize [t|File|])
-$(deriveSerialize [t|File_1|])

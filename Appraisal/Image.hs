@@ -63,9 +63,10 @@ import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
+import Data.Serialize (Serialize)
 import Data.Text (unpack)
 import Data.Text.Encoding (decodeUtf8)
-import Data.THUnify.Serialize (deriveSerialize)
+import GHC.Generics (Generic)
 import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.PprLib (ptext)
@@ -89,7 +90,7 @@ data ImageSize_1
       { _dim_1 :: Dimension
       , _size_1 :: Double
       , _units_1 :: Units
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 instance Migrate ImageSize where
     type MigrateFrom ImageSize = ImageSize_1
@@ -145,7 +146,7 @@ data ImageSize
       { dim :: Dimension
       , size :: Rational
       , units :: Units
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
@@ -155,13 +156,13 @@ data Dimension_0
     | TheWidth_0
     | TheArea_0
     | Invalid String
-    deriving (Show, Read, Eq, Ord, Typeable, Data)
+    deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 data Dimension
     = TheHeight
     | TheWidth
     | TheArea
-    deriving (Show, Read, Eq, Ord, Typeable, Data)
+    deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 instance Migrate Dimension where
     type MigrateFrom Dimension = Dimension_0
@@ -174,7 +175,7 @@ data Units
     = Inches
     | Cm
     | Points
-    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded)
+    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded, Generic, Serialize)
 
 -- |This describes the cropping and rotation of an image.
 data ImageCrop
@@ -184,7 +185,7 @@ data ImageCrop
       , leftCrop :: Int
       , rightCrop :: Int
       , rotation :: Int         -- 0, 90, 180, 270
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 instance Default ImageCrop where
     def = ImageCrop 0 0 0 0 0
@@ -270,7 +271,7 @@ instance Default (SaneSize ImageSize) where
 
 -- | A wrapper type to suggest that lens_saneSize has been applied to
 -- the ImageSize within.
-newtype SaneSize a = SaneSize {unSaneSize :: a} deriving (Read, Show, Eq, Ord, Typeable, Data)
+newtype SaneSize a = SaneSize {unSaneSize :: a} deriving (Read, Show, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 tests :: Test
 tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
@@ -316,11 +317,11 @@ data ImageFile
       , _imageFileWidth :: Int
       , _imageFileHeight :: Int
       , _imageFileMaxVal :: Int
-      } deriving (Show, Read, Eq, Ord, Data, Typeable)
+      } deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
 
 data ImageFile_0
     = ImageFile_0 File ImageType Int Int Int
-      deriving (Show, Read, Eq, Ord, Data, Typeable)
+      deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
 
 -- This migration just corrects the value of _fileExt, which is
 -- a function of the image file type.
@@ -333,7 +334,7 @@ instance Migrate ImageFile where
                                  PPM -> ".ppm"
                                  PNG -> ".png"}) t w h m
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
+data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data, Generic, Serialize)
 
 -- | Helper function to learn the 'ImageType' of a file by runing
 -- @file -b@.
@@ -383,7 +384,7 @@ data ImageKey_1
     -- ^ A resized version of another image
     | ImageUpright_1 ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data)
+    deriving (Eq, Ord, Read, Show, Typeable, Data, Generic, Serialize)
 
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
@@ -396,7 +397,7 @@ data ImageKey
     -- ^ A resized version of another image
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data)
+    deriving (Eq, Ord, Read, Show, Typeable, Data, Generic, Serialize)
 
 instance Migrate ImageKey where
     type MigrateFrom ImageKey = ImageKey_1
@@ -582,19 +583,6 @@ parseExtractBBOutput = do
 
       creationDate :: Parsec String () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
-
-$(deriveSerialize [t|ImageSize_1|])
-$(deriveSerialize [t|ImageSize|])
-$(deriveSerialize [t|SaneSize ImageSize|])
-$(deriveSerialize [t|Dimension_0|])
-$(deriveSerialize [t|Dimension|])
-$(deriveSerialize [t|Units|])
-$(deriveSerialize [t|ImageCrop|])
-$(deriveSerialize [t|ImageKey_1|])
-$(deriveSerialize [t|ImageKey|])
-$(deriveSerialize [t|ImageType|])
-$(deriveSerialize [t|ImageFile|])
-$(deriveSerialize [t|ImageFile_0|])
 
 $(deriveSafeCopy 1 'base ''ImageSize_1)
 $(deriveSafeCopy 2 'extension ''ImageSize)
