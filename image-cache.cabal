@@ -90,7 +90,6 @@ Library
     text,
     th-orphans >= 0.9,
     th-lift,
-    th-unify-clients,
     transformers,
     unix,
     Unixutils,
