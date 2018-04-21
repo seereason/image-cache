@@ -48,7 +48,7 @@ flag pretty-112
 
 Library
   Hs-Source-Dirs: .
-  GHC-Options: -Wall -fno-warn-name-shadowing
+  GHC-Options: -Wall -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP
   Exposed-modules: Appraisal.AcidCache
