@@ -21,6 +21,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -73,6 +74,7 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.FileCacheT
+import Appraisal.Serialize (deriveSerialize)
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
 import Control.Exception (try)
 import Control.Lens (makeLenses, over, set, view)
@@ -91,9 +93,7 @@ import Data.Generics ( Data(..), Typeable )
 --import Data.Map ( Map )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..) )
-import Data.Serialize (Serialize)
 import Debug.Show (V(V))
-import GHC.Generics (Generic)
 import Language.Haskell.TH (ExpQ, Exp, location, pprint, Q)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany, lift)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
@@ -119,7 +119,7 @@ import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 data FileSource
     = TheURI String
     | ThePath FilePath
-    deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
+    deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
@@ -130,13 +130,13 @@ data File
            , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
-           } deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
+           } deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 instance Migrate File where
     type MigrateFrom File = File_1
     migrate (File_1 s c m) = File s c m ""
 
-data File_1 = File_1 (Maybe FileSource) Checksum [String] deriving (Show, Read, Eq, Ord, Data, Typeable, Generic, Serialize)
+data File_1 = File_1 (Maybe FileSource) Checksum [String] deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 $(makeLenses ''File)
 
@@ -387,3 +387,6 @@ $(TH.deriveLiftMany [
    ''URI,
    ''URIAuth,
    ''File])
+$(deriveSerialize [t|FileSource|])
+$(deriveSerialize [t|File|])
+$(deriveSerialize [t|File_1|])

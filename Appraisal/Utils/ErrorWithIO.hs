@@ -17,19 +17,13 @@ module Appraisal.Utils.ErrorWithIO
     ) where
 
 import Control.Monad.Catch (catchJust)
-import Control.Monad.Except (MonadError(catchError, throwError))
-import Control.Monad.Trans (MonadIO, liftIO)
 import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
-import Data.String (fromString)
-import Debug.Show (V(V))
 import GHC.IO.Exception (IOException(ioe_description))
-import Language.Haskell.TH
 import Language.Haskell.TH.Instances ({- instance Lift Loc -})
-import Language.Haskell.TH.Syntax
 import Prelude hiding (error, undefined, log)
 import System.Exit (ExitCode(..))
 import System.IO.Error (isDoesNotExistError)
-import System.Log.Logger (logM, Priority(DEBUG, ERROR))
+import System.Log.Logger (logM, Priority(DEBUG))
 import qualified System.Posix.Files as F
 import System.Process
 import System.Process.ListLike as LL (ListLikeProcessIO, ProcessResult, readCreateProcessWithExitCode, readCreateProcess)

@@ -54,9 +54,7 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString as P
 #endif
 import Data.String (IsString(fromString))
-import Data.Serialize (Serialize)
 import Debug.Show (V(V))
-import GHC.Generics (Generic)
 import System.Directory (createDirectoryIfMissing)
 import System.Exit ( ExitCode(..) )
 import System.Log.Logger ( logM, Priority(ERROR) )
@@ -93,6 +91,10 @@ logFileError prefix (FunctionName n e) = logM prefix ERROR (" - error function "
 logFileError prefix (IOException e) = logM prefix ERROR (" - IO exception: " ++ show e)
 logFileError prefix (Failure s) = logM prefix ERROR (" - failure: " ++ s)
 logFileError prefix (Command cmd code) = logM prefix ERROR (" - shell command failed: " ++ show cmd ++ " -> " ++ show code)
+logFileError prefix (ErrorCall e) = logM prefix ERROR (" - error call: " ++ show e)
+logFileError prefix (CommandInput bs e) = logM prefix ERROR (" - command input: " ++ show (P.take 1000 bs)) >> logFileError prefix e
+logFileError prefix (CommandOut bs e) = logM prefix ERROR (" - command stdout: " ++ show (P.take 1000 bs)) >> logFileError prefix e
+logFileError prefix (CommandErr bs e) = logM prefix ERROR (" - command stderr: " ++ show (P.take 1000 bs)) >> logFileError prefix e
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 

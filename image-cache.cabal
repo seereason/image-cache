@@ -51,13 +51,15 @@ Library
   GHC-Options: -Wall -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP
-  Exposed-modules: Appraisal.AcidCache
-                   Appraisal.FileCacheT
-                   Appraisal.FileCache
-                   Appraisal.ImageCache
-                   Appraisal.Exif
-                   Appraisal.Utils.ErrorWithIO
-                   Appraisal.Image
+  Exposed-modules:
+    Appraisal.AcidCache
+    Appraisal.FileCache
+    Appraisal.FileCacheT
+    Appraisal.Image
+    Appraisal.ImageCache
+    Appraisal.Exif
+    Appraisal.Serialize
+    Appraisal.Utils.ErrorWithIO
   Build-Depends:
     acid-state,
     base >= 4,
@@ -91,6 +93,7 @@ Library
     text,
     th-orphans >= 0.9,
     th-lift,
+    th-unify-clients,
     transformers,
     unix,
     Unixutils,
