@@ -45,7 +45,6 @@ module Appraisal.FileCache
     , Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
     , File(..)
-    , File_1(..)
     , fileURI
     , fileCacheURI
     , addMessage
@@ -92,7 +91,7 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics ( Data(..), Typeable )
 --import Data.Map ( Map )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..) )
+import Data.SafeCopy (base, deriveSafeCopy)
 import Debug.Show (V(V))
 import Language.Haskell.TH (ExpQ, Exp, location, pprint, Q)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany, lift)
@@ -131,12 +130,6 @@ data File
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
            } deriving (Show, Read, Eq, Ord, Data, Typeable)
-
-instance Migrate File where
-    type MigrateFrom File = File_1
-    migrate (File_1 s c m) = File s c m ""
-
-data File_1 = File_1 (Maybe FileSource) Checksum [String] deriving (Show, Read, Eq, Ord, Data, Typeable)
 
 $(makeLenses ''File)
 
@@ -346,9 +339,6 @@ fileDir file = take 2 (view fileChksum file)
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
 
-instance Arbitrary File_1 where
-    arbitrary = File_1 <$> arbitrary <*> arbitrary <*> pure []
-
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
 
@@ -380,8 +370,7 @@ listDirectory path =
 $(deriveSafeCopy 1 'base ''FileSource)
 $(deriveSafeCopy 0 'base ''URI)
 $(deriveSafeCopy 0 'base ''URIAuth)
-$(deriveSafeCopy 2 'extension ''File)
-$(deriveSafeCopy 1 'base ''File_1)
+$(deriveSafeCopy 2 'base ''File)
 $(TH.deriveLiftMany [
    ''FileSource,
    ''URI,
@@ -389,4 +378,3 @@ $(TH.deriveLiftMany [
    ''File])
 $(deriveSerialize [t|FileSource|])
 $(deriveSerialize [t|File|])
-$(deriveSerialize [t|File_1|])

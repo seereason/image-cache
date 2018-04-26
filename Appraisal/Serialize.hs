@@ -9,7 +9,7 @@ module Appraisal.Serialize
       Appraisal.Serialize.deriveSerialize
     ) where
 
-import Data.SafeCopy (SafeCopy, safeGet, safePut)
+import Data.SafeCopy (safeGet, safePut)
 import Data.Serialize (Serialize(..))
 -- import Data.THUnify.SerializeViaSafeCopy
 import Language.Haskell.TH (Dec, TypeQ, Q)

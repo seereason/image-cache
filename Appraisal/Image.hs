@@ -16,23 +16,20 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Appraisal.Image
-    ( ImageSize(..), ImageSize_1(..)
+    ( ImageSize(..)
     , approx
     , rationalIso
     , rationalLens
     , ImageCrop(..)
-    , Dimension_0(..)
     , Dimension(..)
     , Units(..)
     , ImageFile(..), imageFile, imageFileType, imageFileWidth, imageFileHeight, imageFileMaxVal
-    , ImageFile_0(..)
     , imageFileArea
     , PixmapShape(..)
     , ImageType(..)
     , getFileType
     , fileExtension
     , ImageKey(..)
-    , ImageKey_1(..)
     , ImageCacheMap
     , scaleFromDPI
     , widthInInches
@@ -64,7 +61,7 @@ import Data.Map (Map)
 --import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
-import Data.SafeCopy (base, deriveSafeCopy, extension, Migrate(..))
+import Data.SafeCopy (base, deriveSafeCopy)
 import Data.Text (unpack)
 import Data.Text.Encoding (decodeUtf8)
 import qualified Data.THUnify.Serialize (deriveSerialize)
@@ -84,24 +81,6 @@ import Text.Regex (Regex, mkRegex, matchRegex)
 import Data.Maybe (catMaybes)
 import Text.Parsec
 import Data.Char (isSpace)
-
--- |This can describe an image size in various ways.
-data ImageSize_1
-    = ImageSize_1
-      { _dim_1 :: Dimension
-      , _size_1 :: Double
-      , _units_1 :: Units
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
-
-instance Migrate ImageSize where
-    type MigrateFrom ImageSize = ImageSize_1
-    migrate (ImageSize_1 d s u) =
-        -- We want a ratio which approximates the double
-        -- to about four significant digits.
-        ImageSize d s' u
-        where
-          s' :: Rational
-          s' = approx (toRational s)
 
 -- | Simplify the ratio to avoid a long representation:
 --
@@ -152,25 +131,11 @@ data ImageSize
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
 
-data Dimension_0
-    = TheHeight_0
-    | TheWidth_0
-    | TheArea_0
-    | Invalid String
-    deriving (Show, Read, Eq, Ord, Typeable, Data)
-
 data Dimension
     = TheHeight
     | TheWidth
     | TheArea
     deriving (Show, Read, Eq, Ord, Typeable, Data)
-
-instance Migrate Dimension where
-    type MigrateFrom Dimension = Dimension_0
-    migrate TheHeight_0 = TheHeight
-    migrate TheWidth_0 = TheWidth
-    migrate TheArea_0 = TheArea
-    migrate (Invalid _) = error "Unexpected Dimension_0"
 
 data Units
     = Inches
@@ -309,8 +274,7 @@ instance Pretty ImageSize where
 instance Pretty ImageCrop where
     pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
 
--- | A file containing an image plus meta info. This type is the same as
--- ImageFile_0, we just need to migrate the File
+-- | A file containing an image plus meta info.
 data ImageFile
     = ImageFile
       { _imageFile :: File
@@ -319,21 +283,6 @@ data ImageFile
       , _imageFileHeight :: Int
       , _imageFileMaxVal :: Int
       } deriving (Show, Read, Eq, Ord, Data, Typeable)
-
-data ImageFile_0
-    = ImageFile_0 File ImageType Int Int Int
-      deriving (Show, Read, Eq, Ord, Data, Typeable)
-
--- This migration just corrects the value of _fileExt, which is
--- a function of the image file type.
-instance Migrate ImageFile where
-  type MigrateFrom ImageFile = ImageFile_0
-  migrate (ImageFile_0 f t w h m) =
-      ImageFile (f {_fileExt = case t of
-                                 JPEG -> ".jpg"
-                                 GIF -> ".gif"
-                                 PPM -> ".ppm"
-                                 PNG -> ".png"}) t w h m
 
 data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
 
@@ -376,17 +325,6 @@ fileExtension PPM = ".ppm"
 fileExtension GIF = ".gif"
 fileExtension PNG = ".png"
 
-data ImageKey_1
-    = ImageOriginal_1 ImageFile
-    -- ^ An unmodified upload
-    | ImageCropped_1 ImageCrop ImageKey
-    -- ^ A cropped version of another image
-    | ImageScaled_1 ImageSize Double ImageKey
-    -- ^ A resized version of another image
-    | ImageUpright_1 ImageKey
-    -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data)
-
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
 data ImageKey
@@ -399,14 +337,6 @@ data ImageKey
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
     deriving (Eq, Ord, Read, Show, Typeable, Data)
-
-instance Migrate ImageKey where
-    type MigrateFrom ImageKey = ImageKey_1
-    migrate (ImageOriginal_1 f) = ImageOriginal f
-    migrate (ImageCropped_1 c k) = ImageCropped c k
-    -- Change scale factor to a rational with about four significant digits.
-    migrate (ImageScaled_1 s f k) = ImageScaled s (approx (toRational f)) k
-    migrate (ImageUpright_1 k) = ImageUpright k
 
 instance Pretty ImageKey where
     pPrint (ImageOriginal _) = text "ImageOriginal"
@@ -424,9 +354,6 @@ instance Arbitrary Units where
 instance Arbitrary ImageType where
     arbitrary = elements [PPM, JPEG, GIF, PNG]
 
-instance Arbitrary Dimension_0 where
-    arbitrary = oneof [pure TheHeight_0, pure TheWidth_0, pure TheArea_0, Invalid <$> arbitrary]
-
 instance Arbitrary Dimension where
     arbitrary = oneof [pure TheHeight, pure TheWidth, pure TheArea]
 
@@ -436,19 +363,8 @@ instance Arbitrary ImageSize where
 instance Arbitrary a => Arbitrary (SaneSize a) where
     arbitrary = SaneSize <$> arbitrary
 
-instance Arbitrary ImageSize_1 where
-    arbitrary = ImageSize_1 <$> arbitrary <*> (fromInteger <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
-
 instance Arbitrary ImageFile where
     arbitrary = ImageFile <$> arbitrary
-                          <*> arbitrary
-                          <*> choose (1,5000)
-                          <*> choose (1,5000)
-                          <*> choose (1,255)
-
-instance Arbitrary ImageFile_0 where
-    arbitrary = ImageFile_0
-                          <$> arbitrary
                           <*> arbitrary
                           <*> choose (1,5000)
                           <*> choose (1,5000)
@@ -466,12 +382,6 @@ instance Arbitrary ImageKey where
                       , ImageCropped <$> arbitrary <*> arbitrary
                       , ImageScaled <$> arbitrary <*> arbitrary <*> arbitrary
                       , ImageUpright <$> arbitrary ]
-
-instance Arbitrary ImageKey_1 where
-    arbitrary = oneof [ ImageOriginal_1 <$> arbitrary
-                      , ImageCropped_1 <$> arbitrary <*> arbitrary
-                      , ImageScaled_1 <$> arbitrary <*> arbitrary <*> arbitrary
-                      , ImageUpright_1 <$> arbitrary ]
 
 -- | Remove null crops
 fixKey :: ImageKey -> ImageKey
@@ -585,18 +495,14 @@ parseExtractBBOutput = do
       creationDate :: Parsec String () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
-$(deriveSafeCopy 1 'base ''ImageSize_1)
-$(deriveSafeCopy 2 'extension ''ImageSize)
+$(deriveSafeCopy 2 'base ''ImageSize)
 $(deriveSafeCopy 1 'base ''SaneSize)
-$(deriveSafeCopy 0 'base ''Dimension_0)
-$(deriveSafeCopy 1 'extension ''Dimension)
+$(deriveSafeCopy 1 'base ''Dimension)
 $(deriveSafeCopy 0 'base ''Units)
 $(deriveSafeCopy 0 'base ''ImageCrop)
-$(deriveSafeCopy 1 'base ''ImageKey_1)
-$(deriveSafeCopy 2 'extension ''ImageKey)
+$(deriveSafeCopy 2 'base ''ImageKey)
 $(deriveSafeCopy 0 'base ''ImageType)
-$(deriveSafeCopy 0 'base ''ImageFile_0)
-$(deriveSafeCopy 1 'extension ''ImageFile)
+$(deriveSafeCopy 1 'base ''ImageFile)
 
 $(deriveLiftMany [
    ''ImageFile,
@@ -609,15 +515,11 @@ $(deriveLiftMany [
    ''SaneSize
   ])
 
-$(deriveSerialize [t|ImageSize_1|])
 $(deriveSerialize [t|ImageSize|])
-$(deriveSerialize [t|Dimension_0|])
 $(deriveSerialize [t|Dimension|])
 $(deriveSerialize [t|Units|])
 $(deriveSerialize [t|ImageCrop|])
 $(Data.THUnify.Serialize.deriveSerialize [t|SaneSize|])
-$(deriveSerialize [t|ImageFile_0|])
 $(deriveSerialize [t|ImageFile|])
 $(deriveSerialize [t|ImageType|])
-$(deriveSerialize [t|ImageKey_1|])
 $(deriveSerialize [t|ImageKey|])
