@@ -40,7 +40,7 @@ module Appraisal.FileCacheT
 #if MIN_VERSION_base(4,9,0)
 import Control.Exception (ErrorCall(ErrorCallWithLocation))
 #else
-import Control.Exception (ErrorCall(ErrorCall))
+import qualified Control.Exception as E (ErrorCall(ErrorCall))
 #endif
 import Control.Exception (Exception(fromException), IOException, SomeException, throw, try)
 import Control.Lens (_2, view)
@@ -65,7 +65,7 @@ import System.Process.ListLike (showCreateProcessForUser)
 
 data FileError
     = IOException IOException
-    | ErrorCall ErrorCall
+    | ErrorCall E.ErrorCall
     | Command CreateProcess ExitCode
     | CommandInput P.ByteString FileError
     | CommandOut P.ByteString FileError
@@ -131,11 +131,11 @@ liftIOToF io = (FileCacheT . liftIO . runExceptT . withExceptT toFileError . Exc
     where
       logErrorCall :: IO (Either SomeException a) -> IO (Either SomeException a)
       logErrorCall x =
-          x >>= either (\e -> case fromException e :: Maybe ErrorCall of
+          x >>= either (\e -> case fromException e :: Maybe E.ErrorCall of
 #if MIN_VERSION_base(4,9,0)
                                 Just (ErrorCallWithLocation msg loc) -> logM "FileCache.hs" ERROR (show loc ++ ": " ++ msg) >> return (Left e)
 #else
-                                Just (Control.Exception.ErrorCall msg) -> logM "FileCache.hs" ERROR msg >> return (Left e)
+                                Just (E.ErrorCall msg) -> logM "FileCache.hs" ERROR msg >> return (Left e)
 #endif
                                 _ -> return (Left e)) (return . Right)
       toFileError :: SomeException -> FileError
@@ -143,7 +143,7 @@ liftIOToF io = (FileCacheT . liftIO . runExceptT . withExceptT toFileError . Exc
           maybe (throw e)
                 id
                 (msum [fmap IOException (fromException e :: Maybe IOException),
-                       fmap Appraisal.FileCacheT.ErrorCall (fromException e :: Maybe ErrorCall)])
+                       fmap Appraisal.FileCacheT.ErrorCall (fromException e :: Maybe E.ErrorCall)])
 
 #endif
 
