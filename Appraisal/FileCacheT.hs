@@ -38,7 +38,7 @@ module Appraisal.FileCacheT
     ) where
 
 #if MIN_VERSION_base(4,9,0)
-import Control.Exception (ErrorCall(ErrorCallWithLocation))
+import Control.Exception as E (ErrorCall(ErrorCallWithLocation))
 #else
 import qualified Control.Exception as E (ErrorCall(ErrorCall))
 #endif
