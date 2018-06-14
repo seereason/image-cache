@@ -28,21 +28,9 @@
 {-# OPTIONS -Wall -fno-warn-orphans #-}
 
 module Appraisal.FileCache
-    ( FileError(..)
-    , logFileError
-      -- * Monad and Class
-    , FileCacheTop(..)
-    , HasFileCacheTop(fileCacheTop)
-    -- , MonadFileCacheIO
-    , ensureFileCacheTop
-    , FileCacheT
-    , runFileCacheT
-    , runFileCacheTop
-    , runFileCache
-    , mapFileCacheT
-    , liftIOToF
+    ( 
     -- Types
-    , Checksum
+      Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
     , File(..)
     , fileURI
@@ -73,6 +61,8 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.FileCacheT
+  (FileCacheT, FileCacheTop(FileCacheTop), FileError(Command, Description, Failure, FunctionName, IOException),
+   HasFileCacheTop(fileCacheTop), liftIOToF)
 import Appraisal.Serialize (deriveSerialize)
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
 import Control.Exception (try)

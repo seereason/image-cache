@@ -9,6 +9,7 @@ module Main where
 
 import Appraisal.AcidCache
 import Appraisal.FileCache
+import Appraisal.FileCacheT
 import Appraisal.Utils.ErrorWithIO (ErrorWithIO)
 import Cache (loadImageCache)
 import Control.Exception (catch, IOException, SomeException, try)

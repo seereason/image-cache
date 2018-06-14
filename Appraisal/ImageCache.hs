@@ -45,8 +45,9 @@ module Appraisal.ImageCache
 
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.AcidCache ( MonadCache(..) )
-import Appraisal.FileCache (FileCacheT, FileCacheTop(..), FileError(..), File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, {-fileFromCmdViaTemp,-} HasFileCacheTop, liftIOToF, loadBytes, logAndThrow, logException, runFileCacheT)
+import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
+                            fileFromCmd, loadBytes, logAndThrow, logException)
+import Appraisal.FileCacheT (FileCacheT, FileCacheTop(..), FileError(..), HasFileCacheTop, liftIOToF, runFileCacheT)
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), {-ImageCacheMap,-}
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.Image ()
