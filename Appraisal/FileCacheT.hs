@@ -34,7 +34,6 @@ module Appraisal.FileCacheT
     , runFileCacheTop
     , runFileCache
     , mapFileCacheT
-    , liftIOToF
     ) where
 
 #if MIN_VERSION_base(4,9,0)
@@ -42,7 +41,7 @@ import Control.Exception as E (ErrorCall(ErrorCallWithLocation))
 #else
 import qualified Control.Exception as E (ErrorCall(ErrorCall))
 #endif
-import Control.Exception (Exception(fromException), IOException, SomeException, throw, try)
+import Control.Exception (fromException, IOException, SomeException, throw, try)
 import Control.Lens (_2, view)
 import Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
 import Control.Monad.Identity (Identity, runIdentity)
@@ -114,21 +113,15 @@ type FileCache st e a = FileCacheT st FileError Identity a
 instance MonadTrans (FileCacheT st FileError) where
     lift = FileCacheT . lift . lift
 
-#if 0
-instance MonadIO m => MonadIO (FileCacheT st FileError m) where
-    liftIO = mapFileCacheT IOException . FileCacheT . liftIO
-#else
--- ExceptT :: m (Either e a) -> ExceptT e m a
--- runExcept :: ExceptT e m a -> m (Either e a)
-
 #if !MIN_VERSION_mtl(2,2,2)
 liftEither :: MonadError e m => Either e a -> m a
 liftEither = either throwError return
 #endif
 
-liftIOToF :: MonadIO m => IO a -> FileCacheT st FileError m a
-liftIOToF io = (FileCacheT . liftIO . runExceptT . withExceptT toFileError . ExceptT . logErrorCall . try $ io) >>= liftEither
-    where
+instance MonadIO m => MonadIO (FileCacheT st FileError m) where
+    -- liftIO = mapFileCacheT IOException . FileCacheT . liftIO
+    liftIO io = (FileCacheT . liftIO . runExceptT . withExceptT toFileError . ExceptT . logErrorCall . try $ io) >>= liftEither
+     where
       logErrorCall :: IO (Either SomeException a) -> IO (Either SomeException a)
       logErrorCall x =
           x >>= either (\e -> case fromException e :: Maybe E.ErrorCall of
@@ -144,8 +137,6 @@ liftIOToF io = (FileCacheT . liftIO . runExceptT . withExceptT toFileError . Exc
                 id
                 (msum [fmap IOException (fromException e :: Maybe IOException),
                        fmap Appraisal.FileCacheT.ErrorCall (fromException e :: Maybe E.ErrorCall)])
-
-#endif
 
 instance (Monad m, MonadReader (st, FilePath) (FileCacheT st FileError m)) => HasFileCacheTop (FileCacheT st FileError m) where
     fileCacheTop = (FileCacheTop . view _2) <$> ask
@@ -186,4 +177,4 @@ mapFileCacheT :: Functor m => (e -> e') -> FileCacheT st e m a -> FileCacheT st 
 mapFileCacheT f = FileCacheT . mapReaderT (withExceptT f) . unFileCacheT
 
 ensureFileCacheTop :: MonadIO m => FileCacheT st FileError m ()
-ensureFileCacheTop = fileCacheTop >>= liftIOToF . createDirectoryIfMissing True . unFileCacheTop
+ensureFileCacheTop = fileCacheTop >>= liftIO . createDirectoryIfMissing True . unFileCacheTop

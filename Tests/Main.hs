@@ -59,12 +59,10 @@ type FileM = FileCacheT (AcidState (Map String String)) IOException IO
 instance MonadCache String String AcidM where
     askAcidState = ask
     build = return . reverse
-    liftIOToCache _ = liftIO
 
 instance MonadCache String String m => MonadCache String String (ReaderT FilePath m) where
     askAcidState = lift askAcidState
     build = lift . build
-    liftIOToCache _ = error "Not IO"
 
 acid1 :: Test
 acid1 = TestCase $ do

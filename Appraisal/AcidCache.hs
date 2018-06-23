@@ -28,7 +28,7 @@ module Appraisal.AcidCache
     , DeleteValue(..)
     , DeleteValues(..)
     -- * Monad class for cached map
-    , MonadCache(askAcidState, build, liftIOToCache)
+    , MonadCache(askAcidState, build)
     , cacheMap
     , cacheLook
     , cacheInsert
@@ -39,10 +39,10 @@ module Appraisal.AcidCache
 
 import Control.Exception (bracket)
 import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
-import Control.Monad.State (modify)
+import Control.Monad.State (liftIO, MonadIO, modify)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
-import Data.Generics (Proxy(Proxy), Typeable)
+import Data.Generics (Proxy, Typeable)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, lookup, Map, union)
 import Data.SafeCopy (SafeCopy)
 import Data.Set as Set (Set)
@@ -93,37 +93,36 @@ withValueCache path f = bracket (openValueCache path) createCheckpointAndClose $
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
 -- state.
-class (AcidKey key, AcidVal val, Monad m) => MonadCache key val m where
+class (AcidKey key, AcidVal val, MonadIO m) => MonadCache key val m where
     askAcidState :: m (AcidState (Map key val))
     build :: key -> m val
-    liftIOToCache :: Proxy (key, val) -> IO a -> m a
     -- ^ A monadic, possibly expensive function to create a new map entry.
-    -- Our application is to scale/rotate/crop an image.
+    -- Our application in ImageCache.hs is to scale/rotate/crop an image.
 
 -- | Call the build function on cache miss to build the value.
 cacheInsert :: forall key val m. MonadCache key val m => key -> m val
 cacheInsert key = do
   st <- askAcidState
-  mval <- liftIOToCache (Proxy :: Proxy (key, val)) $ query st (LookValue key)
+  mval <- liftIO $ query st (LookValue key)
   maybe (do val <- build key
-            () <- liftIOToCache (Proxy :: Proxy (key, val)) $ update st (PutValue key val)
+            () <- liftIO $ update st (PutValue key val)
             return val) return mval
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook :: forall key val m. MonadCache key val m => key -> m (Maybe val)
 cacheLook key = do
   st <- askAcidState
-  liftIOToCache (Proxy :: Proxy (key, val)) $ query st (LookValue key)
+  liftIO $ query st (LookValue key)
 
 cacheMap :: forall key val m. MonadCache key val m => m (Map key val)
 cacheMap = do
   st <- askAcidState
-  liftIOToCache (Proxy :: Proxy (key, val)) $ query st LookMap
+  liftIO $ query st LookMap
 
 cacheDelete :: forall key val m. Show val => MonadCache key val m => Proxy val -> Set key -> m ()
 cacheDelete _ keys = do
   (st :: AcidState (Map key val)) <- askAcidState
-  liftIOToCache (Proxy :: Proxy (key, val)) $ update st (DeleteValues keys)
+  liftIO $ update st (DeleteValues keys)
 
 -- | Given the AcidState object for the cache, Run an action in the CacheIO monad.
 runMonadCacheT :: ReaderT (AcidState (Map key val)) m a -> AcidState (Map key val) -> m a
