@@ -72,7 +72,6 @@ Library
     exceptions,
     filemanip-extra,
     filepath,
-    HaTeX,
     hslogger,
     HUnit,
     lens,
