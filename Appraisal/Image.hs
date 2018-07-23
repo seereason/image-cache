@@ -126,7 +126,7 @@ data ImageSize
       { dim :: Dimension
       , size :: Rational
       , units :: Units
-      } deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded)
+      } deriving (Show, Read, Eq, Ord, Typeable, Data)
 
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
