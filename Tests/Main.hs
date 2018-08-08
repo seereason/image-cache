@@ -16,7 +16,7 @@ import Control.Exception (catch, IOException, SomeException, try)
 import Control.Monad.Except -- (catchError, ExceptT, throwError)
 import Control.Monad.Reader (ask, ReaderT, runReaderT)
 import Control.Monad.Trans (lift, liftIO)
-import Control.Monad.Trans.Either (EitherT(runEitherT))
+import Control.Monad.Except (ExceptT, runExceptT)
 import Data.Acid (AcidState)
 import Data.ByteString (ByteString, pack)
 import Data.Char (ord)
@@ -81,13 +81,13 @@ acid1 = TestCase $ do
 file1 :: Test
 file1 = TestCase $ do
           removeRecursiveSafely fileAcidDir
-          Right value1 <- either Left (either Left Right) <$> withValueCache fileAcidDir (runEitherT . f) :: IO (Either FileError (File, ByteString))
+          Right value1 <- either Left (either Left Right) <$> withValueCache fileAcidDir (runExceptT . f) :: IO (Either FileError (File, ByteString))
           assertEqual "file1" expected value1
     where
-      f :: AcidState (Map String String) -> EitherT FileError IO (Either FileError (File, ByteString))
+      f :: AcidState (Map String String) -> ExceptT FileError IO (Either FileError (File, ByteString))
       f fileAcidState =
           runFileCacheT fileAcidState fileCacheDir'
-            (fileFromPath return (pure "") oldfile :: FileCacheT st FileError (EitherT FileError IO) (File, ByteString))
+            (fileFromPath return (pure "") oldfile :: FileCacheT st FileError (ExceptT FileError IO) (File, ByteString))
              {-liftIO (try (fileFromPath return (pure "") oldfile) >>= either (throwError . IOException) return)-}
       expected :: (File, ByteString)
       expected = (File {_fileSource = Just (ThePath "/usr/share/doc/cron/THANKS"),
