@@ -84,7 +84,7 @@ initCacheMap = mempty
 
 openValueCache :: (AcidKey key, AcidVal val) =>
                   FilePath -> IO (AcidState (Map key val))
-openValueCache path = openLocalStateFrom (\flag path -> appendFile (path <> "/locktag") ("Appraisal.AcidCache.openValueCache " <> show flag <> "\n")) path initCacheMap
+openValueCache path = openLocalStateFrom path initCacheMap
 
 withValueCache :: (AcidKey key, AcidVal val) =>
                   FilePath -> (AcidState (Map key val) -> IO a) -> IO a
