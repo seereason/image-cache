@@ -17,6 +17,6 @@ import Text.LaTeX (render)
 
 loadImageCache :: IsAcidic (Map ImageKey ImageFile) => FilePath -> IO (AcidState (Map ImageKey ImageFile))
 loadImageCache top =
-    bracket (openLocalStateFrom (top </> "imageCache") (error $ "loadImageCache " ++ top </> "imageCache"))
+    bracket (openLocalStateFrom (\flag path -> appendFile (path <> "/locktag") ("Appraisal.Cache.loadImageCache " <> show flag <> "\n")) (top </> "imageCache") (error $ "loadImageCache " ++ top </> "imageCache"))
             closeAcidState $ \ imageCache ->
     return imageCache
