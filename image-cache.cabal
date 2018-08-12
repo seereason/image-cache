@@ -79,7 +79,7 @@ Library
     network-uri,
     parsec,
     pretty >= 1.1.2,
-    process,
+    process >= 1.4.3,
     process-extras >= 0.7,
     pureMD5,
     QuickCheck >= 2,

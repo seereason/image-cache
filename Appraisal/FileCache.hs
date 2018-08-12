@@ -17,6 +17,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RankNTypes #-}
@@ -61,11 +62,11 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.FileCacheT
-  (FileCacheT, FileCacheTop(FileCacheTop), FileError(Command, Description, Failure, FunctionName, IOException),
+  (FileCacheT, FileCacheTop(FileCacheTop), FileError(Command, Description, SomeFileError, FunctionName, IOException),
    HasFileCacheTop(fileCacheTop))
 import Appraisal.Serialize (deriveSerialize)
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
-import Control.Exception (try)
+import Control.Exception (IOException, try)
 import Control.Lens (makeLenses, over, set, view)
 import Control.Monad ( unless )
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
@@ -83,6 +84,7 @@ import Data.Generics ( Data(..), Typeable )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, deriveSafeCopy)
 import Debug.Show (V(V))
+import Data.Text (pack, unpack)
 import Language.Haskell.TH (ExpQ, Exp, location, pprint, Q)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany, lift)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
@@ -193,7 +195,7 @@ fileFromCmd byteStringInfo toFileExt cmd = do
         do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
            return $ (set fileSource (Just (ThePath cmd)) file, a)
     ExitFailure _ ->
-        throwError (FunctionName "fileFromCmd" (Command (shell cmd) code))
+        throwError (FunctionName "fileFromCmd" (Command (pack (show (shell cmd))) (pack (show code))))
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
@@ -210,7 +212,7 @@ fileFromURI byteStringInfo toFileExt uri =
          ExitSuccess ->
              do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
                 return (set fileSource (Just (TheURI uri)) file, bytes')
-         _ -> throwError (FunctionName "fileFromURI" (Command cmd code))
+         _ -> throwError (FunctionName "fileFromURI" (Command (pack (show cmd)) (pack (show code))))
 
 -- | Build a file from the output of a command.  This uses a temporary
 -- file to store the contents of the command while we checksum it.  This
@@ -230,7 +232,7 @@ fileFromCmdViaTemp ext exe = do
   (code, _out, _err) <- liftIO (readCreateProcessWithExitCode' cmd P.empty)
   case code of
     ExitSuccess -> installFile tmp
-    ExitFailure _ -> throwError (FunctionName "fileFromCmdViaTemp" (Command cmd code))
+    ExitFailure _ -> throwError (FunctionName "fileFromCmdViaTemp" (Command (pack (show cmd)) (pack (show code))))
     where
       installFile :: FilePath -> FileCacheT st FileError m File
       installFile tmp = fileFromPathViaRename ext tmp `catchError` (throwError . FunctionName "fileFromCmdViaTemp" . Description "install failed")
@@ -247,7 +249,7 @@ fileFromPathViaRename ext path = do
   case result of
     Right (ExitSuccess, out, _err) -> do
       let file = File { _fileSource = Just (ThePath path)
-                      , _fileChksum = take 32 out
+                      , _fileChksum = take 32 (unpack out)
                       , _fileMessages = []
                       , _fileExt = ext }
       dest <- fileCachePathIO file
@@ -255,8 +257,8 @@ fileFromPathViaRename ext path = do
         logM "fileFromPathViaRename" DEBUG ("renameFile " <> path <> " " <> dest)
         renameFile path dest
       return file
-    Right (code, _, _) -> throwError (Command cmd code :: FileError)
-    Left e -> throwError (IOException e)
+    Right (code, _, _) -> throwError (Command (pack (show cmd)) (pack (show code)) :: FileError)
+    Left (e :: IOException) -> throwError (IOException (pack (show e)))
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromPathViaCopy ::
@@ -286,7 +288,7 @@ cacheFile file bytes = do
     (\ (_e :: FileError) -> liftIO (writeFileReadable path bytes) >> return file)
     where
       checkBytes loaded = if loaded == bytes
-                          then throwError (FunctionName "cacheFile" (Failure "Checksum error"))
+                          then throwError (FunctionName "cacheFile" (SomeFileError "Checksum error"))
                           else return file
 
 -- | Read and return the contents of the file from the cache as a ByteString.
@@ -299,7 +301,7 @@ loadBytes file =
          False -> do
            let msg = "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
            liftIO (logM "FileCache.hs" ERROR msg)
-           throwError (FunctionName "loadBytes" (Failure msg))
+           throwError (FunctionName "loadBytes" (SomeFileError msg))
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")

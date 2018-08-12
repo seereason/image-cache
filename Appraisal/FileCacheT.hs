@@ -9,6 +9,7 @@
 -- location based on the file's checksum.
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -23,6 +24,7 @@
 
 module Appraisal.FileCacheT
     ( FileError(..)
+    , IsFileError(fromFileError)
     , logFileError
       -- * Monad and Class
     , FileCacheTop(..)
@@ -36,11 +38,7 @@ module Appraisal.FileCacheT
     , mapFileCacheT
     ) where
 
-#if MIN_VERSION_base(4,9,0)
 import Control.Exception as E (ErrorCall(ErrorCallWithLocation))
-#else
-import qualified Control.Exception as E (ErrorCall(ErrorCall))
-#endif
 import Control.Exception (fromException, IOException, SomeException, throw, try)
 import Control.Lens (_2, view)
 import Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
@@ -52,61 +50,53 @@ import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString as P
 #endif
+import Data.Data (Data)
 import Data.String (IsString(fromString))
 import Debug.Show (V(V))
+import Data.Text (pack, Text, unpack)
 import System.Directory (createDirectoryIfMissing)
-import System.Exit ( ExitCode(..) )
 import System.Log.Logger ( logM, Priority(ERROR) )
-import System.Process (CreateProcess)
-#if !MIN_VERSION_process(1,4,3)
-import System.Process.ListLike (showCreateProcessForUser)
-#endif
 
 data FileError
-    = IOException IOException
-    | ErrorCall E.ErrorCall
-    | Command CreateProcess ExitCode
+    = IOException {-IOException-} Text
+    | ErrorCall {-E.ErrorCall-} Text
+    | Command {-CreateProcess ExitCode-} Text Text
     | CommandInput P.ByteString FileError
     | CommandOut P.ByteString FileError
     | CommandErr P.ByteString FileError
     | FunctionName String FileError
     | Description String FileError
-    | Failure String
-    deriving (Show)
+    | SomeFileError String
+    deriving (Data, Eq, Ord, Show)
 
-instance IsString FileError where
-    fromString = Failure
-
-#if !MIN_VERSION_process(1,4,3)
-instance Show CreateProcess where
-  show = showCreateProcessForUser
-#endif
+instance IsString FileError where fromString = SomeFileError
+class IsFileError e where fromFileError :: FileError -> e
+instance IsFileError FileError where fromFileError = id
 
 instance Show (V FileError) where show (V x) = show x
 
 logFileError :: String -> FileError -> IO ()
-logFileError prefix (Description s e) = logM prefix ERROR (" - error description: " ++ s) >> logFileError prefix e
-logFileError prefix (FunctionName n e) = logM prefix ERROR (" - error function " ++ n) >> logFileError prefix e
-logFileError prefix (IOException e) = logM prefix ERROR (" - IO exception: " ++ show e)
-logFileError prefix (Failure s) = logM prefix ERROR (" - failure: " ++ s)
-logFileError prefix (Command cmd code) = logM prefix ERROR (" - shell command failed: " ++ show cmd ++ " -> " ++ show code)
-logFileError prefix (ErrorCall e) = logM prefix ERROR (" - error call: " ++ show e)
-logFileError prefix (CommandInput bs e) = logM prefix ERROR (" - command input: " ++ show (P.take 1000 bs)) >> logFileError prefix e
-logFileError prefix (CommandOut bs e) = logM prefix ERROR (" - command stdout: " ++ show (P.take 1000 bs)) >> logFileError prefix e
-logFileError prefix (CommandErr bs e) = logM prefix ERROR (" - command stderr: " ++ show (P.take 1000 bs)) >> logFileError prefix e
+logFileError prefix (Description s e) = logM prefix ERROR (" - error description: " <> s) >> logFileError prefix e
+logFileError prefix (FunctionName n e) = logM prefix ERROR (" - error function " <> n) >> logFileError prefix e
+logFileError prefix (IOException e) = logM prefix ERROR (" - IO exception: " <> unpack e)
+logFileError prefix (SomeFileError s) = logM prefix ERROR (" - failure: " <> s)
+logFileError prefix (Command cmd code) = logM prefix ERROR (" - shell command failed: " <> show cmd <> " -> " <> show code)
+logFileError prefix (ErrorCall e) = logM prefix ERROR (" - error call: " <> show e)
+logFileError prefix (CommandInput bs e) = logM prefix ERROR (" - command input: " <> show (P.take 1000 bs)) >> logFileError prefix e
+logFileError prefix (CommandOut bs e) = logM prefix ERROR (" - command stdout: " <> show (P.take 1000 bs)) >> logFileError prefix e
+logFileError prefix (CommandErr bs e) = logM prefix ERROR (" - command stderr: " <> show (P.take 1000 bs)) >> logFileError prefix e
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
 -- | Class of monads with a 'FilePath' value containing the top
--- of a 'FileCache'.
--- paths do not.  So MonadIO is not a superclass here.
+-- of a 'FileCache'.  MonadIO is not a superclass here because
+-- some FileCache operations (e.g. path construction) do not need it.
 class Monad m => HasFileCacheTop m where
     fileCacheTop :: m FileCacheTop
 
--- | This is the class for operations that do require IO.  Almost all
--- operations require IO, but you can build paths into the cache
--- without it.
-newtype FileCacheT st e m a = FileCacheT {unFileCacheT :: ReaderT (st, FilePath) (ExceptT e m) a} deriving (Monad, Applicative, Functor)
+newtype FileCacheT st e m a =
+    FileCacheT {unFileCacheT :: ReaderT (st, FilePath) (ExceptT e m) a}
+    deriving (Monad, Applicative, Functor)
 
 type FileCache st e a = FileCacheT st FileError Identity a
 
@@ -125,18 +115,14 @@ instance MonadIO m => MonadIO (FileCacheT st FileError m) where
       logErrorCall :: IO (Either SomeException a) -> IO (Either SomeException a)
       logErrorCall x =
           x >>= either (\e -> case fromException e :: Maybe E.ErrorCall of
-#if MIN_VERSION_base(4,9,0)
                                 Just (ErrorCallWithLocation msg loc) -> logM "FileCache.hs" ERROR (show loc ++ ": " ++ msg) >> return (Left e)
-#else
-                                Just (E.ErrorCall msg) -> logM "FileCache.hs" ERROR msg >> return (Left e)
-#endif
                                 _ -> return (Left e)) (return . Right)
       toFileError :: SomeException -> FileError
       toFileError e =
           maybe (throw e)
                 id
-                (msum [fmap IOException (fromException e :: Maybe IOException),
-                       fmap Appraisal.FileCacheT.ErrorCall (fromException e :: Maybe E.ErrorCall)])
+                (msum [fmap (IOException . pack . show) (fromException e :: Maybe IOException),
+                       fmap (Appraisal.FileCacheT.ErrorCall . pack . show) (fromException e :: Maybe E.ErrorCall)])
 
 instance (Monad m, MonadReader (st, FilePath) (FileCacheT st FileError m)) => HasFileCacheTop (FileCacheT st FileError m) where
     fileCacheTop = (FileCacheTop . view _2) <$> ask
