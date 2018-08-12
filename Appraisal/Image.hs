@@ -417,14 +417,6 @@ validateJPG path = do
 -- its C source code.)
 parsePnmfileOutput :: Parsec String () Pnmfile
 parsePnmfileOutput = do
-  r <- go'
-  case r of
-    [x] -> return x
-    [] -> fail "parsePnmfileOutput"
-    _xs -> fail "multi"
-  where
-    go' = catMaybes <$> many ((Just <$> go) <|> (const Nothing <$> anyChar))
-    go = do
       _ <- char 'P'
       format <- (\c -> case c of
                          'B' -> Binary
