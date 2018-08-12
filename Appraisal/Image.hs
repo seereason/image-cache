@@ -62,7 +62,7 @@ import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy)
-import Data.Text (unpack)
+import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
 import qualified Data.THUnify.Serialize (deriveSerialize)
 import Language.Haskell.TH (Ppr(ppr))
@@ -78,7 +78,6 @@ import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import "regex-compat-tdfa" Text.Regex (Regex, mkRegex, matchRegex)
 
-import Data.Maybe (catMaybes)
 import Text.Parsec
 import Data.Char (isSpace)
 
@@ -295,12 +294,13 @@ getFileType bytes =
       cmd = "file"
       args = ["-b", "-"]
       test :: Monad m => P.ByteString -> m ImageType
-      test s = maybe (fail $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") return (foldr (testre (P.toString s)) Nothing tests)
+      test s = maybe (fail $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") return (foldr (testre (P.toString s)) Nothing reTests)
       testre :: String -> (Regex, ImageType) -> Maybe ImageType -> Maybe ImageType
       testre _ _ (Just result) = Just result
       testre s (re, typ) Nothing = maybe Nothing (const (Just typ)) (matchRegex re s)
       -- Any more?
-      tests = [(mkRegex "Netpbm P[BGPP]M \"rawbits\" image data$", PPM)
+      reTests =
+              [(mkRegex "Netpbm P[BGPP]M \"rawbits\" image data$", PPM)
               ,(mkRegex "JPEG image data", JPEG)
               ,(mkRegex "PNG image data", PNG)
               ,(mkRegex "GIF image data", GIF)]
@@ -342,7 +342,7 @@ instance Pretty ImageKey where
     pPrint (ImageOriginal _) = text "ImageOriginal"
     pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
-    pPrint (ImageScaled size dpi x) = text "Scale (" <> pPrint size <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
+    pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
 
 instance Ppr ImageKey where ppr = ptext . show
 
@@ -401,31 +401,33 @@ validateJPG :: FilePath -> IO (Either String (Integer, Integer))
 validateJPG path = do
   (_code, bs, _) <- readCreateProcess (proc "jpegtopnm" [path]) mempty :: IO (ExitCode, P.ByteString, P.ByteString)
   (_code, s1', _) <- readCreateProcess (proc "pnmfile" []) bs :: IO (ExitCode, P.ByteString, P.ByteString)
-  let s1 = unpack (decodeUtf8 s1')
+  let s1 = decodeUtf8 s1'
   case parse parsePnmfileOutput path s1 of
-    Left e -> return (Left ("Error parsing " ++ s1 ++ ": " ++ show e))
+    Left e -> return (Left ("Error parsing " ++ show s1 ++ ": " ++ show e))
     Right (Pnmfile _ _ (w, h, _)) -> do
-      (_code, s2, _) <- readCreateProcess (proc "extractbb" ["-O", path]) ("" :: String) :: IO (ExitCode, String, String)
+      (_code, s2, _) <- readCreateProcess (proc "extractbb" ["-O", path]) ("" :: Text) :: IO (ExitCode, Text, Text)
       case parse parseExtractBBOutput path s2 of
         Left e -> return (Left ("Error parsing " ++ show s2 ++ ": " ++ show e))
         Right (ExtractBB (l, t, r, b) _) ->
           if l /= 0 || t /= 0 || r < 1 || b < 1 || r > 1000000 || b > 1000000
-          then return (Left (path ++ ": image data error\n\npnmfile ->\n" ++ s1 ++ "\nextractbb ->\n" ++ s2))
+          then return (Left (path ++ ": image data error\n\npnmfile ->\n" ++ show s1 ++ "\nextractbb ->\n" ++ show s2))
           else return (Right (w, h))
 
 -- | Parse the output of the pnmfile command (based on examination of
 -- its C source code.)
-parsePnmfileOutput :: Parsec String () Pnmfile
+parsePnmfileOutput :: Parsec Text () Pnmfile
 parsePnmfileOutput = do
       _ <- char 'P'
       format <- (\c -> case c of
                          'B' -> Binary
                          'G' -> Gray
-                         'P' -> Color) <$> oneOf "BGP"
+                         'P' -> Color
+                         _ -> error "parser failure") <$> oneOf "BGP"
       _ <- string "M "
       rawOrPlain <- (\s -> case s of
                              "plain" -> Plain
-                             "raw" -> Raw) <$> (string "plain" <|> string "raw")
+                             "raw" -> Raw
+                             _ -> error "parser failure") <$> (string "plain" <|> string "raw")
       _ <- string ", "
       w <- many1 (oneOf "-0123456789")
       _ <- string " by "
@@ -442,7 +444,7 @@ data ExtractBB =
 data Hires = Inf | Rational Rational deriving Show
 
 -- | Parse the output of extractbb (based on trial and error.)
-parseExtractBBOutput :: Parsec String () ExtractBB
+parseExtractBBOutput :: Parsec Text () ExtractBB
 parseExtractBBOutput = do
   _ <- title
   _ <- creator
@@ -451,12 +453,12 @@ parseExtractBBOutput = do
   creationDate
   return $ ExtractBB bb hbb
     where
-      title :: Parsec String () String
+      title :: Parsec Text () String
       title = string "%%Title:" >> spaces >> many (noneOf "\n") >>= \r -> newline >> return r
 
       creator = string "%%Creator:" >> spaces >> many (noneOf "\n") >> newline
 
-      boundingBox :: Parsec String () (Integer, Integer, Integer, Integer)
+      boundingBox :: Parsec Text () (Integer, Integer, Integer, Integer)
       boundingBox = do
         _ <- string "%%BoundingBox:"
         spaces
@@ -470,7 +472,7 @@ parseExtractBBOutput = do
         _ <- many newline
         return (read l, read t, read r, read b)
 
-      hiResBoundingBox :: Parsec String () (Hires, Hires, Hires, Hires)
+      hiResBoundingBox :: Parsec Text () (Hires, Hires, Hires, Hires)
       hiResBoundingBox = do
         _ <- string "%%HiResBoundingBox:"
         spaces
@@ -484,7 +486,7 @@ parseExtractBBOutput = do
         _ <- newline
         maybe (fail "") return (pure (l, t, r, b))
 
-      creationDate :: Parsec String () ()
+      creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
 $(deriveSafeCopy 2 'base ''ImageSize)
