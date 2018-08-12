@@ -343,7 +343,7 @@ logAndThrow e = liftIO (logM "logAndThrow" ERROR (show e)) >> throwError e
 
 logException :: ExpQ
 logException =
-    [| \ action -> let f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throwError (fromFileError e) in
+    [| \ action -> let f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throwError e in
                    action `catchError` f |]
 
 -- | Scan all the file cache directories for files without using
