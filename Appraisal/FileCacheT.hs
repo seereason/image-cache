@@ -9,6 +9,7 @@
 -- location based on the file's checksum.
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -29,7 +30,7 @@ module Appraisal.FileCacheT
       -- * Monad and Class
     , FileCacheTop(..)
     , HasFileCacheTop(fileCacheTop)
-    -- , MonadFileCacheIO
+    , MonadFileCache
     , ensureFileCacheTop
     , FileCacheT
     , runFileCacheT
@@ -102,6 +103,8 @@ type FileCache st e a = FileCacheT st FileError Identity a
 
 instance MonadTrans (FileCacheT st FileError) where
     lift = FileCacheT . lift . lift
+
+type MonadFileCache e m = (MonadIO m, IsFileError e, Show e, MonadError e m, HasFileCacheTop m)
 
 #if !MIN_VERSION_mtl(2,2,2)
 liftEither :: MonadError e m => Either e a -> m a
