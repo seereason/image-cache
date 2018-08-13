@@ -85,7 +85,7 @@ import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, deriveSafeCopy)
 import Debug.Show (V(V))
 import Data.Text (pack, unpack)
-import Language.Haskell.TH (ExpQ, Exp, location, pprint, Q)
+import Language.Haskell.TH (ExpQ, Exp, Loc(..), location, pprint, Q)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany, lift)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
@@ -255,7 +255,7 @@ fileFromPathViaRename err ext path = do
                       , _fileExt = ext }
       dest <- fileCachePathIO file
       liftIO $ do
-        logM "fileFromPathViaRename" DEBUG ("renameFile " <> path <> " " <> dest)
+        logM "Appraisal.FileCache" DEBUG ("fileFromPathViaRename - renameFile " <> path <> " " <> dest)
         renameFile path dest
       return file
     Right (code, _, _) -> throwError (fromFileError (err (Command (pack (show cmd)) (pack (show code)) :: FileError)))
@@ -275,7 +275,7 @@ fileFromPathViaCopy ext path = do
                   , _fileExt = ext }
   dest <- fileCachePathIO file
   liftIO $ do
-    logM "fileFromPathViaCopy" DEBUG ("copyFile " <> path <> " " <> dest)
+    logM "Appraisal.FileCache" DEBUG ("fileFromPathViaCopy - copyFile " <> path <> " " <> dest)
     copyFile path dest
   return file
 
@@ -301,7 +301,7 @@ loadBytes file =
          True -> return bytes
          False -> do
            let msg = "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
-           liftIO (logM "FileCache.hs" ERROR msg)
+           liftIO (logM "Appraisal.FileCache" ERROR msg)
            throwError (fromFileError (FunctionName "loadBytes" (SomeFileError msg)))
 
 instance Pretty File where
@@ -339,11 +339,11 @@ __LOC__ :: Q Exp
 __LOC__ = TH.lift =<< location
 
 logAndThrow :: MonadFileCache e m => e -> m b
-logAndThrow e = liftIO (logM "logAndThrow" ERROR (show e)) >> throwError e
+logAndThrow e = liftIO (logM "Appraisal.FileCache" ERROR ("logAndThrow - " ++ show e)) >> throwError e
 
 logException :: ExpQ
 logException =
-    [| \ action -> let f e = liftIO (logM "logException" ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throwError e in
+    [| \ action -> let f e = liftIO (logM (loc_module $__LOC__) ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throwError e in
                    action `catchError` f |]
 
 -- | Scan all the file cache directories for files without using
