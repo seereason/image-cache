@@ -15,7 +15,8 @@
 
 module Appraisal.AcidCache
     ( -- * Open cache
-      withAcidState
+      openValueCache
+    , withValueCache
     -- * Cached map events
     , AcidVal
     , AcidKey
@@ -39,7 +40,7 @@ module Appraisal.AcidCache
 import Control.Exception (bracket)
 import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
 import Control.Monad.State (liftIO, MonadIO, modify)
-import Data.Acid (AcidState, IsAcidic, makeAcidic, openLocalStateFrom, Query, query, Update, update)
+import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
 import Data.Generics (Proxy, Typeable)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, lookup, Map, union)
@@ -81,6 +82,14 @@ $(makeAcidic ''Map ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'd
 _initCacheMap :: Ord key => Map key val
 _initCacheMap = mempty
 
+openValueCache :: (AcidKey key, AcidVal val) =>
+                  FilePath -> IO (AcidState (Map key val))
+openValueCache path = openLocalStateFrom path _initCacheMap
+
+withValueCache :: (AcidKey key, AcidVal val) =>
+                  FilePath -> (AcidState (Map key val) -> IO a) -> IO a
+withValueCache path f = bracket (openValueCache path) createCheckpointAndClose $ f
+#if 0
 withAcidState ::
     (IsAcidic a, Typeable a)
     => FilePath
@@ -88,6 +97,7 @@ withAcidState ::
     -> (AcidState a -> IO r)
     -> IO r
 withAcidState path initial f = bracket (openLocalStateFrom path initial) createCheckpointAndClose $ f
+#endif
 
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid

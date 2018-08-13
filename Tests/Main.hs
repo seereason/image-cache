@@ -10,12 +10,9 @@ module Main where
 import Appraisal.AcidCache
 import Appraisal.FileCache
 import Appraisal.FileCacheT
-import Appraisal.Utils.ErrorWithIO (ErrorWithIO)
-import Cache (loadImageCache)
-import Control.Exception (catch, IOException, SomeException, try)
-import Control.Monad.Except -- (catchError, ExceptT, throwError)
-import Control.Monad.Reader (ask, ReaderT, runReaderT)
-import Control.Monad.Trans (lift, liftIO)
+import Control.Exception (IOException)
+import Control.Monad.Reader (ask, ReaderT)
+import Control.Monad.Trans (lift)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Data.Acid (AcidState)
 import Data.ByteString (ByteString, pack)
@@ -23,7 +20,6 @@ import Data.Char (ord)
 import Data.Map (fromList, Map)
 import qualified Exif (tests)
 import qualified LaTeX
-import System.Directory (removeFile)
 import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
 import System.FilePath.Extra3 (removeRecursiveSafely)
 import Test.HUnit (assertEqual, Test(TestList, TestCase), runTestTT, Counts(errors, failures))
@@ -67,11 +63,11 @@ instance MonadCache String String m => MonadCache String String (ReaderT FilePat
 acid1 :: Test
 acid1 = TestCase $ do
           removeRecursiveSafely acidDir
-          value1 <- withAcidState acidDir mempty (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (Maybe String)))
-          value2 <- withAcidState acidDir mempty (runMonadCacheT (cacheMap :: AcidM (Map String String)))
-          value3 <- withAcidState acidDir mempty (runMonadCacheT (cacheInsert "Hello, world!" :: AcidM String))
-          value4 <- withAcidState acidDir mempty (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (Maybe String)))
-          value5 <- withAcidState acidDir mempty (runMonadCacheT (cacheMap :: AcidM (Map String String)))
+          value1 <- withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (Maybe String)))
+          value2 <- withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM (Map String String)))
+          value3 <- withValueCache acidDir (runMonadCacheT (cacheInsert "Hello, world!" :: AcidM String))
+          value4 <- withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (Maybe String)))
+          value5 <- withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM (Map String String)))
           assertEqual "acid1"
                           (Nothing, fromList [], "!dlrow ,olleH", Just "!dlrow ,olleH", fromList [("Hello, world!","!dlrow ,olleH")])
                           (value1, value2, value3, value4, value5)
@@ -81,7 +77,7 @@ acid1 = TestCase $ do
 file1 :: Test
 file1 = TestCase $ do
           removeRecursiveSafely fileAcidDir
-          Right value1 <- either Left (either Left Right) <$> withAcidState fileAcidDir mempty (runExceptT . f) :: IO (Either FileError (File, ByteString))
+          Right value1 <- either Left (either Left Right) <$> withValueCache fileAcidDir (runExceptT . f) :: IO (Either FileError (File, ByteString))
           assertEqual "file1" expected value1
     where
       f :: AcidState (Map String String) -> ExceptT FileError IO (Either FileError (File, ByteString))
