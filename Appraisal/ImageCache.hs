@@ -47,11 +47,11 @@ module Appraisal.ImageCache
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.AcidCache ( MonadCache(..) )
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, loadBytes, logAndThrow, logException)
+                            fileFromCmd, loadBytes)
 import Appraisal.FileCacheT (FileCacheT, FileCacheTop(..), FileError(..), HasFileCacheTop, MonadFileCache, runFileCacheT)
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), {-ImageCacheMap,-}
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
-import Appraisal.Image ()
+import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw)
 import Control.Lens (_1, makeLensesFor, view)
 --import Control.Monad.Catch (MonadCatch(catch))
@@ -103,7 +103,7 @@ makeImageFile :: forall e m. MonadFileCache e m => (File, ImageType) -> m ImageF
 makeImageFile (file, ityp) = do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
-    (imageFileFromType path file ityp) `catchError` (logAndThrow {-. Description "Failure making image file"-})
+    $logException ERROR (imageFileFromType path file ityp)
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -148,16 +148,16 @@ imageFileFromPnmfileOutput file typ out =
 uprightImage :: MonadFileCache e m => ImageFile -> m ImageFile
 uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
-  bs <- $logException $ loadBytes (view imageFile orig)
-  bs' <- $logException $ liftIO (normalizeOrientationCode (P.fromStrict bs))
-  either (const (return orig)) (\bs'' -> $logException (fileFromBytes (liftIO . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
+  bs <- $logException ERROR (loadBytes (view imageFile orig))
+  bs' <- $logException ERROR (liftIO (normalizeOrientationCode (P.fromStrict bs)))
+  either (const (return orig)) (\bs'' -> $logException ERROR (fileFromBytes (liftIO . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
 
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
 -- of the old other than size.
 scaleImage :: forall e m. MonadFileCache e m => Double -> ImageFile -> m ImageFile
 scaleImage scale orig | approx (toRational scale) == 1 = return orig
-scaleImage scale orig = $logException $ do
+scaleImage scale orig = $logException ERROR $ do
     path <- fileCachePath (view imageFile orig)
     let decoder = case view imageFileType orig of
                     JPEG -> showCommandForUser "jpegtopnm" [path]
@@ -181,7 +181,7 @@ scaleImage scale orig = $logException $ do
 -- | Find or create a cached image which is a cropped version of
 -- another.
 editImage :: MonadFileCache e m => ImageCrop -> ImageFile -> m ImageFile
-editImage crop file = $logException $
+editImage crop file = $logException ERROR $
     case commands of
       [] ->
           return file
@@ -226,7 +226,7 @@ editImage crop file = $logException $
       convert GIF x = proc "giftopnm" [] : convert PPM x
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
-      err e = $logException $ fail $ "editImage Failure: file=" ++ show file ++ ", error=" ++ show e
+      err e = $logException ERROR $ fail $ "editImage Failure: file=" ++ show file ++ ", error=" ++ show e
 
 pipeline :: [CreateProcess] -> P.ByteString -> IO P.ByteString
 pipeline [] bytes = return bytes
@@ -293,13 +293,13 @@ instance MonadIO m => MonadCache ImageKey ImageFile (ImageCacheT m) where
     askAcidState = view _1 <$> ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do
-      build key >>= $logException . uprightImage
+      build key >>= $logException ERROR . uprightImage
     build (ImageScaled sz dpi key) = do
       img <- build key
       let scale = scaleFromDPI dpi sz img
-      $logException $ scaleImage (fromRat (fromMaybe 1 scale)) img
+      $logException ERROR $ scaleImage (fromRat (fromMaybe 1 scale)) img
     build (ImageCropped crop key) = do
-      build key >>= $logException . editImage crop
+      build key >>= $logException ERROR . editImage crop
 
 -- | Given a file cache monad and an opened image cache database,
 -- perform an image cache action.  This is just 'runFileCache'

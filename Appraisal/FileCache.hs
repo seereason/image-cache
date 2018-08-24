@@ -57,8 +57,6 @@ module Appraisal.FileCache
     , fileCachePathIO
     -- * Utility
     , allFiles
-    , logException
-    , logAndThrow
     ) where
 
 import Appraisal.FileCacheT
@@ -83,10 +81,8 @@ import Data.Generics ( Data(..), Typeable )
 --import Data.Map ( Map )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, deriveSafeCopy)
-import Debug.Show (V(V))
 import Data.Text (pack, unpack)
-import Language.Haskell.TH (ExpQ, Exp, Loc(..), location, pprint, Q)
-import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany, lift)
+import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
 import System.Exit ( ExitCode(..) )
@@ -334,17 +330,6 @@ instance Arbitrary File where
 
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
-
-__LOC__ :: Q Exp
-__LOC__ = TH.lift =<< location
-
-logAndThrow :: MonadFileCache e m => e -> m b
-logAndThrow e = liftIO (logM "Appraisal.FileCache" ERROR ("logAndThrow - " ++ show e)) >> throwError e
-
-logException :: ExpQ
-logException =
-    [| \ action -> let f e = liftIO (logM (loc_module $__LOC__) ERROR ("Logging exception: " ++ (pprint $__LOC__) ++ " -> " ++ show (V e))) >> throwError e in
-                   action `catchError` f |]
 
 -- | Scan all the file cache directories for files without using
 -- the database.

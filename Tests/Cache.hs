@@ -4,16 +4,11 @@ module Cache where
 
 -- | Load an image cache state
 
-import Appraisal.Image
-import Appraisal.ImageCache
+import Appraisal.Image (ImageFile, ImageKey)
 import Control.Exception (bracket)
 import Data.Acid (AcidState, IsAcidic, openLocalStateFrom, closeAcidState)
 import Data.Map (Map)
-import Data.Maybe (fromJust)
-import Data.Text (unpack)
 import System.FilePath ((</>))
-import Test.HUnit
-import Text.LaTeX (render)
 
 loadImageCache :: IsAcidic (Map ImageKey ImageFile) => FilePath -> IO (AcidState (Map ImageKey ImageFile))
 loadImageCache top =

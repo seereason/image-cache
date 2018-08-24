@@ -58,6 +58,7 @@ Library
     Appraisal.Image
     Appraisal.ImageCache
     Appraisal.Exif
+    Appraisal.LogException
     Appraisal.Serialize
     Appraisal.Utils.ErrorWithIO
   Build-Depends:
