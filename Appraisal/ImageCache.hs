@@ -47,7 +47,7 @@ module Appraisal.ImageCache
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.AcidCache ( MonadCache(..) )
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, loadBytes)
+                            fileFromCmd, loadBytesSafe)
 import Appraisal.FileCacheT (FileCacheT, FileCacheTop(..), FileError(..), HasFileCacheTop, MonadFileCache, runFileCacheT)
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), {-ImageCacheMap,-}
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
@@ -148,7 +148,7 @@ imageFileFromPnmfileOutput file typ out =
 uprightImage :: MonadFileCache e m => ImageFile -> m ImageFile
 uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
-  bs <- $logException ERROR (loadBytes (view imageFile orig))
+  bs <- $logException ERROR (loadBytesSafe (view imageFile orig))
   bs' <- $logException ERROR (liftIO (normalizeOrientationCode (P.fromStrict bs)))
   either (const (return orig)) (\bs'' -> $logException ERROR (fileFromBytes (liftIO . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
 
@@ -186,7 +186,7 @@ editImage crop file = $logException ERROR $
       [] ->
           return file
       _ ->
-          (loadBytes (view imageFile file) >>=
+          (loadBytesSafe (view imageFile file) >>=
            liftIO . pipeline commands >>=
            fileFromBytes (liftIO . getFileType) fileExtension >>=
            makeImageFile) `catchError` err
