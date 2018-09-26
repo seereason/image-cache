@@ -29,7 +29,7 @@
 {-# OPTIONS -Wall -fno-warn-orphans #-}
 
 module Appraisal.FileCache
-    ( 
+    (
     -- Types
       Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
@@ -61,7 +61,7 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.FileCacheT
-  (FileCacheT, FileCacheTop(FileCacheTop), FileError(Command, Description, SomeFileError, FunctionName, IOException),
+  (FileCacheT, FileCacheTop(FileCacheTop), FileError(..), CommandInfo(..),
    HasFileCacheTop(fileCacheTop), fromFileError, MonadFileCache)
 import Appraisal.Serialize (deriveSerialize)
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
@@ -198,7 +198,7 @@ fileFromCmd byteStringInfo toFileExt cmd = do
         do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
            return $ (set fileSource (Just (ThePath cmd)) file, a)
     ExitFailure _ ->
-        throwError (fromFileError (FunctionName "fileFromCmd" (Command (pack (show (shell cmd))) (pack (show code)))))
+        throwError (fromFileError (CommandFailure (FunctionName "fileFromCmd" (Command (pack (show (shell cmd))) (pack (show code))))))
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
@@ -215,7 +215,7 @@ fileFromURI byteStringInfo toFileExt uri =
          ExitSuccess ->
              do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
                 return (set fileSource (Just (TheURI uri)) file, bytes')
-         _ -> throwError (fromFileError (FunctionName "fileFromURI" (Command (pack (show cmd)) (pack (show code)))))
+         _ -> throwError (fromFileError (CommandFailure (FunctionName "fileFromURI" (Command (pack (show cmd)) (pack (show code))))))
 
 -- | Build a file from the output of a command.  This uses a temporary
 -- file to store the contents of the command while we checksum it.  This
@@ -235,15 +235,15 @@ fileFromCmdViaTemp ext exe = do
   (code, _out, _err) <- liftIOE (readCreateProcessWithExitCode' cmd P.empty)
   case code of
     ExitSuccess -> installFile tmp
-    ExitFailure _ -> throwError (fromFileError (FunctionName "fileFromCmdViaTemp" (Command (pack (show cmd)) (pack (show code)))))
+    ExitFailure _ -> throwError $ fromFileError $ CommandFailure $ FunctionName "fileFromCmdViaTemp" $ Command (pack (show cmd)) (pack (show code))
     where
       installFile :: FilePath -> m File
-      installFile tmp = fileFromPathViaRename (FunctionName "fileFromCmdViaTemp" . Description "install failed") ext tmp
+      installFile tmp = fileFromPathViaRename (fromFileError . CommandFailure . FunctionName "fileFromCmdViaTemp" . Description "install failed") ext tmp
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromPathViaRename ::
     forall e m. (MonadFileCache e m)
-    => (FileError -> FileError) -- ^ Use this to customize exception thrown here
+    => (CommandInfo -> FileError) -- ^ Use this to customize exception thrown here
     -> String
     -> FilePath
     -> m File
@@ -261,7 +261,7 @@ fileFromPathViaRename err ext path = do
         logM "Appraisal.FileCache" DEBUG ("fileFromPathViaRename - renameFile " <> path <> " " <> dest)
         renameFile path dest
       return file
-    (code, _, _) -> throwError (fromFileError (err (Command (pack (show cmd)) (pack (show code)) :: FileError)))
+    (code, _, _) -> throwError (fromFileError (err (Command (pack (show cmd)) (pack (show code)))))
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromPathViaCopy ::
@@ -290,7 +290,8 @@ cacheFile file bytes = do
     (\ (_e :: e) -> liftIOE (writeFileReadable path bytes) >> return file)
     where
       checkBytes loaded = if loaded == bytes
-                          then throwError (fromFileError (FunctionName "cacheFile" (SomeFileError "Checksum error")))
+                          -- then throwError (fromFileError (FunctionName "cacheFile" (SomeFileError "Checksum error")))
+                          then throwError (fromFileError CacheDamage)
                           else return file
 
 -- | Read and return the contents of the file from the cache as a ByteString.
@@ -303,7 +304,7 @@ loadBytesSafe file =
          False -> do
            let msg = "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
            liftIO (logM "Appraisal.FileCache" ERROR msg)
-           throwError (fromFileError (FunctionName "loadBytes" (SomeFileError msg)))
+           throwError (fromFileError CacheDamage)
 
 -- | Load an image file without verifying its checksum
 loadBytesUnsafe :: MonadFileCache e m => File -> m P.ByteString
