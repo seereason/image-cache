@@ -60,12 +60,11 @@ module Appraisal.FileCache
     , allFiles
     ) where
 
-import Appraisal.FileCacheT
-  (FileCacheT, FileCacheTop(FileCacheTop), FileError(..), CommandInfo(..),
-   HasFileCacheTop(fileCacheTop), fromFileError, MonadFileCache)
+import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop),
+                             HasFileCacheTop(fileCacheTop), MonadFileCache)
+import Appraisal.FileError (CommandInfo(..), FileError(..), fromFileError)
 import Appraisal.Serialize (deriveSerialize)
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
-import Control.Exception (IOException, try)
 import Control.Lens (makeLenses, over, set, view)
 import Control.Monad ( unless )
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
@@ -122,12 +121,6 @@ data File
 
 $(makeLenses ''File)
 
--- | Lift an IO operation into m *and* convert any IOException into a FileError
-liftIOE :: MonadFileCache e m => IO a -> m a
-liftIOE io =
-    liftIO (try io) >>=
-    either (\(e :: IOException) -> throwError . fromFileError . IOException . pack . show $ e) return
-
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
 fileURI file = case view fileSource file of
@@ -168,8 +161,8 @@ fileFromBytes byteStringInfo toFileExt bytes =
                          , _fileMessages = []
                          , _fileExt = toFileExt a }
          path <- fileCachePathIO file
-         exists <- liftIOE $ doesFileExist path
-         unless exists (liftIOE (writeFileReadable path bytes))
+         exists <- liftIO $ doesFileExist path
+         unless exists (liftIO (writeFileReadable path bytes))
          return (file, a)
 
 -- |Read the contents of a local path into a File.
@@ -180,7 +173,7 @@ fileFromPath ::
     -> FilePath
     -> m (File, a)
 fileFromPath byteStringInfo toFileExt path = do
-  bytes <- liftIOE $ P.readFile path
+  bytes <- liftIO $ P.readFile path
   (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
   return (set fileSource (Just (ThePath path)) file, a)
 
@@ -192,7 +185,7 @@ fileFromCmd ::
     -> String
     -> m (File, a)
 fileFromCmd byteStringInfo toFileExt cmd = do
-  (code, bytes, _err) <- liftIOE (readCreateProcessWithExitCode' (shell cmd) P.empty)
+  (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
     ExitSuccess ->
         do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
@@ -210,7 +203,7 @@ fileFromURI ::
 fileFromURI byteStringInfo toFileExt uri =
     do let args = ["-s", uri]
            cmd = (proc "curl" args)
-       (code, bytes, _err) <- liftIOE $ readCreateProcessWithExitCode' cmd P.empty
+       (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' cmd P.empty
        case code of
          ExitSuccess ->
              do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
@@ -228,11 +221,11 @@ fileFromCmdViaTemp ::
     -> m File
 fileFromCmdViaTemp ext exe = do
   FileCacheTop dir <- fileCacheTop
-  (tmp, h) <- liftIOE $ openBinaryTempFile dir "scaled"
+  (tmp, h) <- liftIO $ openBinaryTempFile dir "scaled"
   let cmd = shell (exe ++ " > " ++ tmp)
-  liftIOE $ makeReadableAndClose h
+  liftIO $ makeReadableAndClose h
   -- io (hClose h)
-  (code, _out, _err) <- liftIOE (readCreateProcessWithExitCode' cmd P.empty)
+  (code, _out, _err) <- liftIO (readCreateProcessWithExitCode' cmd P.empty)
   case code of
     ExitSuccess -> installFile tmp
     ExitFailure _ -> throwError $ fromFileError $ CommandFailure $ FunctionName "fileFromCmdViaTemp" $ Command (pack (show cmd)) (pack (show code))
@@ -249,7 +242,7 @@ fileFromPathViaRename ::
     -> m File
 fileFromPathViaRename err ext path = do
   let cmd = shell ("md5sum < " ++ showCommandForUser path [])
-  result <- liftIOE (readCreateProcessWithExitCode cmd "")
+  result <- liftIO (readCreateProcessWithExitCode cmd "")
   case result of
     (ExitSuccess, out, _err) -> do
       let file = File { _fileSource = Just (ThePath path)
@@ -270,14 +263,14 @@ fileFromPathViaCopy ::
     -> FilePath
     -> m File
 fileFromPathViaCopy ext path = do
-  cksum <- (\(_, out, _) -> take 32 out) <$> liftIOE (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
+  cksum <- (\(_, out, _) -> take 32 out) <$> liftIO (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
   let file = File { _fileSource = Just (ThePath path)
                   , _fileChksum = cksum
                   , _fileMessages = []
                   , _fileExt = ext }
   dest <- fileCachePathIO file
   liftIO $ logM "Appraisal.FileCache" DEBUG ("fileFromPathViaCopy - copyFile " <> path <> " " <> dest)
-  liftIOE $ copyFile path dest
+  liftIO $ copyFile path dest
   return file
 
 -- | Given a file and a ByteString containing the expected contents,
@@ -287,7 +280,7 @@ cacheFile :: MonadFileCache e m => File -> P.ByteString -> m File
 cacheFile file bytes = do
   path <- fileCachePath file
   (loadBytesUnsafe file >>= checkBytes) `catchError`
-    (\ (_e :: e) -> liftIOE (writeFileReadable path bytes) >> return file)
+    (\ (_e :: e) -> liftIO (writeFileReadable path bytes) >> return file)
     where
       checkBytes loaded = if loaded == bytes
                           -- then throwError (fromFileError (FunctionName "cacheFile" (SomeFileError "Checksum error")))
@@ -298,7 +291,7 @@ cacheFile file bytes = do
 loadBytesSafe :: MonadFileCache e m => File -> m P.ByteString
 loadBytesSafe file =
     do path <- fileCachePath file
-       bytes <- liftIOE (P.readFile path)
+       bytes <- liftIO (P.readFile path)
        case md5' bytes == view fileChksum file of
          True -> return bytes
          False -> do
@@ -308,7 +301,7 @@ loadBytesSafe file =
 
 -- | Load an image file without verifying its checksum
 loadBytesUnsafe :: MonadFileCache e m => File -> m P.ByteString
-loadBytesUnsafe file = fileCachePath file >>= liftIOE . P.readFile
+loadBytesUnsafe file = fileCachePath file >>= liftIO . P.readFile
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
@@ -326,7 +319,7 @@ fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fi
 fileCachePathIO :: MonadFileCache e m => File -> m FilePath
 fileCachePathIO file = do
   dir <- fileCacheDir file
-  liftIOE $ createDirectoryIfMissing True dir
+  liftIO $ createDirectoryIfMissing True dir
   fileCachePath file
 
 filePath :: File -> FilePath
@@ -346,9 +339,9 @@ instance Arbitrary FileSource where
 allFiles :: (MonadIO m, MonadReader (st, FilePath) (FileCacheT st FileError m)) => FileCacheT st FileError m [FilePath]
 allFiles = do
   FileCacheTop top <- fileCacheTop
-  dirs <- liftIOE $ listDirectory top
+  dirs <- liftIO $ listDirectory top
   concat <$> mapM (\dir -> let dir' = top </> dir in
-                           fmap (dir' </>) <$> liftIOE (listDirectory dir')) dirs
+                           fmap (dir' </>) <$> liftIO (listDirectory dir')) dirs
 
 listDirectory :: FilePath -> IO [FilePath]
 listDirectory path =

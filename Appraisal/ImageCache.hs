@@ -48,8 +48,9 @@ import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.AcidCache ( MonadCache(..) )
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, loadBytesSafe)
-import Appraisal.FileCacheT (FileCacheT, FileCacheTop(..), FileError(..), HasFileCacheTop, MonadFileCache, runFileCacheT)
-import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..), {-ImageCacheMap,-}
+import Appraisal.FileCacheT (FileCacheT, FileCacheTop(..), HasFileCacheTop, MonadFileCache, runFileCacheT)
+import Appraisal.FileError (FileError(..))
+import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..),
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw)

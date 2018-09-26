@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.10
+Version:        0.11
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -55,6 +55,7 @@ Library
     Appraisal.AcidCache
     Appraisal.FileCache
     Appraisal.FileCacheT
+    Appraisal.FileError
     Appraisal.Image
     Appraisal.ImageCache
     Appraisal.Exif
