@@ -25,6 +25,8 @@
 
 module Appraisal.FileError
     ( FileError(..)
+    , FileErrorT
+    , runFileErrorT
     , CommandInfo(..)
     , IsFileError(fromFileError)
     , logFileError
@@ -33,8 +35,8 @@ module Appraisal.FileError
 
 import Control.Exception as E (ErrorCall(ErrorCallWithLocation), fromException, IOException, SomeException, throw, try)
 import Control.Monad (msum)
-import Control.Monad.Except (ExceptT(ExceptT))
-import Control.Monad.Trans (MonadIO(liftIO))
+import Control.Monad.Except (ExceptT(ExceptT), MonadError(catchError, throwError), runExceptT)
+import Control.Monad.Trans (MonadIO(liftIO), MonadTrans(lift))
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
 #else
@@ -84,13 +86,28 @@ logCommandInfo prefix (CommandInput bs e) = logM prefix ERROR (" - command input
 logCommandInfo prefix (CommandOut bs e) = logM prefix ERROR (" - command stdout: " <> show (P.take 1000 bs)) >> logCommandInfo prefix e
 logCommandInfo prefix (CommandErr bs e) = logM prefix ERROR (" - command stderr: " <> show (P.take 1000 bs)) >> logCommandInfo prefix e
 
+newtype FileErrorT m a = FileErrorT {unFileErrorT :: ExceptT FileError m a}
+    deriving (Monad, Applicative, Functor)
+
+instance MonadTrans FileErrorT where
+    lift = FileErrorT . lift
+
+instance Monad m => MonadError FileError (FileErrorT m) where
+    throwError :: FileError -> FileErrorT m a
+    throwError e = FileErrorT $ throwError e
+    catchError :: FileErrorT m a -> (FileError -> FileErrorT m a) -> FileErrorT m a
+    catchError (FileErrorT m) c = FileErrorT $ m `catchError` (unFileErrorT . c)
+
+runFileErrorT :: FileErrorT m a -> m (Either FileError a)
+runFileErrorT action = runExceptT (unFileErrorT action)
+
 -- | Turn any caught IOException and ErrorCall into FileError.  Log
 -- any intercepted IO errors.
-instance MonadIO m => MonadIO (ExceptT FileError m) where
+instance MonadIO m => MonadIO (FileErrorT m) where
   liftIO =
+    FileErrorT .
     (ExceptT :: m (Either FileError a) -> ExceptT FileError m a) .
     ((\io -> either (Left . toFileError) Right <$> io) :: m (Either SomeException a) -> m (Either FileError a)) .
-    -- (liftFileError' :: m (Either SomeException a) -> m (Either FileError a)) .
     logErrorCall .
     liftIO .
     try

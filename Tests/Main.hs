@@ -10,6 +10,7 @@ module Main where
 import Appraisal.AcidCache
 import Appraisal.FileCache
 import Appraisal.FileCacheT
+import Appraisal.FileError
 import Control.Exception (IOException)
 import Control.Monad.Reader (ask, ReaderT)
 import Control.Monad.Trans (lift)
@@ -48,7 +49,7 @@ oldfile :: FilePath
 oldfile = "/usr/share/doc/cron/THANKS"
 
 type AcidM = ReaderT (AcidState (Map String String)) IO
-type FileM = FileCacheT (AcidState (Map String String)) IOException IO
+type FileM = FileCacheT (AcidState (Map String String)) IO
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
@@ -83,7 +84,7 @@ file1 = TestCase $ do
       f :: AcidState (Map String String) -> ExceptT FileError IO (Either FileError (File, ByteString))
       f fileAcidState =
           runFileCacheT fileAcidState fileCacheDir'
-            (fileFromPath return (pure "") oldfile :: FileCacheT st FileError (ExceptT FileError IO) (File, ByteString))
+            (fileFromPath return (pure "") oldfile :: FileCacheT st (ExceptT FileError IO) (File, ByteString))
              {-liftIO (try (fileFromPath return (pure "") oldfile) >>= either (throwError . IOException) return)-}
       expected :: (File, ByteString)
       expected = (File {_fileSource = Just (ThePath "/usr/share/doc/cron/THANKS"),

@@ -32,16 +32,16 @@ module Appraisal.FileCacheT
     , runFileCacheT
     , runFileCacheTop
     , runFileCache
-    , mapFileCacheT
+    -- , mapFileCacheT
     ) where
 
 import Appraisal.FileError
 import Control.Lens (_2, view)
 import Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
 import Control.Monad.Identity (Identity, runIdentity)
-import Control.Monad.Reader (mapReaderT, MonadReader(ask, local), ReaderT, runReaderT)
+import Control.Monad.Reader ({-mapReaderT,-} MonadReader(ask, local), ReaderT, runReaderT)
 import Control.Monad.Trans (lift, MonadIO(..), MonadTrans)
-import Debug.Show (V)
+--import Debug.Show (V)
 import System.Directory (createDirectoryIfMissing)
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
@@ -52,62 +52,57 @@ newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 class Monad m => HasFileCacheTop m where
     fileCacheTop :: m FileCacheTop
 
-newtype FileCacheT st e m a =
-    FileCacheT {unFileCacheT :: ReaderT (st, FilePath) (ExceptT e m) a}
+newtype FileCacheT st m a =
+    FileCacheT {unFileCacheT :: ReaderT (st, FilePath) (FileErrorT m) a}
     deriving (Monad, Applicative, Functor)
 
-type FileCache st e a = FileCacheT st e Identity a
+type FileCache st a = FileCacheT st Identity a
 
-instance MonadTrans (FileCacheT st e) where
+instance MonadTrans (FileCacheT st) where
     lift = FileCacheT . lift . lift
 
-instance MonadIO m => MonadIO (FileCacheT st e m) where
+instance MonadIO m => MonadIO (FileCacheT st m) where
     liftIO = lift . liftIO
 
-type MonadFileCache e m = (MonadIO m, IsFileError e, Show e, Show (V e), MonadError e m, HasFileCacheTop m)
+type MonadFileCache m = (MonadIO m, MonadError FileError m, HasFileCacheTop m)
 
-#if !MIN_VERSION_mtl(2,2,2)
-liftEither :: MonadError e m => Either e a -> m a
-liftEither = either throwError return
-#endif
-
-instance (Monad m, MonadReader (st, FilePath) (FileCacheT st FileError m)) => HasFileCacheTop (FileCacheT st FileError m) where
+instance (Monad m, MonadReader (st, FilePath) (FileCacheT st m)) => HasFileCacheTop (FileCacheT st m) where
     fileCacheTop = (FileCacheTop . view _2) <$> ask
 
-instance (Monad m, e ~ FileError) => MonadError e (FileCacheT st e m) where
-    throwError :: e -> FileCacheT st FileError m a
+instance (Monad m, e ~ FileError) => MonadError e (FileCacheT st m) where
+    throwError :: e -> FileCacheT st m a
     throwError e = FileCacheT $ throwError e
-    catchError :: FileCacheT st FileError m a -> (e -> FileCacheT st FileError m a) -> FileCacheT st FileError m a
+    catchError :: FileCacheT st m a -> (e -> FileCacheT st m a) -> FileCacheT st m a
     catchError (FileCacheT m) c = FileCacheT $ m `catchError` (unFileCacheT . c)
 
-instance Monad m => MonadReader (st, FilePath) (FileCacheT st FileError m) where
+instance Monad m => MonadReader (st, FilePath) (FileCacheT st m) where
     ask = FileCacheT ask
     local f action = FileCacheT (local f (unFileCacheT action))
 
 runFileCacheT ::
        st
     -> FileCacheTop
-    -> FileCacheT st FileError m a
+    -> FileCacheT st m a
     -> m (Either FileError a)
 runFileCacheT fileAcidState (FileCacheTop fileCacheDir) action =
-    runExceptT (runReaderT (unFileCacheT action) (fileAcidState, fileCacheDir))
+    runFileErrorT (runReaderT (unFileCacheT action) (fileAcidState, fileCacheDir))
 
 runFileCacheTop ::
        FileCacheTop
-    -> FileCacheT () e m a
-    -> m (Either e a)
+    -> FileCacheT () m a
+    -> m (Either FileError a)
 runFileCacheTop (FileCacheTop fileCacheDir) action =
-    runExceptT (runReaderT (unFileCacheT action) ((), fileCacheDir))
+    runFileErrorT (runReaderT (unFileCacheT action) ((), fileCacheDir))
 
 runFileCache ::
        FileCacheTop
-    -> FileCache () () a
+    -> FileCache () a
     -> a
 runFileCache (FileCacheTop fileCacheDir) action =
-    (\(Right x) -> x) $ runIdentity (runExceptT (runReaderT (unFileCacheT action) ((), fileCacheDir)))
+    (\(Right x) -> x) $ runIdentity (runFileErrorT (runReaderT (unFileCacheT action) ((), fileCacheDir)))
 
-mapFileCacheT :: Functor m => (e -> e') -> FileCacheT st e m a -> FileCacheT st e' m a
-mapFileCacheT f = FileCacheT . mapReaderT (withExceptT f) . unFileCacheT
+-- mapFileCacheT :: Functor m => (e -> e') -> FileCacheT st m a -> FileCacheT st m a
+-- mapFileCacheT f = FileCacheT . mapReaderT (withExceptT f) . unFileCacheT
 
-ensureFileCacheTop :: MonadIO m => FileCacheT st FileError m ()
+ensureFileCacheTop :: MonadIO m => FileCacheT st m ()
 ensureFileCacheTop = fileCacheTop >>= lift . liftIO . createDirectoryIfMissing True . unFileCacheTop
