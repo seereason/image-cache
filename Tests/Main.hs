@@ -11,7 +11,7 @@ import Appraisal.AcidCache
 import Appraisal.FileCache
 import Appraisal.FileCacheT
 import Appraisal.FileError
-import Control.Exception (IOException)
+--import Control.Exception (IOException)
 import Control.Monad.Reader (ask, ReaderT)
 import Control.Monad.Trans (lift)
 import Control.Monad.Except (ExceptT, runExceptT)

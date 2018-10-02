@@ -89,6 +89,7 @@ Library
     regex-compat-tdfa,
     safecopy,
     show-please,
+    sr-extra,
     syb,
     template-haskell,
     text,

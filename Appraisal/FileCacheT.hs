@@ -24,7 +24,9 @@
 {-# OPTIONS -Wall #-}
 
 module Appraisal.FileCacheT
-    ( FileCacheTop(..)
+    ( FileErrorT
+    , runFileErrorT
+    , FileCacheTop(..)
     , HasFileCacheTop(fileCacheTop)
     , MonadFileCache
     , ensureFileCacheTop
@@ -36,13 +38,48 @@ module Appraisal.FileCacheT
     ) where
 
 import Appraisal.FileError
+import Control.Exception as E (ErrorCall, fromException, IOException, SomeException, throw, try)
 import Control.Lens (_2, view)
 import Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
 import Control.Monad.Identity (Identity, runIdentity)
 import Control.Monad.Reader ({-mapReaderT,-} MonadReader(ask, local), ReaderT, runReaderT)
-import Control.Monad.Trans (lift, MonadIO(..), MonadTrans)
+import Control.Monad.Trans (lift, MonadIO(..), MonadTrans(lift))
 --import Debug.Show (V)
+import Data.Text (pack)
 import System.Directory (createDirectoryIfMissing)
+
+newtype FileErrorT m a = FileErrorT {unFileErrorT :: ExceptT FileError m a}
+    deriving (Monad, Applicative, Functor)
+
+instance MonadTrans FileErrorT where
+    lift = FileErrorT . lift
+
+instance Monad m => MonadError FileError (FileErrorT m) where
+    throwError :: FileError -> FileErrorT m a
+    throwError e = FileErrorT $ throwError e
+    catchError :: FileErrorT m a -> (FileError -> FileErrorT m a) -> FileErrorT m a
+    catchError (FileErrorT m) c = FileErrorT $ m `catchError` (unFileErrorT . c)
+
+runFileErrorT :: FileErrorT m a -> m (Either FileError a)
+runFileErrorT action = runExceptT (unFileErrorT action)
+
+-- | Turn any caught IOException and ErrorCall into FileError.  Log
+-- any intercepted IO errors.
+instance MonadIO m => MonadIO (FileErrorT m) where
+  liftIO =
+    FileErrorT .
+    (withExceptT toFileError :: ExceptT SomeException m a -> ExceptT FileError m a) .
+    ((\action -> action >>= liftEither) :: ExceptT SomeException m (Either SomeException a) -> ExceptT SomeException m a) .
+    logErrorCall .
+    liftIO .
+    try
+
+toFileError :: SomeException -> FileError
+toFileError e =
+    maybe (throw e)
+          id
+          (msum [fmap (IOException . pack . show) (fromException e :: Maybe IOException),
+                 fmap (Appraisal.FileError.ErrorCall . pack . show) (fromException e :: Maybe E.ErrorCall)])
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
