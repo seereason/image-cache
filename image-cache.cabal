@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.11
+Version:        0.12
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -48,7 +48,7 @@ flag pretty-112
 
 Library
   Hs-Source-Dirs: .
-  GHC-Options: -Wall -fno-warn-name-shadowing -O
+  GHC-Options: -Wall -fno-warn-name-shadowing -O -Wredundant-constraints
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP
   Exposed-modules:
@@ -116,6 +116,7 @@ test-suite image-cache-tests
     containers,
     directory,
     either,
+    exceptions,
     filemanip-extra,
     filepath,
     HaTeX,

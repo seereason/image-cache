@@ -2,7 +2,7 @@
 -- values are monadically obtained from the keys using the 'build'
 -- method of the MonadCache instance, and stored using acid-state.
 
-{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE CPP, ConstraintKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -37,8 +37,9 @@ module Appraisal.AcidCache
     , runMonadCacheT
     ) where
 
-import Control.Exception (bracket)
-import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
+import Control.Monad.Catch (bracket, MonadCatch, MonadMask)
+import Control.Monad.Reader (MonadReader(ask))
+import Control.Monad.RWS
 import Control.Monad.State (liftIO, MonadIO, modify)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
@@ -86,9 +87,9 @@ openValueCache :: (AcidKey key, AcidVal val) =>
                   FilePath -> IO (AcidState (Map key val))
 openValueCache path = openLocalStateFrom path _initCacheMap
 
-withValueCache :: (AcidKey key, AcidVal val) =>
-                  FilePath -> (AcidState (Map key val) -> IO a) -> IO a
-withValueCache path f = bracket (openValueCache path) createCheckpointAndClose $ f
+withValueCache :: (AcidKey key, AcidVal val, MonadIO m, MonadMask m) =>
+                  FilePath -> (AcidState (Map key val) -> m a) -> m a
+withValueCache path f = bracket (liftIO (openValueCache path)) (liftIO . createCheckpointAndClose) $ f
 #if 0
 withAcidState ::
     (IsAcidic a, Typeable a)
@@ -102,14 +103,14 @@ withAcidState path initial f = bracket (openLocalStateFrom path initial) createC
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
 -- state.
-class (AcidKey key, AcidVal val, MonadIO m) => MonadCache key val m where
+class (AcidKey key, AcidVal val, MonadIO m{-, MonadCatch m-}) => MonadCache key val m where
     askAcidState :: m (AcidState (Map key val))
     build :: key -> m val
     -- ^ A monadic, possibly expensive function to create a new map entry.
     -- Our application in ImageCache.hs is to scale/rotate/crop an image.
 
 -- | Call the build function on cache miss to build the value.
-cacheInsert :: forall key val m. MonadCache key val m => key -> m val
+cacheInsert :: forall key val m. (MonadCache key val m) => key -> m val
 cacheInsert key = do
   st <- askAcidState
   mval <- liftIO $ query st (LookValue key)
@@ -134,5 +135,5 @@ cacheDelete _ keys = do
   liftIO $ update st (DeleteValues keys)
 
 -- | Given the AcidState object for the cache, Run an action in the CacheIO monad.
-runMonadCacheT :: ReaderT (AcidState (Map key val)) m a -> AcidState (Map key val) -> m a
-runMonadCacheT action st = runReaderT action st
+runMonadCacheT :: Monad m => RWST (AcidState (Map key val)) () () m a -> AcidState (Map key val) -> m a
+runMonadCacheT action st = fst <$> evalRWST action st ()

@@ -29,9 +29,9 @@
 {-# OPTIONS -Wall -fno-warn-orphans #-}
 
 module Appraisal.FileCache
-    (
+    ( liftEIO
     -- Types
-      Checksum
+    , Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
     , File(..)
     , fileURI
@@ -60,15 +60,16 @@ module Appraisal.FileCache
     , allFiles
     ) where
 
-import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop),
-                             HasFileCacheTop(fileCacheTop), MonadFileCache)
+import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
 import Appraisal.FileError (CommandInfo(..), FileError(..), fromFileError)
 import Appraisal.Serialize (deriveSerialize)
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
+import Control.Exception (IOException)
 import Control.Lens (makeLenses, over, set, view)
 import Control.Monad ( unless )
+import Control.Monad.Catch (try)
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
-import Control.Monad.Reader (MonadReader)
+--import Control.Monad.Reader (MonadReader)
 import Control.Monad.Trans (MonadIO(..))
 import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
 #ifdef LAZYIMAGES
@@ -98,6 +99,17 @@ import System.Process.ListLike (showCreateProcessForUser)
 import System.Unix.FilePath ( (<++>) )
 import Test.QuickCheck ( Arbitrary(..), oneof )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+
+-- Lift an IO operation into ExceptT FileError IO
+
+liftEIO :: forall m a. (MonadIO m, MonadError FileError m) => IO a -> m a
+liftEIO action =
+  (runExceptT (liftEIO' action) :: m (Either FileError a)) >>= liftEither
+  where
+    liftEIO' :: forall m'. MonadIO m' => IO a -> ExceptT FileError m' a
+    liftEIO' action' =
+      withExceptT (IOException . pack . show)
+        (lift (liftIO (try action') :: m' (Either IOException a)) >>= liftEither)
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -149,7 +161,7 @@ md5' = show . md5 . Lazy.fromChunks . (: [])
 -- use writeFileReadable because the files we create need to be
 -- read remotely by our backup program.
 fileFromBytes ::
-    forall m a. MonadFileCache m
+    forall m a. (MonadIO m, MonadError FileError m, HasFileCacheTop m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> P.ByteString
@@ -167,7 +179,7 @@ fileFromBytes byteStringInfo toFileExt bytes =
 
 -- |Read the contents of a local path into a File.
 fileFromPath ::
-    forall m a. MonadFileCache m
+    forall m a. (MonadIO m, HasFileCacheTop m, MonadError FileError m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> FilePath
@@ -179,7 +191,7 @@ fileFromPath byteStringInfo toFileExt path = do
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
-    forall m a. MonadFileCache m
+    forall m a. (MonadIO m, HasFileCacheTop m, MonadError FileError m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> String
@@ -191,11 +203,11 @@ fileFromCmd byteStringInfo toFileExt cmd = do
         do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
            return $ (set fileSource (Just (ThePath cmd)) file, a)
     ExitFailure _ ->
-        throwError (fromFileError (CommandFailure (FunctionName "fileFromCmd" (Command (pack (show (shell cmd))) (pack (show code))))))
+        throwError (CommandFailure (FunctionName "fileFromCmd" (Command (pack (show (shell cmd))) (pack (show code)))))
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
-    forall m a. (MonadFileCache m)
+    forall m a. (MonadIO m, HasFileCacheTop m, MonadError FileError m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> String
@@ -208,14 +220,14 @@ fileFromURI byteStringInfo toFileExt uri =
          ExitSuccess ->
              do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
                 return (set fileSource (Just (TheURI uri)) file, bytes')
-         _ -> throwError (fromFileError (CommandFailure (FunctionName "fileFromURI" (Command (pack (show cmd)) (pack (show code))))))
+         _ -> throwError (CommandFailure (FunctionName "fileFromURI" (Command (pack (show cmd)) (pack (show code)))))
 
 -- | Build a file from the output of a command.  This uses a temporary
 -- file to store the contents of the command while we checksum it.  This
 -- is to avoid reading the file contents into a Haskell ByteString, which
 -- may be slower than using a unix pipeline.  Though it shouldn't be.
 fileFromCmdViaTemp ::
-    forall m. MonadFileCache m
+    forall m. (MonadIO m, HasFileCacheTop m, MonadError FileError m)
     => String
     -> String
     -> m File
@@ -228,14 +240,14 @@ fileFromCmdViaTemp ext exe = do
   (code, _out, _err) <- liftIO (readCreateProcessWithExitCode' cmd P.empty)
   case code of
     ExitSuccess -> installFile tmp
-    ExitFailure _ -> throwError $ fromFileError $ CommandFailure $ FunctionName "fileFromCmdViaTemp" $ Command (pack (show cmd)) (pack (show code))
+    ExitFailure _ -> throwError $ CommandFailure $ FunctionName "fileFromCmdViaTemp" $ Command (pack (show cmd)) (pack (show code))
     where
       installFile :: FilePath -> m File
       installFile tmp = fileFromPathViaRename (fromFileError . CommandFailure . FunctionName "fileFromCmdViaTemp" . Description "install failed") ext tmp
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromPathViaRename ::
-    forall m. (MonadFileCache m)
+    forall m. (MonadIO m, MonadError FileError m, HasFileCacheTop m)
     => (CommandInfo -> FileError) -- ^ Use this to customize exception thrown here
     -> String
     -> FilePath
@@ -258,7 +270,7 @@ fileFromPathViaRename err ext path = do
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromPathViaCopy ::
-    forall m. MonadFileCache m
+    forall m. (MonadIO m, MonadError FileError m, HasFileCacheTop m)
     => String
     -> FilePath
     -> m File
@@ -276,7 +288,9 @@ fileFromPathViaCopy ext path = do
 -- | Given a file and a ByteString containing the expected contents,
 -- verify the contents.  If it isn't installed or isn't correct,
 -- (re)install it.
-cacheFile :: MonadFileCache m => File -> P.ByteString -> m File
+cacheFile ::
+    (MonadIO m, MonadError FileError m, HasFileCacheTop m)
+    => File -> P.ByteString -> m File
 cacheFile file bytes = do
   path <- fileCachePath file
   (loadBytesUnsafe file >>= checkBytes) `catchError`
@@ -288,20 +302,25 @@ cacheFile file bytes = do
                           else return file
 
 -- | Read and return the contents of the file from the cache as a ByteString.
-loadBytesSafe :: MonadFileCache m => File -> m P.ByteString
+loadBytesSafe ::
+    (MonadError FileError m, MonadIO m, HasFileCacheTop m)
+    => File -> m P.ByteString
 loadBytesSafe file =
     do path <- fileCachePath file
-       bytes <- liftIO (P.readFile path)
+       bytes <- readFileBytes path
        case md5' bytes == view fileChksum file of
          True -> return bytes
          False -> do
            let msg = "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
            liftIO (logM "Appraisal.FileCache" ERROR msg)
-           throwError (fromFileError CacheDamage)
+           throwError CacheDamage
 
 -- | Load an image file without verifying its checksum
-loadBytesUnsafe :: MonadFileCache m => File -> m P.ByteString
-loadBytesUnsafe file = fileCachePath file >>= liftIO . P.readFile
+loadBytesUnsafe :: (MonadError FileError m, MonadIO m, HasFileCacheTop m) => File -> m P.ByteString
+loadBytesUnsafe file = fileCachePath file >>= readFileBytes
+
+readFileBytes :: (MonadIO m, MonadError FileError m) => FilePath -> m P.ByteString
+readFileBytes path = liftEIO (P.readFile path)
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
@@ -316,7 +335,7 @@ oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++
 fileCacheDir :: HasFileCacheTop m => File -> m FilePath
 fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
 
-fileCachePathIO :: MonadFileCache m => File -> m FilePath
+fileCachePathIO :: (MonadError FileError m, HasFileCacheTop m, MonadIO m) => File -> m FilePath
 fileCachePathIO file = do
   dir <- fileCacheDir file
   liftIO $ createDirectoryIfMissing True dir
@@ -336,7 +355,7 @@ instance Arbitrary FileSource where
 
 -- | Scan all the file cache directories for files without using
 -- the database.
-allFiles :: (MonadIO m, MonadReader (st, FilePath) (FileCacheT st m)) => FileCacheT st m [FilePath]
+allFiles :: (MonadIO m, Monoid w) => FileCacheT st w s m [FilePath]
 allFiles = do
   FileCacheTop top <- fileCacheTop
   dirs <- liftIO $ listDirectory top
