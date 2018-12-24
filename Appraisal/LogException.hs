@@ -2,6 +2,7 @@
 
 module Appraisal.LogException
     ( logException
+    , logExceptionV
     , logAndThrow
     ) where
 
@@ -23,6 +24,15 @@ logAndThrow m p e = liftIO (logM m p ("logAndThrow - " ++ show e)) >> throwError
 -- exception.
 logException :: ExpQ
 logException =
+    [| \priority action ->
+         action `catchError` (\e -> do
+                                liftIO (logM (loc_module $__LOC__)
+                                             priority
+                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show e))
+                                throwError e) |]
+
+logExceptionV :: ExpQ
+logExceptionV =
     [| \priority action ->
          action `catchError` (\e -> do
                                 liftIO (logM (loc_module $__LOC__)

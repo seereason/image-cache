@@ -47,13 +47,13 @@ import Appraisal.AcidCache ( MonadCache(..) )
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, loadBytesSafe)
 import Appraisal.FileCacheT (FileCacheT, HasFileCacheTop)
-import Appraisal.FileError (FileError(..))
+import Appraisal.FileError (FileError(..), IsFileError(fromFileError))
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..),
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw)
 import Control.Lens (_1, makeLensesFor, view)
-import Control.Monad.Except (catchError, ExceptT, MonadError)
+import Control.Monad.Except (catchError, ExceptT, MonadError, withExceptT)
 import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
@@ -68,6 +68,7 @@ import qualified Data.ByteString as P
 import Data.List (intercalate)
 import Data.Maybe ( fromMaybe )
 import Data.Map (Map)
+--import Debug.Show (V)
 --import Language.Haskell.TH (pprint)
 import Network.URI (URI, uriToString)
 import Numeric (fromRat, showFFloat)
@@ -84,20 +85,20 @@ imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
 imageFilePath img = fileCachePath (view imageFile img)
 
 -- | Find or create a cached image matching this ByteString.
-imageFileFromBytes :: forall m. (MonadIO m, HasFileCacheTop m, MonadError FileError m) => ByteString -> m ImageFile
+imageFileFromBytes :: forall e m. (MonadIO m, HasFileCacheTop m, MonadError e m, Show e) => ByteString -> m ImageFile
 imageFileFromBytes bs = fileFromBytes (liftIO . getFileType) fileExtension bs >>= makeImageFile
 
 -- | Find or create a cached image file by downloading from this URI.
-imageFileFromURI :: (MonadIO m, MonadError FileError m, HasFileCacheTop m) => URI -> {-ExceptT FileError (FileCacheT st w s m)-} m ImageFile
+imageFileFromURI :: (MonadIO m, IsFileError e, MonadError e m, Show e, HasFileCacheTop m) => URI -> {-ExceptT FileError (FileCacheT st w s m)-} m ImageFile
 imageFileFromURI uri = fileFromURI (liftIO . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
-imageFileFromPath :: (MonadIO m, MonadError FileError m, HasFileCacheTop m) => FilePath -> {-ExceptT FileError (FileCacheT st w s m)-} m ImageFile
+imageFileFromPath :: (MonadIO m, MonadError e m, Show e, HasFileCacheTop m) => FilePath -> {-ExceptT FileError (FileCacheT st w s m)-} m ImageFile
 imageFileFromPath path = fileFromPath (liftIO . getFileType) fileExtension path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
-makeImageFile :: forall m. (MonadIO m, HasFileCacheTop m, MonadError FileError m) => (File, ImageType) -> m ImageFile
+makeImageFile :: forall e m. (MonadIO m, HasFileCacheTop m, MonadError e m, Show e) => (File, ImageType) -> m ImageFile
 makeImageFile (file, ityp) = do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
@@ -290,7 +291,7 @@ class (MonadImageCache m, MonadFileCacheIO st e m) => MonadImageCacheIO st e m
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
 instance (MonadIO m, Monoid w, MonadError FileError m)
-      => MonadCache ImageKey ImageFile (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m) where
+      => MonadCache ImageKey ImageFile FileError (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m) where
     askAcidState = view _1 <$> ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do
@@ -302,15 +303,16 @@ instance (MonadIO m, Monoid w, MonadError FileError m)
     build (ImageCropped crop key) = do
       build key >>= $logException ERROR . editImage crop
 
-instance (MonadIO m, Monoid w)
-      => MonadCache ImageKey ImageFile (ExceptT FileError (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m)) where
+-- | Adds ExceptT.
+instance (MonadIO m, Monoid w, IsFileError e, Show e)
+      => MonadCache ImageKey ImageFile e (ExceptT e (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m)) where
     askAcidState = view _1 <$> ask
     build (ImageOriginal img) = return img
     build (ImageUpright key) = do
-      build key >>= $logException ERROR . uprightImage
+      build key >>= $logException ERROR . withExceptT fromFileError . uprightImage
     build (ImageScaled sz dpi key) = do
       img <- build key
       let scale = scaleFromDPI dpi sz img
-      $logException ERROR $ scaleImage (fromRat (fromMaybe 1 scale)) img
+      $logException ERROR $ withExceptT fromFileError $ scaleImage (fromRat (fromMaybe 1 scale)) img
     build (ImageCropped crop key) = do
-      build key >>= $logException ERROR . editImage crop
+      build key >>= $logException ERROR . withExceptT fromFileError . editImage crop

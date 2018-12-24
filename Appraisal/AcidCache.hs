@@ -37,7 +37,8 @@ module Appraisal.AcidCache
     , runMonadCacheT
     ) where
 
-import Control.Monad.Catch (bracket, MonadCatch, MonadMask)
+import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
+import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.RWS
 import Control.Monad.State (liftIO, MonadIO, modify)
@@ -52,30 +53,30 @@ type AcidVal val = (Show val, SafeCopy val, Typeable val)
 type AcidKey key = (AcidVal key, Eq key, Ord key)
 
 -- | Install a key/value pair into the cache.
-putValue :: (AcidKey key, AcidVal val) => key -> val -> Update (Map key val) ()
+putValue :: (AcidKey key{-, AcidVal val-}) => key -> val -> Update (Map key val) ()
 putValue key img = modify (Map.insert key img)
 
 -- | Install several key/value pairs into the cache.
-putValues :: (AcidKey key, AcidVal val) => Map key val -> Update (Map key val) ()
+putValues :: (AcidKey key{-, AcidVal val-}) => Map key val -> Update (Map key val) ()
 putValues pairs = modify (Map.union pairs)
 
 -- | Look up a key.
-lookValue :: (AcidKey key, AcidVal val) => key -> Query (Map key val) (Maybe val)
+lookValue :: (AcidKey key{-, AcidVal val-}) => key -> Query (Map key val) (Maybe val)
 lookValue key = Map.lookup key <$> ask
 
 -- | Look up several keys.
-lookValues :: (AcidKey key, AcidVal val) => Set key -> Query (Map key val) (Map key val)
+lookValues :: (AcidKey key{-, AcidVal val-}) => Set key -> Query (Map key val) (Map key val)
 lookValues keys = Map.intersection <$> ask <*> pure (Map.fromSet (const ()) keys)
 
 -- | Return the entire cache
-lookMap :: (AcidKey key, AcidVal val) => Query (Map key val) (Map key val)
+lookMap :: (AcidKey key{-, AcidVal val-}) => Query (Map key val) (Map key val)
 lookMap = ask
 
 -- | Remove values from the database.
-deleteValue :: (AcidKey key, AcidVal val) => key -> Update (Map key val) ()
+deleteValue :: (AcidKey key{-, AcidVal val-}) => key -> Update (Map key val) ()
 deleteValue key = modify (Map.delete key)
 
-deleteValues :: (AcidKey key, AcidVal val) => Set key -> Update (Map key val) ()
+deleteValues :: (AcidKey key{-, AcidVal val-}) => Set key -> Update (Map key val) ()
 deleteValues keys = modify (`Map.difference` (Map.fromSet (const ()) keys))
 
 $(makeAcidic ''Map ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
@@ -103,14 +104,14 @@ withAcidState path initial f = bracket (openLocalStateFrom path initial) createC
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
 -- state.
-class (AcidKey key, AcidVal val, MonadIO m{-, MonadCatch m-}) => MonadCache key val m where
+class (AcidKey key, AcidVal val, MonadIO m, MonadError e m) => MonadCache key val e m where
     askAcidState :: m (AcidState (Map key val))
     build :: key -> m val
     -- ^ A monadic, possibly expensive function to create a new map entry.
     -- Our application in ImageCache.hs is to scale/rotate/crop an image.
 
 -- | Call the build function on cache miss to build the value.
-cacheInsert :: forall key val m. (MonadCache key val m) => key -> m val
+cacheInsert :: forall key val e m. (MonadCache key val e m) => key -> m val
 cacheInsert key = do
   st <- askAcidState
   mval <- liftIO $ query st (LookValue key)
@@ -119,17 +120,17 @@ cacheInsert key = do
             return val) return mval
 
 -- | Query the cache, but do nothing on cache miss.
-cacheLook :: forall key val m. MonadCache key val m => key -> m (Maybe val)
+cacheLook :: forall key val e m. MonadCache key val e m => key -> m (Maybe val)
 cacheLook key = do
   st <- askAcidState
   liftIO $ query st (LookValue key)
 
-cacheMap :: forall key val m. MonadCache key val m => m (Map key val)
+cacheMap :: forall key val e m. MonadCache key val e m => m (Map key val)
 cacheMap = do
   st <- askAcidState
   liftIO $ query st LookMap
 
-cacheDelete :: forall key val m. Show val => MonadCache key val m => Proxy val -> Set key -> m ()
+cacheDelete :: forall key val e m. {-Show val =>-} MonadCache key val e m => Proxy val -> Set key -> m ()
 cacheDelete _ keys = do
   (st :: AcidState (Map key val)) <- askAcidState
   liftIO $ update st (DeleteValues keys)

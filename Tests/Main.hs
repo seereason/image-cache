@@ -56,11 +56,11 @@ type FileM m = FileCacheT (AcidState (Map String String)) () () m
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
-instance (MonadIO m, MonadCatch m) => MonadCache String String (AcidM m) where
+instance (MonadIO m, MonadCatch m, MonadError e m) => MonadCache String String e (AcidM m) where
     askAcidState = ask
     build = return . reverse
 
-instance MonadCache String String m => MonadCache String String (ReaderT FilePath m) where
+instance MonadCache String String e m => MonadCache String String e (ReaderT FilePath m) where
     askAcidState = lift askAcidState
     build = lift . build
 
