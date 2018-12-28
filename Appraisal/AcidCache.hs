@@ -103,7 +103,8 @@ withAcidState path initial f = bracket (openLocalStateFrom path initial) createC
 
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
--- state.
+-- state.  FIXME: need to remove the e parameter, it does not appear
+-- in the signatures and unnecessarily constrains MonadCache.
 class (AcidKey key, AcidVal val, MonadIO m, MonadError e m) => MonadCache key val e m where
     askAcidState :: m (AcidState (Map key val))
     build :: key -> m val

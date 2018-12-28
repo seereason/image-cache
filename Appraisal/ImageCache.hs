@@ -55,6 +55,7 @@ import Control.Exception (IOException, throw)
 import Control.Lens (_1, makeLensesFor, view)
 import Control.Monad.Except (catchError, ExceptT, MonadError, withExceptT)
 import Control.Monad.Reader (MonadReader(ask))
+import Control.Monad.RWS (RWST)
 import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
 import Data.ByteString (ByteString)
@@ -297,9 +298,9 @@ instance (MonadIO m, Monoid w, MonadError FileError m)
     build = buildImageFile
 
 -- | Adds ExceptT.
-instance (MonadIO m, Monoid w, IsFileError e, Show e, MonadError e m)
+instance (MonadIO m, Monoid w, IsFileError e, Show e, MonadError e m, acid ~ (AcidState (Map ImageKey ImageFile)))
       => MonadCache ImageKey ImageFile e
-           (ExceptT e (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m)) where
+           (ExceptT e (FileCacheT acid w s m)) where
     askAcidState = view _1 <$> ask
     build = withExceptT fromFileError . buildImageFile
 
