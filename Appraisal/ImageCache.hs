@@ -291,28 +291,25 @@ class (MonadImageCache m, MonadFileCacheIO st e m) => MonadImageCacheIO st e m
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
 instance (MonadIO m, Monoid w, MonadError FileError m)
-      => MonadCache ImageKey ImageFile FileError (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m) where
+      => MonadCache ImageKey ImageFile FileError
+           (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m) where
     askAcidState = view _1 <$> ask
-    build (ImageOriginal img) = return img
-    build (ImageUpright key) = do
-      build key >>= $logException ERROR . uprightImage
-    build (ImageScaled sz dpi key) = do
-      img <- build key
-      let scale = scaleFromDPI dpi sz img
-      $logException ERROR $ scaleImage (fromRat (fromMaybe 1 scale)) img
-    build (ImageCropped crop key) = do
-      build key >>= $logException ERROR . editImage crop
+    build = buildImageFile
 
 -- | Adds ExceptT.
-instance (MonadIO m, Monoid w, IsFileError e, Show e)
-      => MonadCache ImageKey ImageFile e (ExceptT e (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m)) where
+instance (MonadIO m, Monoid w, IsFileError e, Show e, MonadError e m)
+      => MonadCache ImageKey ImageFile e
+           (ExceptT e (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m)) where
     askAcidState = view _1 <$> ask
-    build (ImageOriginal img) = return img
-    build (ImageUpright key) = do
-      build key >>= $logException ERROR . withExceptT fromFileError . uprightImage
-    build (ImageScaled sz dpi key) = do
-      img <- build key
-      let scale = scaleFromDPI dpi sz img
-      $logException ERROR $ withExceptT fromFileError $ scaleImage (fromRat (fromMaybe 1 scale)) img
-    build (ImageCropped crop key) = do
-      build key >>= $logException ERROR . withExceptT fromFileError . editImage crop
+    build = withExceptT fromFileError . buildImageFile
+
+buildImageFile :: (MonadIO m, MonadError FileError m, HasFileCacheTop m) => ImageKey -> m ImageFile
+buildImageFile (ImageOriginal img) = return img
+buildImageFile (ImageUpright key) =
+  buildImageFile key >>= $logException ERROR . {-withExceptT fromFileError .-} uprightImage
+buildImageFile (ImageScaled sz dpi key) = do
+  img <- buildImageFile key
+  let scale = scaleFromDPI dpi sz img
+  $logException ERROR $ {-withExceptT fromFileError $-} scaleImage (fromRat (fromMaybe 1 scale)) img
+buildImageFile (ImageCropped crop key) = do
+  buildImageFile key >>= $logException ERROR . {-withExceptT fromFileError .-} editImage crop
