@@ -36,7 +36,6 @@ module Appraisal.FileCacheT
     ) where
 
 import Appraisal.FileError
-import Control.Exception as E (ErrorCall, fromException, IOException, SomeException, throw)
 import Control.Lens (_2, view)
 import Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
 import Control.Monad.Identity (Identity)
@@ -44,7 +43,6 @@ import Control.Monad.Reader ({-mapReaderT,-} MonadReader(ask))
 import Control.Monad.RWS
 import Control.Monad.Trans (lift, MonadIO(..), MonadTrans(lift))
 import Data.Generics (Proxy(Proxy))
-import Data.Text (pack)
 import System.Directory (createDirectoryIfMissing)
 
 {-
@@ -73,7 +71,6 @@ instance MonadIO m => MonadIO (FileErrorT m) where
     logErrorCall .
     liftIO .
     try
--}
 
 toFileError :: SomeException -> FileError
 toFileError e =
@@ -81,6 +78,7 @@ toFileError e =
           id
           (msum [fmap (IOException . pack . show) (fromException e :: Maybe IOException),
                  fmap (Appraisal.FileError.ErrorCall . pack . show) (fromException e :: Maybe E.ErrorCall)])
+-}
 
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 
@@ -90,14 +88,14 @@ newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
 class Monad m => HasFileCacheTop m where
     fileCacheTop :: m FileCacheTop
 
-type FileCacheT st w s m = RWST (st, FilePath) w s m
+type FileCacheT acid w s m = RWST (acid, FileCacheTop) w s m
 
-type FileCache st w s = FileCacheT st w s Identity
+type FileCache acid w s = FileCacheT acid w s Identity
 
 -- type MonadFileCache m = (MonadIO m, {-MonadError FileError m,-} HasFileCacheTop m)
 
-instance (Monad m, Monoid w) => HasFileCacheTop (FileCacheT st w s m) where
-    fileCacheTop = (FileCacheTop . view _2) <$> ask
+instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m) where
+    fileCacheTop = view _2 <$> ask
 
 instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
     fileCacheTop = lift fileCacheTop
@@ -106,19 +104,19 @@ runFileCacheT ::
     Monad m
     => Proxy w
     -> s
-    -> st
+    -> acid
     -> FileCacheTop
-    -> RWST (st, FilePath) w s m a
+    -> RWST (acid, FileCacheTop) w s m a
     -> m a
-runFileCacheT _ s0 r0 (FileCacheTop fileCacheDir) action =
-    fst <$> evalRWST action (r0, fileCacheDir) s0
+runFileCacheT _ s0 r0 top action =
+    fst <$> evalRWST action (r0, top) s0
 
 runFileCacheTop ::
      Monad m
     => FileCacheTop
-    -> st
+    -> acid
     -- -> FileCacheT () () () (ExceptT FileError m) a
-    -> RWST (st, FilePath) () () (ExceptT FileError m) a
+    -> RWST (acid, FileCacheTop) () () (ExceptT FileError m) a
     -> m (Either FileError a)
 runFileCacheTop top acid action =
     runExceptT (runFileCacheT (Proxy :: Proxy w) () acid top action)
@@ -126,5 +124,5 @@ runFileCacheTop top acid action =
 -- mapFileCacheT :: Functor m => (e -> e') -> FileCacheT st m a -> FileCacheT st m a
 -- mapFileCacheT f = FileCacheT . mapReaderT (withExceptT f) . unFileCacheT
 
-ensureFileCacheTop :: (MonadIO m, Monoid w) => FileCacheT st w s m ()
+ensureFileCacheTop :: (MonadIO m, Monoid w) => FileCacheT acid w s m ()
 ensureFileCacheTop = fileCacheTop >>= lift . liftIO . createDirectoryIfMissing True . unFileCacheTop

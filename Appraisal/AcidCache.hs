@@ -34,14 +34,13 @@ module Appraisal.AcidCache
     , cacheInsert
     , cacheDelete
     -- * Instance
-    , runMonadCacheT
+    -- , runMonadCacheT
     ) where
 
-import Appraisal.FileError (FileError, IsFileError)
+import Appraisal.FileError (IsFileError)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
-import Control.Monad.Except (ExceptT, MonadError)
+import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader(ask))
-import Control.Monad.RWS
 import Control.Monad.State (liftIO, MonadIO, modify)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
@@ -69,7 +68,9 @@ lookValue key = Map.lookup key <$> ask
 lookValues :: (AcidKey key{-, AcidVal val-}) => Set key -> Query (Map key val) (Map key val)
 lookValues keys = Map.intersection <$> ask <*> pure (Map.fromSet (const ()) keys)
 
--- | Return the entire cache
+-- | Return the entire cache.  (Despite what ghc says, this constraint
+-- isn't redundant, without it the makeAcidic call has a missing Ord
+-- key instance.)
 lookMap :: (AcidKey key{-, AcidVal val-}) => Query (Map key val) (Map key val)
 lookMap = ask
 
@@ -105,37 +106,44 @@ withAcidState path initial f = bracket (openLocalStateFrom path initial) createC
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
 -- state.
-class (AcidKey key, AcidVal val, MonadIO m{-, IsFileError e, MonadError e m-}) => MonadCache key val m where
+class (AcidKey key, AcidVal val, MonadIO m, IsFileError e, MonadError e m) => MonadCache key val e m where
     askAcidState :: m (AcidState (Map key val))
-    build :: key -> ExceptT FileError m val
+    build :: key -> m val
     -- ^ A monadic, possibly expensive function to create a new map entry.
     -- Our application in ImageCache.hs is to scale/rotate/crop an image.
 
 -- | Call the build function on cache miss to build the value.
-cacheInsert :: forall key val m. (MonadCache key val m) => key -> ExceptT FileError m val
+cacheInsert :: (MonadCache key val e m) => key -> m val
 cacheInsert key = do
-  st <- lift askAcidState
+  st <- askAcidState
   mval <- liftIO $ query st (LookValue key)
   maybe (do val <- build key
             () <- liftIO $ update st (PutValue key val)
             return val) return mval
 
 -- | Query the cache, but do nothing on cache miss.
-cacheLook :: forall key val e m. (MonadCache key val m, IsFileError e, MonadError e m) => key -> ExceptT e m (Maybe val)
+cacheLook :: (MonadCache key val e m) => key -> m (Maybe val)
 cacheLook key = do
-  st <- lift askAcidState
+  st <- askAcidState
   liftIO $ query st (LookValue key)
 
-cacheMap :: forall key val e m. (MonadCache key val m, IsFileError e, MonadError e m) => ExceptT e m (Map key val)
+cacheMap :: (MonadCache key val e m) => m (Map key val)
 cacheMap = do
-  st <- lift askAcidState
+  st <- askAcidState
   liftIO $ query st LookMap
 
-cacheDelete :: forall key val e m. (MonadCache key val m, IsFileError e, MonadError e m) => Proxy val -> Set key -> ExceptT e m ()
+cacheDelete :: forall key val e m. (MonadCache key val e m) => Proxy val -> Set key -> m ()
 cacheDelete _ keys = do
-  (st :: AcidState (Map key val)) <- lift askAcidState
+  (st :: AcidState (Map key val)) <- askAcidState
   liftIO $ update st (DeleteValues keys)
 
+#if 0
 -- | Given the AcidState object for the cache, Run an action in the CacheIO monad.
-runMonadCacheT :: Monad m => RWST (AcidState (Map key val)) () () m a -> AcidState (Map key val) -> m a
-runMonadCacheT action st = fst <$> evalRWST action st ()
+runMonadCacheT ::
+    Monad m
+    => RWST (AcidState (Map key val)) () s m a
+    -> AcidState (Map key val)
+    -> s
+    -> m a
+runMonadCacheT action acid = fst <$> evalRWST action acid
+#endif

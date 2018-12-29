@@ -29,9 +29,9 @@
 {-# OPTIONS -Wall -fno-warn-orphans #-}
 
 module Appraisal.FileCache
-    ( liftEIO
-    -- Types
-    , Checksum
+    (
+    -- * Types
+      Checksum
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
     , File(..)
     , fileURI
@@ -61,13 +61,11 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
-import Appraisal.FileError (CommandInfo(..), FileError(..), IsFileError(fromFileError))
+import Appraisal.FileError (CommandInfo(..), FileError(..), IsFileError(fromFileError), liftEIO)
 import Appraisal.Serialize (deriveSerialize)
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
-import Control.Exception (IOException)
 import Control.Lens (makeLenses, over, set, view)
 import Control.Monad ( unless )
-import Control.Monad.Catch (try)
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
 --import Control.Monad.Reader (MonadReader)
 import Control.Monad.Trans (MonadIO(..))
@@ -100,17 +98,6 @@ import System.Unix.FilePath ( (<++>) )
 import Test.QuickCheck ( Arbitrary(..), oneof )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
--- Lift an IO operation into ExceptT FileError IO
-
-liftEIO :: forall e m a. (MonadIO m, IsFileError e, MonadError e m) => IO a -> m a
-liftEIO action =
-  (runExceptT (liftEIO' action) :: m (Either e a)) >>= liftEither
-  where
-    liftEIO' :: forall m'. MonadIO m' => IO a -> ExceptT e m' a
-    liftEIO' action' =
-      withExceptT (fromFileError . IOException . pack . show)
-        (lift (liftIO (try action') :: m' (Either IOException a)) >>= liftEither)
-
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
 -- store the original ByteString if that is all we began
@@ -131,7 +118,20 @@ data File
            , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
            } deriving (Show, Read, Eq, Ord, Data, Typeable)
 
-$(makeLenses ''File)
+$(concat <$>
+  sequence
+  [ makeLenses ''File
+  , deriveSafeCopy 1 'base ''FileSource
+  , deriveSafeCopy 0 'base ''URI
+  , deriveSafeCopy 0 'base ''URIAuth
+  , deriveSafeCopy 2 'base ''File
+  , TH.deriveLiftMany [
+     ''FileSource,
+     ''URI,
+     ''URIAuth,
+     ''File]
+  , deriveSerialize [t|FileSource|]
+  , deriveSerialize [t|File|] ])
 
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
@@ -161,11 +161,11 @@ md5' = show . md5 . Lazy.fromChunks . (: [])
 -- use writeFileReadable because the files we create need to be
 -- read remotely by our backup program.
 fileFromBytes ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, e ~ FileError{-, MonadError e m, IsFileError e-})
-    => (P.ByteString -> ExceptT e m a)
+    forall e m a. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
+    => (P.ByteString -> m a)
     -> (a -> String)
     -> P.ByteString
-    -> ExceptT e m (File, a)
+    -> m (File, a)
 fileFromBytes byteStringInfo toFileExt bytes =
       do a <- byteStringInfo bytes
          let file = File { _fileSource = Nothing
@@ -179,11 +179,11 @@ fileFromBytes byteStringInfo toFileExt bytes =
 
 -- |Read the contents of a local path into a File.
 fileFromPath ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, e ~ FileError {-MonadError e m, IsFileError e-})
-    => (P.ByteString -> ExceptT e m a)
+    forall e m a. (MonadIO m, HasFileCacheTop m, MonadError e m, IsFileError e)
+    => (P.ByteString -> m a)
     -> (a -> String)
     -> FilePath
-    -> ExceptT e m (File, a)
+    -> m (File, a)
 fileFromPath byteStringInfo toFileExt path = do
   bytes <- liftIO $ P.readFile path
   (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
@@ -191,13 +191,13 @@ fileFromPath byteStringInfo toFileExt path = do
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, e ~ FileError {-IsFileError e, MonadError e m-})
-    => (P.ByteString -> ExceptT e m a)
+    forall e m a. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
+    => (P.ByteString -> m a)
     -> (a -> String)
     -> String
-    -> ExceptT e m (File, a)
+    -> m (File, a)
 fileFromCmd byteStringInfo toFileExt cmd = do
-  (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
+  (code, bytes, _err) <- liftEIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
     ExitSuccess ->
         do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
@@ -207,15 +207,15 @@ fileFromCmd byteStringInfo toFileExt cmd = do
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, e ~ FileError {-IsFileError e, MonadError e m-})
-    => (P.ByteString -> ExceptT e m a)
+    forall e m a. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
+    => (P.ByteString -> m a)
     -> (a -> String)
     -> String
-    -> ExceptT e m (File, a)
+    -> m (File, a)
 fileFromURI byteStringInfo toFileExt uri =
     do let args = ["-s", uri]
            cmd = (proc "curl" args)
-       (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' cmd P.empty
+       (code, bytes, _err) <- liftEIO $ readCreateProcessWithExitCode' cmd P.empty
        case code of
          ExitSuccess ->
              do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
@@ -366,15 +366,3 @@ listDirectory :: FilePath -> IO [FilePath]
 listDirectory path =
   (filter f) <$> (getDirectoryContents path)
   where f filename = filename /= "." && filename /= ".."
-
-$(deriveSafeCopy 1 'base ''FileSource)
-$(deriveSafeCopy 0 'base ''URI)
-$(deriveSafeCopy 0 'base ''URIAuth)
-$(deriveSafeCopy 2 'base ''File)
-$(TH.deriveLiftMany [
-   ''FileSource,
-   ''URI,
-   ''URIAuth,
-   ''File])
-$(deriveSerialize [t|FileSource|])
-$(deriveSerialize [t|File|])
