@@ -111,8 +111,7 @@ makeImageFile :: forall m. (MonadIO m, HasFileCacheTop m) => (File, ImageType) -
 makeImageFile (file, ityp) = do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
-    -- $logException ERROR $
-    imageFileFromType path file ityp
+    $logException ERROR $ imageFileFromType path file ityp
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -168,7 +167,7 @@ uprightImage orig = do
 -- of the old other than size.
 scaleImage :: forall e m. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m, Show e) => Double -> ImageFile -> m ImageFile
 scaleImage scale orig | approx (toRational scale) == 1 = return orig
-scaleImage scale orig = {-$logException ERROR $-} do
+scaleImage scale orig = $logException ERROR $ do
     path <- fileCachePath (view imageFile orig)
     let decoder = case view imageFileType orig of
                     JPEG -> showCommandForUser "jpegtopnm" [path]
