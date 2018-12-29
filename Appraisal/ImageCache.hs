@@ -92,22 +92,22 @@ imageFilePath img = fileCachePath (view imageFile img)
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes ::
-    forall e m. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
+    forall e m. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m, Show e)
     => ByteString
     -> m ImageFile
 imageFileFromBytes bs = fileFromBytes (liftEIO . getFileType) fileExtension bs >>= makeImageFile
 
 -- | Find or create a cached image file by downloading from this URI.
-imageFileFromURI :: (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m) => URI -> m ImageFile
+imageFileFromURI :: (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m, Show e) => URI -> m ImageFile
 imageFileFromURI uri = fileFromURI (liftEIO . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
-imageFileFromPath :: (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m) => FilePath -> m ImageFile
+imageFileFromPath :: (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m, Show e) => FilePath -> m ImageFile
 imageFileFromPath path = fileFromPath (liftEIO . getFileType) fileExtension path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
-makeImageFile :: forall m. (MonadIO m, HasFileCacheTop m) => (File, ImageType) -> m ImageFile
+makeImageFile :: forall e m. (MonadIO m, HasFileCacheTop m, MonadError e m, Show e) => (File, ImageType) -> m ImageFile
 makeImageFile (file, ityp) = do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
