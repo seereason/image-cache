@@ -37,7 +37,6 @@ module Appraisal.AcidCache
     , runMonadCacheT
     ) where
 
-import Appraisal.Abbrevs (ReportError(..))
 import Appraisal.FileError (FileError, IsFileError)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
 import Control.Monad.Except (ExceptT, MonadError)
