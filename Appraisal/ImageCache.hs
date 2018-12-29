@@ -40,22 +40,23 @@ module Appraisal.ImageCache
     , uprightImage
     , scaleImage
     , editImage
+    , foo
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.AcidCache ( MonadCache(..) )
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, loadBytesSafe)
+                            fileFromCmd, liftEIO, loadBytesSafe)
 import Appraisal.FileCacheT (FileCacheT, HasFileCacheTop)
 import Appraisal.FileError (FileError(..), IsFileError(fromFileError))
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..),
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw)
-import Control.Lens (_1, makeLensesFor, view)
-import Control.Monad.Except (catchError, ExceptT, MonadError, withExceptT)
+import Control.Lens (_1, _Left, makeLensesFor, over, view)
+import Control.Monad.Except (catchError, ExceptT, liftEither, MonadError, runExceptT, withExceptT)
 import Control.Monad.Reader (MonadReader(ask))
-import Control.Monad.RWS (RWST)
+--import Control.Monad.RWS (RWST)
 import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
 import Data.ByteString (ByteString)
@@ -79,6 +80,10 @@ import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode, showCreateProcessForUser)
 import "regex-compat-tdfa" Text.Regex (mkRegex, matchRegex)
 
+-- foo :: forall m a. (Monad m, Monad m') => ExceptT FileError m a -> m a
+foo :: (MonadError e m, IsFileError e) => ExceptT FileError m a -> m a
+foo action = (liftEither . over _Left fromFileError) =<< runExceptT action
+
 -- | Return the local pathname of an image file.  The path will have a
 -- suitable extension (e.g. .jpg) for the benefit of software that
 -- depends on this, so the result might point to a symbolic link.
@@ -86,16 +91,16 @@ imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
 imageFilePath img = fileCachePath (view imageFile img)
 
 -- | Find or create a cached image matching this ByteString.
-imageFileFromBytes :: forall e m. (MonadIO m, HasFileCacheTop m, MonadError e m, Show e) => ByteString -> m ImageFile
-imageFileFromBytes bs = fileFromBytes (liftIO . getFileType) fileExtension bs >>= makeImageFile
+imageFileFromBytes :: forall e m. (MonadIO m, HasFileCacheTop m) => ByteString -> ExceptT FileError m ImageFile
+imageFileFromBytes bs = fileFromBytes (liftEIO . getFileType) fileExtension bs >>= makeImageFile
 
 -- | Find or create a cached image file by downloading from this URI.
-imageFileFromURI :: (MonadIO m, IsFileError e, MonadError e m, Show e, HasFileCacheTop m) => URI -> {-ExceptT FileError (FileCacheT st w s m)-} m ImageFile
-imageFileFromURI uri = fileFromURI (liftIO . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
+imageFileFromURI :: (MonadIO m, HasFileCacheTop m) => URI -> ExceptT FileError m ImageFile
+imageFileFromURI uri = fileFromURI (liftEIO . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
-imageFileFromPath :: (MonadIO m, MonadError e m, Show e, HasFileCacheTop m) => FilePath -> {-ExceptT FileError (FileCacheT st w s m)-} m ImageFile
-imageFileFromPath path = fileFromPath (liftIO . getFileType) fileExtension path >>= makeImageFile
+imageFileFromPath :: (MonadIO m, MonadError e m, HasFileCacheTop m) => FilePath -> {-ExceptT FileError (FileCacheT st w s m)-} ExceptT FileError m ImageFile
+imageFileFromPath path = fileFromPath (liftEIO . getFileType) fileExtension path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
@@ -103,7 +108,8 @@ makeImageFile :: forall e m. (MonadIO m, HasFileCacheTop m, MonadError e m, Show
 makeImageFile (file, ityp) = do
     -- logM "Appraisal.ImageFile.makeImageFile" INFO ("Appraisal.ImageFile.makeImageFile - INFO file=" ++ show file) >>
     path <- fileCachePath file
-    $logException ERROR (imageFileFromType path file ityp)
+    -- $logException ERROR $
+    imageFileFromType path file ityp
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -147,7 +153,7 @@ imageFileFromPnmfileOutput file typ out =
 -- | Find or create a version of some image with its orientation
 -- corrected based on the EXIF orientation flag.  If the image is
 -- already upright this will return the original ImageFile.
-uprightImage :: (MonadIO m, HasFileCacheTop m, MonadError FileError m) => ImageFile -> m ImageFile
+uprightImage :: (MonadIO m, HasFileCacheTop m) => ImageFile -> ExceptT FileError m ImageFile
 uprightImage orig = do
   -- path <- _fileCachePath (imageFile orig)
   bs <- $logException ERROR (loadBytesSafe (view imageFile orig))
@@ -157,9 +163,9 @@ uprightImage orig = do
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
 -- of the old other than size.
-scaleImage :: forall m. (MonadIO m, HasFileCacheTop m, MonadError FileError m) => Double -> ImageFile -> m ImageFile
+scaleImage :: forall m. (MonadIO m, HasFileCacheTop m) => Double -> ImageFile -> ExceptT FileError m ImageFile
 scaleImage scale orig | approx (toRational scale) == 1 = return orig
-scaleImage scale orig = $logException ERROR $ do
+scaleImage scale orig = {-$logException ERROR $-} do
     path <- fileCachePath (view imageFile orig)
     let decoder = case view imageFileType orig of
                     JPEG -> showCommandForUser "jpegtopnm" [path]
@@ -174,15 +180,15 @@ scaleImage scale orig = $logException ERROR $ do
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
         cmd = pipe' [decoder, scaler, encoder]
-    fileFromCmd (liftIO . getFileType) fileExtension cmd >>= buildImage
+    fileFromCmd (liftEIO . getFileType) fileExtension cmd >>= buildImage
     -- fileFromCmdViaTemp cmd >>= buildImage
     where
-      buildImage :: (File, ImageType) -> m ImageFile
+      buildImage :: (File, ImageType) -> ExceptT FileError m ImageFile
       buildImage file = makeImageFile file `catchError` (\ e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)
 
 -- | Find or create a cached image which is a cropped version of
 -- another.
-editImage :: (MonadIO m, HasFileCacheTop m, MonadError FileError m) => ImageCrop -> ImageFile -> m ImageFile
+editImage :: (MonadIO m, HasFileCacheTop m) => ImageCrop -> ImageFile -> ExceptT FileError m ImageFile
 editImage crop file = $logException ERROR $
     case commands of
       [] ->
@@ -292,19 +298,19 @@ class (MonadImageCache m, MonadFileCacheIO st e m) => MonadImageCacheIO st e m
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
 instance (MonadIO m, Monoid w, MonadError FileError m)
-      => MonadCache ImageKey ImageFile FileError
+      => MonadCache ImageKey ImageFile
            (FileCacheT (AcidState (Map ImageKey ImageFile)) w s m) where
     askAcidState = view _1 <$> ask
     build = buildImageFile
 
 -- | Adds ExceptT.
-instance (MonadIO m, Monoid w, IsFileError e, Show e, MonadError e m, acid ~ (AcidState (Map ImageKey ImageFile)))
-      => MonadCache ImageKey ImageFile e
+instance (MonadIO m, Monoid w, IsFileError e, acid ~ (AcidState (Map ImageKey ImageFile)))
+      => MonadCache ImageKey ImageFile
            (ExceptT e (FileCacheT acid w s m)) where
     askAcidState = view _1 <$> ask
     build = withExceptT fromFileError . buildImageFile
 
-buildImageFile :: (MonadIO m, MonadError FileError m, HasFileCacheTop m) => ImageKey -> m ImageFile
+buildImageFile :: (MonadIO m, HasFileCacheTop m) => ImageKey -> ExceptT FileError m ImageFile
 buildImageFile (ImageOriginal img) = return img
 buildImageFile (ImageUpright key) =
   buildImageFile key >>= $logException ERROR . {-withExceptT fromFileError .-} uprightImage

@@ -161,11 +161,11 @@ md5' = show . md5 . Lazy.fromChunks . (: [])
 -- use writeFileReadable because the files we create need to be
 -- read remotely by our backup program.
 fileFromBytes ::
-    forall e m a. (MonadIO m, MonadError e m, HasFileCacheTop m)
-    => (P.ByteString -> m a)
+    forall e m a. (MonadIO m, HasFileCacheTop m, e ~ FileError{-, MonadError e m, IsFileError e-})
+    => (P.ByteString -> ExceptT e m a)
     -> (a -> String)
     -> P.ByteString
-    -> m (File, a)
+    -> ExceptT e m (File, a)
 fileFromBytes byteStringInfo toFileExt bytes =
       do a <- byteStringInfo bytes
          let file = File { _fileSource = Nothing
@@ -173,17 +173,17 @@ fileFromBytes byteStringInfo toFileExt bytes =
                          , _fileMessages = []
                          , _fileExt = toFileExt a }
          path <- fileCachePathIO file
-         exists <- liftIO $ doesFileExist path
-         unless exists (liftIO (writeFileReadable path bytes))
+         exists <- liftEIO $ doesFileExist path
+         unless exists (liftEIO (writeFileReadable path bytes))
          return (file, a)
 
 -- |Read the contents of a local path into a File.
 fileFromPath ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, MonadError e m)
-    => (P.ByteString -> m a)
+    forall e m a. (MonadIO m, HasFileCacheTop m, e ~ FileError {-MonadError e m, IsFileError e-})
+    => (P.ByteString -> ExceptT e m a)
     -> (a -> String)
     -> FilePath
-    -> m (File, a)
+    -> ExceptT e m (File, a)
 fileFromPath byteStringInfo toFileExt path = do
   bytes <- liftIO $ P.readFile path
   (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
@@ -191,11 +191,11 @@ fileFromPath byteStringInfo toFileExt path = do
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
-    => (P.ByteString -> m a)
+    forall e m a. (MonadIO m, HasFileCacheTop m, e ~ FileError {-IsFileError e, MonadError e m-})
+    => (P.ByteString -> ExceptT e m a)
     -> (a -> String)
     -> String
-    -> m (File, a)
+    -> ExceptT e m (File, a)
 fileFromCmd byteStringInfo toFileExt cmd = do
   (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
@@ -207,11 +207,11 @@ fileFromCmd byteStringInfo toFileExt cmd = do
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
-    => (P.ByteString -> m a)
+    forall e m a. (MonadIO m, HasFileCacheTop m, e ~ FileError {-IsFileError e, MonadError e m-})
+    => (P.ByteString -> ExceptT e m a)
     -> (a -> String)
     -> String
-    -> m (File, a)
+    -> ExceptT e m (File, a)
 fileFromURI byteStringInfo toFileExt uri =
     do let args = ["-s", uri]
            cmd = (proc "curl" args)

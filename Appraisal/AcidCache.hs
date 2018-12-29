@@ -37,8 +37,10 @@ module Appraisal.AcidCache
     , runMonadCacheT
     ) where
 
+import Appraisal.Abbrevs (ReportError(..))
+import Appraisal.FileError (FileError, IsFileError)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
-import Control.Monad.Except (MonadError)
+import Control.Monad.Except (ExceptT, MonadError)
 import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.RWS
 import Control.Monad.State (liftIO, MonadIO, modify)
@@ -103,37 +105,36 @@ withAcidState path initial f = bracket (openLocalStateFrom path initial) createC
 
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
--- state.  FIXME: need to remove the e parameter, it does not appear
--- in the signatures and unnecessarily constrains MonadCache.
-class (AcidKey key, AcidVal val, MonadIO m, MonadError e m) => MonadCache key val e m where
+-- state.
+class (AcidKey key, AcidVal val, MonadIO m{-, IsFileError e, MonadError e m-}) => MonadCache key val m where
     askAcidState :: m (AcidState (Map key val))
-    build :: key -> m val
+    build :: key -> ExceptT FileError m val
     -- ^ A monadic, possibly expensive function to create a new map entry.
     -- Our application in ImageCache.hs is to scale/rotate/crop an image.
 
 -- | Call the build function on cache miss to build the value.
-cacheInsert :: forall key val e m. (MonadCache key val e m) => key -> m val
+cacheInsert :: forall key val m. (MonadCache key val m) => key -> ExceptT FileError m val
 cacheInsert key = do
-  st <- askAcidState
+  st <- lift askAcidState
   mval <- liftIO $ query st (LookValue key)
   maybe (do val <- build key
             () <- liftIO $ update st (PutValue key val)
             return val) return mval
 
 -- | Query the cache, but do nothing on cache miss.
-cacheLook :: forall key val e m. MonadCache key val e m => key -> m (Maybe val)
+cacheLook :: forall key val e m. (MonadCache key val m, IsFileError e, MonadError e m) => key -> ExceptT e m (Maybe val)
 cacheLook key = do
-  st <- askAcidState
+  st <- lift askAcidState
   liftIO $ query st (LookValue key)
 
-cacheMap :: forall key val e m. MonadCache key val e m => m (Map key val)
+cacheMap :: forall key val e m. (MonadCache key val m, IsFileError e, MonadError e m) => ExceptT e m (Map key val)
 cacheMap = do
-  st <- askAcidState
+  st <- lift askAcidState
   liftIO $ query st LookMap
 
-cacheDelete :: forall key val e m. {-Show val =>-} MonadCache key val e m => Proxy val -> Set key -> m ()
+cacheDelete :: forall key val e m. (MonadCache key val m, IsFileError e, MonadError e m) => Proxy val -> Set key -> ExceptT e m ()
 cacheDelete _ keys = do
-  (st :: AcidState (Map key val)) <- askAcidState
+  (st :: AcidState (Map key val)) <- lift askAcidState
   liftIO $ update st (DeleteValues keys)
 
 -- | Given the AcidState object for the cache, Run an action in the CacheIO monad.
