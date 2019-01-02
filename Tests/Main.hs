@@ -56,7 +56,7 @@ type FileM m = FileCacheT (AcidState (Map String String)) () () m
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
-instance (MonadIO m, MonadCatch m, MonadError e m) => MonadCache String String e (AcidM m) where
+instance (MonadIO m, MonadCatch m, MonadError e m, IsFileError e) => MonadCache String String e (AcidM m) where
     askAcidState = ask
     build = return . reverse
 
@@ -64,14 +64,22 @@ instance MonadCache String String e m => MonadCache String String e (ReaderT Fil
     askAcidState = lift askAcidState
     build = lift . build
 
+runMonadCacheT ::
+    Monad m
+    => RWST (AcidState (Map key val)) () s m a
+    -> s
+    -> AcidState (Map key val)
+    -> m a
+runMonadCacheT action s acid = fst <$> evalRWST action acid s
+
 acid1 :: Test
 acid1 = TestCase $ do
           removeRecursiveSafely acidDir
-          value1 <- withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM IO (Maybe String)))
-          value2 <- withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM IO (Map String String)))
-          value3 <- withValueCache acidDir (runMonadCacheT (cacheInsert "Hello, world!" :: AcidM IO String))
-          value4 <- withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM IO (Maybe String)))
-          value5 <- withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM IO (Map String String)))
+          value1 <- withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM IO (Maybe String)) ())
+          value2 <- withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM IO (Map String String)) ())
+          value3 <- withValueCache acidDir (runMonadCacheT (cacheInsert "Hello, world!" :: AcidM IO String) ())
+          value4 <- withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM IO (Maybe String)) ())
+          value5 <- withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM IO (Map String String)) ())
           assertEqual "acid1"
                           (Nothing, fromList [], "!dlrow ,olleH", Just "!dlrow ,olleH", fromList [("Hello, world!","!dlrow ,olleH")])
                           (value1, value2, value3, value4, value5)
