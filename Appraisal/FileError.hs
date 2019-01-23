@@ -34,7 +34,7 @@ module Appraisal.FileError
 
 import Control.Exception as E (ErrorCall(ErrorCallWithLocation), fromException, IOException, SomeException)
 import Control.Monad.Catch (try)
-import Control.Monad.Except (ExceptT, lift, liftEither, MonadError, runExceptT, withExceptT)
+import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Trans (MonadIO(liftIO))
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -97,13 +97,8 @@ logErrorCall x =
                               liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
                           _ -> return (Left e)) (return . Right)
 
--- Lift an IO operation into ExceptT FileError IO
-
+-- | Lift an IO operation into ExceptT FileError IO
 liftEIO :: forall e m a. (MonadIO m, IsFileError e, MonadError e m) => IO a -> m a
 liftEIO action =
-  (runExceptT (liftEIO' action) :: m (Either e a)) >>= liftEither
-  where
-    liftEIO' :: forall m'. MonadIO m' => IO a -> ExceptT e m' a
-    liftEIO' action' =
-      withExceptT (fromFileError . IOException . pack . show)
-        (lift (liftIO (try action') :: m' (Either IOException a)) >>= liftEither)
+    liftIO (try action) >>= either (\(e :: IOException) -> f e) return
+    where f = throwError . fromFileError . IOException . pack . show
