@@ -76,7 +76,7 @@ import System.Process.ByteString ()
 import Test.HUnit (assertEqual, Test(..))
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
-import "regex-compat-tdfa" Text.Regex (Regex, mkRegex, matchRegex)
+import Text.Regex (Regex, mkRegex, matchRegex)
 
 import Text.Parsec
 import Data.Char (isSpace)

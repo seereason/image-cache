@@ -12,7 +12,7 @@ import Appraisal.FileCache
 import Appraisal.FileCacheT
 import Appraisal.FileError
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (MonadError)
+import Control.Monad.Except (MonadError, runExcept, runExceptT)
 import Control.Monad.Reader (ask, ReaderT)
 import Control.Monad.RWS
 import Control.Monad.Trans (lift)
@@ -56,7 +56,7 @@ type FileM m = FileCacheT (AcidState (Map String String)) () () m
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
-instance (MonadIO m, MonadCatch m, MonadError e m, IsFileError e) => MonadCache String String e (AcidM m) where
+instance (MonadIO m, MonadCatch m, MonadError e m, HasFileError e) => MonadCache String String e (AcidM m) where
     askAcidState = ask
     build = return . reverse
 
@@ -75,13 +75,13 @@ runMonadCacheT action s acid = fst <$> evalRWST action acid s
 acid1 :: Test
 acid1 = TestCase $ do
           removeRecursiveSafely acidDir
-          value1 <- withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM IO (Maybe String)) ())
-          value2 <- withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM IO (Map String String)) ())
-          value3 <- withValueCache acidDir (runMonadCacheT (cacheInsert "Hello, world!" :: AcidM IO String) ())
-          value4 <- withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM IO (Maybe String)) ())
-          value5 <- withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM IO (Map String String)) ())
+          (value1 :: Either FileError (Maybe String)) <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (ExceptT FileError IO) (Maybe String)) ())
+          (value2 :: Either FileError (Map String String)) <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM (ExceptT FileError IO) (Map String String)) ())
+          value3 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheInsert "Hello, world!" :: AcidM (ExceptT FileError IO) String) ())
+          value4 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (ExceptT FileError IO) (Maybe String)) ())
+          value5 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM (ExceptT FileError IO) (Map String String)) ())
           assertEqual "acid1"
-                          (Nothing, fromList [], "!dlrow ,olleH", Just "!dlrow ,olleH", fromList [("Hello, world!","!dlrow ,olleH")])
+                          (Right Nothing, Right (fromList []), Right "!dlrow ,olleH", Right (Just "!dlrow ,olleH"), Right (fromList [("Hello, world!","!dlrow ,olleH")]))
                           (value1, value2, value3, value4, value5)
 
 -- runEitherT :: EitherT e m a -> m (Either e a)

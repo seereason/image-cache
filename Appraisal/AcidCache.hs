@@ -37,17 +37,18 @@ module Appraisal.AcidCache
     -- , runMonadCacheT
     ) where
 
-import Appraisal.FileError (IsFileError)
+import Appraisal.FileError (HasFileError)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
-import Control.Monad.Except (MonadError)
+--import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader(ask))
-import Control.Monad.State (liftIO, MonadIO, modify)
+import Control.Monad.State (liftIO, modify)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
 import Data.Generics (Proxy, Typeable)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, lookup, Map, union)
 import Data.SafeCopy (SafeCopy)
 import Data.Set as Set (Set)
+import Extra.Except (liftIOError, MonadIOError)
 
 type AcidVal val = (Show val, SafeCopy val, Typeable val)
 type AcidKey key = (AcidVal key, Eq key, Ord key)
@@ -90,9 +91,9 @@ openValueCache :: (AcidKey key, AcidVal val) =>
                   FilePath -> IO (AcidState (Map key val))
 openValueCache path = openLocalStateFrom path _initCacheMap
 
-withValueCache :: (AcidKey key, AcidVal val, MonadIO m, MonadMask m) =>
+withValueCache :: (AcidKey key, AcidVal val, MonadIOError e m, MonadMask m) =>
                   FilePath -> (AcidState (Map key val) -> m a) -> m a
-withValueCache path f = bracket (liftIO (openValueCache path)) (liftIO . createCheckpointAndClose) $ f
+withValueCache path f = bracket (liftIOError (openValueCache path)) (liftIOError . createCheckpointAndClose) $ f
 #if 0
 withAcidState ::
     (IsAcidic a, Typeable a)
@@ -106,7 +107,7 @@ withAcidState path initial f = bracket (openLocalStateFrom path initial) createC
 -- | Class of monads for managing a key/value cache in acid state.
 -- The monad must be in MonadIO because it needs to query the acid
 -- state.
-class (AcidKey key, AcidVal val, MonadIO m, IsFileError e, MonadError e m) => MonadCache key val e m where
+class (AcidKey key, AcidVal val, HasFileError e, MonadIOError e m) => MonadCache key val e m where
     askAcidState :: m (AcidState (Map key val))
     build :: key -> m val
     -- ^ A monadic, possibly expensive function to create a new map entry.

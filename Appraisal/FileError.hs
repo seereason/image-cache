@@ -26,15 +26,14 @@
 module Appraisal.FileError
     ( FileError(..)
     , CommandInfo(..)
-    , IsFileError(fromFileError)
+    , HasFileError(fromFileError)
     , logFileError
     , logErrorCall
-    , liftEIO
     ) where
 
-import Control.Exception as E (ErrorCall(ErrorCallWithLocation), fromException, IOException, SomeException)
-import Control.Monad.Catch (try)
-import Control.Monad.Except (MonadError, throwError)
+import Control.Exception as E (ErrorCall(ErrorCallWithLocation), fromException, SomeException)
+--import Control.Monad.Catch (try)
+--import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Trans (MonadIO(liftIO))
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -45,6 +44,7 @@ import Data.Data (Data)
 import Data.Serialize (Serialize)
 import Data.Text (pack, Text, unpack)
 import Debug.Show (V(V))
+import Extra.Except (HasIOException(fromIOException))
 import Extra.Orphans ({-instance Serialize Text-})
 import GHC.Generics (Generic)
 import System.Log.Logger ( logM, Priority(ERROR) )
@@ -58,7 +58,9 @@ data FileError
     | CacheDamage -- ^ The contents of a cache file are wrong
     deriving (Data, Eq, Ord, Show, Generic, Serialize)
 
-instance IsFileError IOException where fromFileError = fromFileError . IOException . pack . show
+class HasIOException e => HasFileError e where fromFileError :: FileError -> e
+instance HasFileError FileError where fromFileError = id
+instance HasIOException FileError where fromIOException = IOException . pack . show
 
 -- | Information about a shell command that failed.  This is
 -- recursive so we can include as much or as little as desired.
@@ -70,9 +72,6 @@ data CommandInfo
     | FunctionName String CommandInfo -- ^ The function that ran the command
     | Description String CommandInfo -- ^ free form description of what happened
     deriving (Data, Eq, Ord, Show, Generic, Serialize)
-
-class IsFileError e where fromFileError :: FileError -> e
-instance IsFileError FileError where fromFileError = id
 
 instance Show (V FileError) where show (V x) = show x
 
@@ -96,9 +95,3 @@ logErrorCall x =
                           Just (ErrorCallWithLocation msg loc) ->
                               liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
                           _ -> return (Left e)) (return . Right)
-
--- | Lift an IO operation into ExceptT FileError IO
-liftEIO :: forall e m a. (MonadIO m, IsFileError e, MonadError e m) => IO a -> m a
-liftEIO action =
-    liftIO (try action) >>= either (\(e :: IOException) -> f e) return
-    where f = throwError . fromFileError . IOException . pack . show

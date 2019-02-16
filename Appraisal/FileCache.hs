@@ -61,7 +61,7 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
-import Appraisal.FileError (CommandInfo(..), FileError(..), IsFileError(fromFileError), liftEIO)
+import Appraisal.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
 import Appraisal.Serialize (deriveSerialize)
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
 import Control.Lens (makeLenses, over, set, view)
@@ -81,6 +81,7 @@ import Data.Generics ( Data(..), Typeable )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, deriveSafeCopy)
 import Data.Text (pack, unpack)
+import Extra.Except
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
@@ -161,7 +162,7 @@ md5' = show . md5 . Lazy.fromChunks . (: [])
 -- use writeFileReadable because the files we create need to be
 -- read remotely by our backup program.
 fileFromBytes ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
+    forall e m a. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> P.ByteString
@@ -173,13 +174,13 @@ fileFromBytes byteStringInfo toFileExt bytes =
                          , _fileMessages = []
                          , _fileExt = toFileExt a }
          path <- fileCachePathIO file
-         exists <- liftEIO $ doesFileExist path
-         unless exists (liftEIO (writeFileReadable path bytes))
+         exists <- liftIOError $ doesFileExist path
+         unless exists (liftIOError (writeFileReadable path bytes))
          return (file, a)
 
 -- |Read the contents of a local path into a File.
 fileFromPath ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, MonadError e m, IsFileError e)
+    forall e m a. (MonadIO m, HasFileCacheTop m, MonadError e m, HasFileError e)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> FilePath
@@ -191,13 +192,13 @@ fileFromPath byteStringInfo toFileExt path = do
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
+    forall e m a. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> String
     -> m (File, a)
 fileFromCmd byteStringInfo toFileExt cmd = do
-  (code, bytes, _err) <- liftEIO (readCreateProcessWithExitCode' (shell cmd) P.empty)
+  (code, bytes, _err) <- liftIOError (readCreateProcessWithExitCode' (shell cmd) P.empty)
   case code of
     ExitSuccess ->
         do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
@@ -207,7 +208,7 @@ fileFromCmd byteStringInfo toFileExt cmd = do
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
-    forall e m a. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
+    forall e m a. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> String
@@ -215,7 +216,7 @@ fileFromURI ::
 fileFromURI byteStringInfo toFileExt uri =
     do let args = ["-s", uri]
            cmd = (proc "curl" args)
-       (code, bytes, _err) <- liftEIO $ readCreateProcessWithExitCode' cmd P.empty
+       (code, bytes, _err) <- liftIOError $ readCreateProcessWithExitCode' cmd P.empty
        case code of
          ExitSuccess ->
              do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
@@ -227,7 +228,7 @@ fileFromURI byteStringInfo toFileExt uri =
 -- is to avoid reading the file contents into a Haskell ByteString, which
 -- may be slower than using a unix pipeline.  Though it shouldn't be.
 fileFromCmdViaTemp ::
-    forall e m. (MonadIO m, HasFileCacheTop m, IsFileError e, MonadError e m)
+    forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
     => String
     -> String
     -> m File
@@ -247,7 +248,7 @@ fileFromCmdViaTemp ext exe = do
 
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromPathViaRename ::
-    forall e m. (MonadIO m, IsFileError e, MonadError e m, HasFileCacheTop m)
+    forall e m. (MonadIO m, HasFileError e, MonadError e m, HasFileCacheTop m)
     => (CommandInfo -> FileError) -- ^ Use this to customize exception thrown here
     -> String
     -> FilePath
@@ -289,7 +290,7 @@ fileFromPathViaCopy ext path = do
 -- verify the contents.  If it isn't installed or isn't correct,
 -- (re)install it.
 cacheFile ::
-    (MonadIO m, IsFileError e, MonadError e m, HasFileCacheTop m)
+    (MonadIO m, HasFileError e, MonadError e m, HasFileCacheTop m)
     => File -> P.ByteString -> m File
 cacheFile file bytes = do
   path <- fileCachePath file
@@ -303,7 +304,7 @@ cacheFile file bytes = do
 
 -- | Read and return the contents of the file from the cache as a ByteString.
 loadBytesSafe ::
-    (IsFileError e, MonadError e m, MonadIO m, HasFileCacheTop m)
+    (HasFileError e, MonadError e m, MonadIO m, HasFileCacheTop m)
     => File -> m P.ByteString
 loadBytesSafe file =
     do path <- fileCachePath file
@@ -316,11 +317,11 @@ loadBytesSafe file =
            throwError $ fromFileError CacheDamage
 
 -- | Load an image file without verifying its checksum
-loadBytesUnsafe :: (IsFileError e, MonadError e m, MonadIO m, HasFileCacheTop m) => File -> m P.ByteString
+loadBytesUnsafe :: (HasFileError e, MonadError e m, MonadIO m, HasFileCacheTop m) => File -> m P.ByteString
 loadBytesUnsafe file = fileCachePath file >>= readFileBytes
 
-readFileBytes :: (MonadIO m, IsFileError e, MonadError e m) => FilePath -> m P.ByteString
-readFileBytes path = liftEIO (P.readFile path)
+readFileBytes :: (MonadIO m, HasFileError e, MonadError e m) => FilePath -> m P.ByteString
+readFileBytes path = liftIOError (P.readFile path)
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
