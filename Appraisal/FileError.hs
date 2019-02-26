@@ -1,12 +1,4 @@
--- | Maintain a cache of files.
---
--- A data structure representing a local cache of a data file.  The
--- cached file persists across runs of our application, and can be
--- accessed by name and passed to software which requires a file, for
--- example a document formatter such as LaTeX.  The original data can
--- be supplied as either a URI, a local file path, or as a ByteString.
--- The file is then downloaded and stored on the local machine at a
--- location based on the file's checksum.
+-- | Error type for cached file manipulation.
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
