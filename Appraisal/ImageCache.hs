@@ -26,7 +26,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS -Wall #-}
+{-# OPTIONS -Wall -Wredundant-constraints #-}
 module Appraisal.ImageCache
     ( -- * Image cache monad
       ImageCacheT
@@ -40,15 +40,13 @@ module Appraisal.ImageCache
     , uprightImage
     , scaleImage
     , editImage
-    , foo
-    , ImageMap(..)
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.AcidCache ( MonadCache(..) )
+import Appraisal.AcidCache (CacheMap, HasCacheAcid(..), HasCacheFunction(..))
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, loadBytesSafe)
-import Appraisal.FileCacheT (FileCacheTop, HasFileCacheTop)
+import Appraisal.FileCacheT (FileCacheT, FileCacheTop, HasFileCacheTop)
 import Appraisal.FileError (FileError(..), HasFileError(fromFileError))
 import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..),
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
@@ -56,7 +54,7 @@ import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw)
 import Control.Lens (_1, _Left, makeLensesFor, over, view)
 import Control.Monad.Except (catchError, ExceptT, liftEither, MonadError, runExceptT)
-import Control.Monad.Reader (MonadReader(ask))
+--import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.RWS (RWST)
 import Control.Monad.Trans (liftIO, MonadIO)
 import Data.Acid (AcidState)
@@ -68,11 +66,11 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString.UTF8 as P
 import qualified Data.ByteString as P
 #endif
-import Data.Generics (Data, Typeable)
+import Data.Generics (Typeable)
 import Data.List (intercalate)
 import Data.Maybe ( fromMaybe )
-import Data.Map (Map)
-import Data.SafeCopy (deriveSafeCopy, extension, SafeCopy, Migrate(..))
+import Data.SafeCopy (SafeCopy)
+import Data.Serialize (Serialize)
 import Extra.Except
 --import Debug.Show (V)
 --import Language.Haskell.TH (pprint)
@@ -293,23 +291,24 @@ pipe' = intercalate " | "
 
 $(makeLensesFor [("imageFile", "imageFileL")] ''ImageFile)
 
-type ImageCacheT w s e m = RWST (AcidState (ImageMap e), FileCacheTop) w s m
+type ImageCacheT w s e m = FileCacheT (AcidState (CacheMap ImageKey ImageFile e)) w s m
 
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
-instance (MonadIO m, MonadError e m, Monoid w, HasFileError e, Show e, SafeCopy e, Typeable e)
-      => MonadCache ImageKey (Either e ImageFile) e
-           (RWST (AcidState (Map ImageKey (Either e ImageFile)), FileCacheTop) w s m) where
-    askAcidState = view _1 <$> ask
-    build = tryError . buildImageFile
+instance (MonadIO m, MonadError e m, Monoid w, Serialize e, HasFileError e, SafeCopy e, Typeable e, m' ~ ImageCacheT w s e m)
+  => HasCacheAcid ImageKey ImageFile e m' where
+    askCacheAcid = view _1 :: m' (AcidState (CacheMap ImageKey ImageFile e))
+
+
+instance (MonadIO m, MonadError e m, Monoid w, HasFileError e, Show e)
+   => HasCacheFunction ImageKey ImageFile e (ImageCacheT w s e m) where
+    buildCacheValue = tryError . buildImageFile
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
 -- Note that this does not insert the new 'ImageFile' into the acid
 -- state.
-buildImageFile ::
-    (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
-    => ImageKey
-    -> m ImageFile
+buildImageFile :: (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
+  => ImageKey -> m ImageFile
 buildImageFile (ImageOriginal img) = return img
 buildImageFile (ImageUpright key) =
   buildImageFile key >>= $logException ERROR . uprightImage
@@ -319,11 +318,3 @@ buildImageFile (ImageScaled sz dpi key) = do
   $logException ERROR $ scaleImage (fromRat (fromMaybe 1 scale)) img
 buildImageFile (ImageCropped crop key) = do
   buildImageFile key >>= $logException ERROR . editImage crop
-
-data ImageMap e = ImageMap (Map ImageKey (Either e ImageFile)) deriving Data
-
-$(deriveSafeCopy 2 'extension ''ImageMap)
-
-instance Migrate (ImageMap e) where
-    type MigrateFrom (ImageMap e) = Map ImageKey ImageFile
-    migrate mp = ImageMap (fmap Right mp)

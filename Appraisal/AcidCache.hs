@@ -3,6 +3,7 @@
 -- method of the MonadCache instance, and stored using acid-state.
 
 {-# LANGUAGE CPP, ConstraintKinds #-}
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -11,15 +12,16 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wall -Wredundant-constraints -fno-warn-orphans #-}
 
 module Appraisal.AcidCache
     ( -- * Open cache
-      openValueCache
-    , withValueCache
+      CacheMap(..)
+    , unCacheMap
+    , initCacheMap
+    , openCache
+    , withCache
     -- * Cached map events
-    , AcidVal
-    , AcidKey
     , PutValue(..)
     , PutValues(..)
     , LookValue(..)
@@ -28,7 +30,8 @@ module Appraisal.AcidCache
     , DeleteValue(..)
     , DeleteValues(..)
     -- * Monad class for cached map
-    , MonadCache(askAcidState, build)
+    , HasCacheAcid(askCacheAcid)
+    , HasCacheFunction(buildCacheValue)
     , cacheMap
     , cacheLook
     , cacheInsert
@@ -38,113 +41,129 @@ module Appraisal.AcidCache
     ) where
 
 import Appraisal.FileError (HasFileError)
+import Control.Lens ((%=), at, makeLenses, view)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
---import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader(ask))
-import Control.Monad.State (liftIO, modify)
+import Control.Monad.State (liftIO)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
-import Data.Generics (Proxy, Typeable)
-import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, lookup, Map, union)
-import Data.SafeCopy (SafeCopy)
+import Data.Generics (Data, Proxy, Typeable)
+import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, Map, union)
+import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
+import Data.Serialize (label, Serialize)
 import Data.Set as Set (Set)
-import Extra.Except (liftIOError, MonadIOError)
+import Extra.Except (catchError, HasIOException, liftIOError, MonadIO, MonadError, MonadIOError)
+import GHC.Generics (Generic)
 
-type AcidVal val = (Show val, SafeCopy val, Typeable val)
-type AcidKey key = (AcidVal key, Eq key, Ord key)
+data CacheMap key val e = CacheMap {_unCacheMap :: Map key (Either e val)} deriving (Data, Generic, Serialize)
+$(makeLenses ''CacheMap)
+
+#if 0
+$(deriveSafeCopy 2 'extension ''CacheMap)
+-- $(safeCopyInstance 2 'extension [t|CacheMap|])
+#else
+instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy e) => SafeCopy (CacheMap key val e) where
+      putCopy (CacheMap a)
+        = contain
+            (do safeput <- getSafePut
+                safeput a
+                return ())
+      getCopy
+        = contain
+            ((label "Appraisal.AcidCache.CacheMap:")
+               (do safeget <- getSafeGet
+                   (return CacheMap <*> safeget)))
+      version = 2
+      kind = extension
+      errorTypeName _ = "Appraisal.AcidCache.CacheMap"
+#endif
+
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val e) where
+    type MigrateFrom (CacheMap key val e) = Map key val
+    migrate mp = CacheMap (fmap Right mp)
 
 -- | Install a key/value pair into the cache.
-putValue :: (AcidKey key{-, AcidVal val-}) => key -> val -> Update (Map key val) ()
-putValue key img = modify (Map.insert key img)
+putValue :: Ord key => key -> Either e val -> Update (CacheMap key val e) ()
+putValue key img = unCacheMap %= Map.insert key img
 
 -- | Install several key/value pairs into the cache.
-putValues :: (AcidKey key{-, AcidVal val-}) => Map key val -> Update (Map key val) ()
-putValues pairs = modify (Map.union pairs)
+putValues :: Ord key => Map key (Either e val) -> Update (CacheMap key val e) ()
+putValues pairs = unCacheMap %= Map.union pairs
 
 -- | Look up a key.
-lookValue :: (AcidKey key{-, AcidVal val-}) => key -> Query (Map key val) (Maybe val)
-lookValue key = Map.lookup key <$> ask
+lookValue :: Ord key => key -> Query (CacheMap key val e) (Maybe (Either e val))
+lookValue key = view (unCacheMap . at key)
 
 -- | Look up several keys.
-lookValues :: (AcidKey key{-, AcidVal val-}) => Set key -> Query (Map key val) (Map key val)
-lookValues keys = Map.intersection <$> ask <*> pure (Map.fromSet (const ()) keys)
+lookValues :: Ord key => Set key -> Query (CacheMap key val e) (Map key (Either e val))
+lookValues keys = Map.intersection <$> view unCacheMap <*> pure (Map.fromSet (const ()) keys)
 
 -- | Return the entire cache.  (Despite what ghc says, this constraint
 -- isn't redundant, without it the makeAcidic call has a missing Ord
 -- key instance.)
-lookMap :: (AcidKey key{-, AcidVal val-}) => Query (Map key val) (Map key val)
+lookMap :: Ord key => Query (CacheMap key val e) (CacheMap key val e)
 lookMap = ask
 
 -- | Remove values from the database.
-deleteValue :: (AcidKey key{-, AcidVal val-}) => key -> Update (Map key val) ()
-deleteValue key = modify (Map.delete key)
+deleteValue :: (Ord key{-, Serialize key, Serialize val, Serialize e-}) => key -> Update (CacheMap key val e) ()
+deleteValue key = unCacheMap %= Map.delete key
 
-deleteValues :: (AcidKey key{-, AcidVal val-}) => Set key -> Update (Map key val) ()
-deleteValues keys = modify (`Map.difference` (Map.fromSet (const ()) keys))
+deleteValues :: Ord key => Set key -> Update (CacheMap key val e) ()
+deleteValues keys = unCacheMap %= (`Map.difference` (Map.fromSet (const ()) keys))
 
-$(makeAcidic ''Map ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
+$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
-_initCacheMap :: Ord key => Map key val
-_initCacheMap = mempty
+initCacheMap :: Ord key => CacheMap key val e
+initCacheMap = CacheMap mempty
 
-openValueCache :: (AcidKey key, AcidVal val) =>
-                  FilePath -> IO (AcidState (Map key val))
-openValueCache path = openLocalStateFrom path _initCacheMap
+openCache :: (SafeCopy e, Typeable e,
+              SafeCopy key, Typeable key,
+              SafeCopy val, Typeable val, Ord key) => FilePath -> IO (AcidState (CacheMap key val e))
+openCache path = openLocalStateFrom path initCacheMap
 
-withValueCache :: (AcidKey key, AcidVal val, MonadIOError e m, MonadMask m) =>
-                  FilePath -> (AcidState (Map key val) -> m a) -> m a
-withValueCache path f = bracket (liftIOError (openValueCache path)) (liftIOError . createCheckpointAndClose) $ f
-#if 0
-withAcidState ::
-    (IsAcidic a, Typeable a)
-    => FilePath
-    -> a
-    -> (AcidState a -> IO r)
-    -> IO r
-withAcidState path initial f = bracket (openLocalStateFrom path initial) createCheckpointAndClose $ f
-#endif
+-- | In theory the MonadError type e1 might differ from the error type
+-- stored in the map e2.  But I'm not sure if it would work in practice.
+withCache :: (HasIOException e1, MonadError e1 m, MonadIO m, MonadMask m,
+              Typeable e2, SafeCopy e2,
+              Typeable val, SafeCopy val,
+              Ord key, Typeable key, SafeCopy key) => FilePath -> (AcidState (CacheMap key val e2) -> m b) -> m b
+withCache path f = bracket (liftIOError (openCache path)) (liftIOError . createCheckpointAndClose) $ f
 
--- | Class of monads for managing a key/value cache in acid state.
--- The monad must be in MonadIO because it needs to query the acid
--- state.
-class (AcidKey key, AcidVal val, HasFileError e, MonadIOError e m) => MonadCache key val e m where
-    askAcidState :: m (AcidState (Map key val))
-    build :: key -> m val
-    -- ^ A monadic, possibly expensive function to create a new map entry.
-    -- Our application in ImageCache.hs is to scale/rotate/crop an image.
+class (Ord key, SafeCopy key, Typeable key, Show key, Serialize key,
+       SafeCopy val, Typeable val, Serialize val,
+       HasFileError e, MonadIOError e m, Serialize e, SafeCopy e, Typeable e) => HasCacheAcid key val e m where
+    askCacheAcid :: m (AcidState (CacheMap key val e))
+
+class (Ord key, HasFileError e, MonadIOError e m) => HasCacheFunction key val e m where
+    buildCacheValue :: key -> m (Either e val)
 
 -- | Call the build function on cache miss to build the value.
-cacheInsert :: (MonadCache key val e m) => key -> m val
+cacheInsert :: forall key val e m. (HasCacheAcid key val e m, HasCacheFunction key val e m) => key -> m (Either e val)
 cacheInsert key = do
-  st <- askAcidState
-  mval <- liftIO $ query st (LookValue key)
-  maybe (do val <- build key
-            () <- liftIO $ update st (PutValue key val)
-            return val) return mval
+  st <- askCacheAcid :: m (AcidState (CacheMap key val e))
+  liftIO (query st (LookValue key)) >>= maybe (cacheMiss `catchError` cacheError) return
+    where
+      cacheMiss :: m (Either e val)
+      cacheMiss = do
+        val <- buildCacheValue key
+        st <- askCacheAcid :: m (AcidState (CacheMap key val e))
+        () <- liftIO $ update st (PutValue key val)
+        return val
+      cacheError :: e -> m (Either e val)
+      cacheError e = return (Left e)
 
 -- | Query the cache, but do nothing on cache miss.
-cacheLook :: (MonadCache key val e m) => key -> m (Maybe val)
+cacheLook :: HasCacheAcid key val e m => key -> m (Maybe (Either e val))
 cacheLook key = do
-  st <- askAcidState
+  st <- askCacheAcid
   liftIO $ query st (LookValue key)
 
-cacheMap :: (MonadCache key val e m) => m (Map key val)
+cacheMap :: HasCacheAcid key val e m => m (CacheMap key val e)
 cacheMap = do
-  st <- askAcidState
+  st <- askCacheAcid
   liftIO $ query st LookMap
 
-cacheDelete :: forall key val e m. (MonadCache key val e m) => Proxy val -> Set key -> m ()
+cacheDelete :: forall key val e m. (HasCacheAcid key val e m) => Proxy val -> Set key -> m ()
 cacheDelete _ keys = do
-  (st :: AcidState (Map key val)) <- askAcidState
+  (st :: AcidState (CacheMap key val e)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)
-
-#if 0
--- | Given the AcidState object for the cache, Run an action in the CacheIO monad.
-runMonadCacheT ::
-    Monad m
-    => RWST (AcidState (Map key val)) () s m a
-    -> AcidState (Map key val)
-    -> s
-    -> m a
-runMonadCacheT action acid = fst <$> evalRWST action acid
-#endif
