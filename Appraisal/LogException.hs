@@ -4,6 +4,7 @@ module Appraisal.LogException
     ( logException
     , logExceptionV
     , logAndThrow
+    , Loggable(logit)
     ) where
 
 import Control.Monad.Except (MonadError(catchError, throwError))
@@ -39,3 +40,6 @@ logExceptionV =
                                              priority
                                              ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show (V e)))
                                 throwError e) |]
+
+class Loggable a where
+  logit :: MonadIO m => Priority -> Loc -> a -> m ()

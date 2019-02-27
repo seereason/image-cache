@@ -19,10 +19,10 @@ module Appraisal.FileError
     ( FileError(..)
     , CommandInfo(..)
     , HasFileError(fromFileError)
-    , logFileError
     , logErrorCall
     ) where
 
+import Appraisal.LogException (Loggable(logit))
 import Control.Exception as E (ErrorCall(ErrorCallWithLocation), fromException, SomeException)
 --import Control.Monad.Catch (try)
 --import Control.Monad.Except (MonadError, throwError)
@@ -33,13 +33,15 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
+import Data.SafeCopy (base, deriveSafeCopy)
 import Data.Serialize (Serialize)
 import Data.Text (pack, Text, unpack)
 import Debug.Show (V(V))
 import Extra.Except (HasIOException(fromIOException))
 import Extra.Orphans ({-instance Serialize Text-})
 import GHC.Generics (Generic)
-import System.Log.Logger ( logM, Priority(ERROR) )
+import Language.Haskell.TH.Syntax (Loc(loc_module))
+import System.Log.Logger (logM, Priority(ERROR))
 
 -- | It would be nice to store the actual IOException and E.ErrorCall,
 -- but then the FileError type wouldn't be serializable.
@@ -67,19 +69,19 @@ data CommandInfo
 
 instance Show (V FileError) where show (V x) = show x
 
-logFileError :: String -> FileError -> IO ()
-logFileError prefix (IOException e) = logM prefix ERROR (" - IO exception: " <> unpack e)
-logFileError prefix (ErrorCall e) = logM prefix ERROR (" - error call: " <> show e)
-logFileError prefix (CommandFailure info) = logM prefix ERROR " - shell command failed:" >> logCommandInfo prefix info
-logFileError prefix CacheDamage = logM prefix ERROR " - file cache is damaged"
+instance Loggable FileError where
+  logit priority loc (IOException e) = liftIO (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
+  logit priority loc (ErrorCall e) = liftIO (logM (loc_module loc) priority (" - error call: " <> show e))
+  logit priority loc (CommandFailure info) = liftIO (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
+  logit priority loc CacheDamage = liftIO (logM (loc_module loc) priority " - file cache is damaged")
 
-logCommandInfo :: String -> CommandInfo -> IO ()
-logCommandInfo prefix (Description s e) = logM prefix ERROR (" - error description: " <> s) >> logCommandInfo prefix e
-logCommandInfo prefix (FunctionName n e) = logM prefix ERROR (" - error function " <> n) >> logCommandInfo prefix e
-logCommandInfo prefix (Command cmd code) = logM prefix ERROR (" - command: " <> show cmd <> ", exit code: " <> show code)
-logCommandInfo prefix (CommandInput bs e) = logM prefix ERROR (" - command input: " <> show (P.take 1000 bs)) >> logCommandInfo prefix e
-logCommandInfo prefix (CommandOut bs e) = logM prefix ERROR (" - command stdout: " <> show (P.take 1000 bs)) >> logCommandInfo prefix e
-logCommandInfo prefix (CommandErr bs e) = logM prefix ERROR (" - command stderr: " <> show (P.take 1000 bs)) >> logCommandInfo prefix e
+logCommandInfo :: Priority -> Loc -> CommandInfo -> IO ()
+logCommandInfo priority loc (Description s e) = logM (loc_module loc) priority (" - error description: " <> s) >> logCommandInfo priority loc e
+logCommandInfo priority loc (FunctionName n e) = logM (loc_module loc) priority (" - error function " <> n) >> logCommandInfo priority loc e
+logCommandInfo priority loc (Command cmd code) = logM (loc_module loc) priority (" - command: " <> show cmd <> ", exit code: " <> show code)
+logCommandInfo priority loc (CommandInput bs e) = logM (loc_module loc) priority (" - command input: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+logCommandInfo priority loc (CommandOut bs e) = logM (loc_module loc) priority (" - command stdout: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+logCommandInfo priority loc (CommandErr bs e) = logM (loc_module loc) priority (" - command stderr: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
 
 logErrorCall :: MonadIO m => m (Either SomeException a) -> m (Either SomeException a)
 logErrorCall x =
@@ -87,3 +89,6 @@ logErrorCall x =
                           Just (ErrorCallWithLocation msg loc) ->
                               liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
                           _ -> return (Left e)) (return . Right)
+
+$(deriveSafeCopy 1 'base ''CommandInfo)
+$(deriveSafeCopy 1 'base ''FileError)

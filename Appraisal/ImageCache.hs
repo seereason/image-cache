@@ -41,6 +41,7 @@ module Appraisal.ImageCache
     , scaleImage
     , editImage
     , foo
+    , ImageMap(..)
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
@@ -67,9 +68,11 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString.UTF8 as P
 import qualified Data.ByteString as P
 #endif
+import Data.Generics (Data, Typeable)
 import Data.List (intercalate)
 import Data.Maybe ( fromMaybe )
 import Data.Map (Map)
+import Data.SafeCopy (deriveSafeCopy, extension, SafeCopy, Migrate(..))
 import Extra.Except
 --import Debug.Show (V)
 --import Language.Haskell.TH (pprint)
@@ -79,7 +82,7 @@ import System.Exit (ExitCode(..))
 import System.Log.Logger (logM, Priority(ERROR))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode, showCreateProcessForUser)
-import Text.Regex (mkRegex, matchRegex)
+import "regex-compat-tdfa" Text.Regex (mkRegex, matchRegex)
 
 -- foo :: forall m a. (Monad m, Monad m') => ExceptT FileError m a -> m a
 foo :: (MonadError e m, HasFileError e) => ExceptT FileError m a -> m a
@@ -290,24 +293,15 @@ pipe' = intercalate " | "
 
 $(makeLensesFor [("imageFile", "imageFileL")] ''ImageFile)
 
-type ImageCacheT w s e m = RWST (AcidState (Map ImageKey ImageFile), FileCacheTop) w s m
+type ImageCacheT w s e m = RWST (AcidState (ImageMap e), FileCacheTop) w s m
 
 -- | Build a MonadCache instance for images on top of a MonadFileCache
 -- instance and a reader for the acid state.
-instance (MonadIO m, HasFileError e, MonadError e m, Monoid w, Show e)
-      => MonadCache ImageKey ImageFile e
-           (RWST (AcidState (Map ImageKey ImageFile), FileCacheTop) w s m) where
+instance (MonadIO m, MonadError e m, Monoid w, HasFileError e, Show e, SafeCopy e, Typeable e)
+      => MonadCache ImageKey (Either e ImageFile) e
+           (RWST (AcidState (Map ImageKey (Either e ImageFile)), FileCacheTop) w s m) where
     askAcidState = view _1 <$> ask
-    build = buildImageFile
-
--- | Adds ExceptT.
-{-
-instance (MonadIO m, Monoid w, HasFileError e, acid ~ (AcidState (Map ImageKey ImageFile)))
-      => MonadCache ImageKey ImageFile e
-           (ExceptT e (RWST (acid, FilePath) w (Map ImageKey (Either e ImageFile)) m)) where
-    askAcidState = view _1 <$> ask
-    build = withExceptT fromFileError . buildImageFile
--}
+    build = tryError . buildImageFile
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
 -- Note that this does not insert the new 'ImageFile' into the acid
@@ -318,10 +312,18 @@ buildImageFile ::
     -> m ImageFile
 buildImageFile (ImageOriginal img) = return img
 buildImageFile (ImageUpright key) =
-  buildImageFile key >>= $logException ERROR . {-withExceptT fromFileError .-} uprightImage
+  buildImageFile key >>= $logException ERROR . uprightImage
 buildImageFile (ImageScaled sz dpi key) = do
   img <- buildImageFile key
   let scale = scaleFromDPI dpi sz img
-  $logException ERROR $ {-withExceptT fromFileError $-} scaleImage (fromRat (fromMaybe 1 scale)) img
+  $logException ERROR $ scaleImage (fromRat (fromMaybe 1 scale)) img
 buildImageFile (ImageCropped crop key) = do
-  buildImageFile key >>= $logException ERROR . {-withExceptT fromFileError .-} editImage crop
+  buildImageFile key >>= $logException ERROR . editImage crop
+
+data ImageMap e = ImageMap (Map ImageKey (Either e ImageFile)) deriving Data
+
+$(deriveSafeCopy 2 'extension ''ImageMap)
+
+instance Migrate (ImageMap e) where
+    type MigrateFrom (ImageMap e) = Map ImageKey ImageFile
+    migrate mp = ImageMap (fmap Right mp)

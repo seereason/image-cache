@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Main where
@@ -51,12 +52,12 @@ fileCacheDir' = FileCacheTop "Tests/filecache"
 oldfile :: FilePath
 oldfile = "/usr/share/doc/cron/THANKS"
 
-type AcidM m = RWST (AcidState (Map String String)) () () m
-type FileM m = FileCacheT (AcidState (Map String String)) () () m
+type AcidM m = RWST (AcidState (Map String (Either FileError String))) () () m
+type FileM m = FileCacheT (AcidState (Map String (Either FileError String))) () () m
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
-instance (MonadIO m, MonadCatch m, MonadError e m, HasFileError e) => MonadCache String String e (AcidM m) where
+instance (MonadIO m, MonadCatch m, MonadError e m, HasFileError e, e ~ FileError) => MonadCache String String e (AcidM m) where
     askAcidState = ask
     build = return . reverse
 
@@ -75,13 +76,16 @@ runMonadCacheT action s acid = fst <$> evalRWST action acid s
 acid1 :: Test
 acid1 = TestCase $ do
           removeRecursiveSafely acidDir
-          (value1 :: Either FileError (Maybe String)) <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (ExceptT FileError IO) (Maybe String)) ())
-          (value2 :: Either FileError (Map String String)) <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM (ExceptT FileError IO) (Map String String)) ())
-          value3 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheInsert "Hello, world!" :: AcidM (ExceptT FileError IO) String) ())
-          value4 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (ExceptT FileError IO) (Maybe String)) ())
-          value5 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM (ExceptT FileError IO) (Map String String)) ())
+          (value1 :: Either FileError (Maybe (Either FileError String))) <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (ExceptT FileError IO) (Maybe (Either FileError String))) ())
+          (value2 :: Either FileError (Map String (Either FileError String))) <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM (ExceptT FileError IO) (Map String (Either FileError String))) ())
+          value3 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheInsert "Hello, world!" :: AcidM (ExceptT FileError IO) (Either FileError String)) ())
+          value4 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheLook "Hello, world!" :: AcidM (ExceptT FileError IO) (Maybe (Either FileError String))) ())
+          value5 <- runExceptT $ withValueCache acidDir (runMonadCacheT (cacheMap :: AcidM (ExceptT FileError IO) (Map String (Either FileError String))) ())
           assertEqual "acid1"
-                          (Right Nothing, Right (fromList []), Right "!dlrow ,olleH", Right (Just "!dlrow ,olleH"), Right (fromList [("Hello, world!","!dlrow ,olleH")]))
+                          (Right Nothing, Right (fromList []),
+                           Right (Right "!dlrow ,olleH"),
+                           Right (Just (Right "!dlrow ,olleH")),
+                           Right (fromList [("Hello, world!",Right "!dlrow ,olleH")]))
                           (value1, value2, value3, value4, value5)
 
 -- runEitherT :: EitherT e m a -> m (Either e a)
@@ -92,7 +96,7 @@ file1 = TestCase $ do
           Right value1 <- runExceptT (withValueCache fileAcidDir f) :: IO (Either FileError (File, ByteString))
           assertEqual "file1" expected value1
     where
-      f :: AcidState (Map String String) -> ExceptT FileError IO (File, ByteString)
+      f :: AcidState (Map String (Either FileError String)) -> ExceptT FileError IO (File, ByteString)
       f fileAcidState =
           runFileCacheT Proxy () fileAcidState fileCacheDir'
             (fileFromPath return (pure "") oldfile :: FileCacheT st () () (ExceptT FileError IO) (File, ByteString))
