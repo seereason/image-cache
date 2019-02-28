@@ -30,8 +30,7 @@ module Appraisal.AcidCache
     , DeleteValue(..)
     , DeleteValues(..)
     -- * Monad class for cached map
-    , HasCacheAcid(askCacheAcid)
-    , HasCacheFunction(buildCacheValue)
+    , HasCache(askCacheAcid, buildCacheValue)
     , cacheMap
     , cacheLook
     , cacheInsert
@@ -40,7 +39,7 @@ module Appraisal.AcidCache
     -- , runMonadCacheT
     ) where
 
-import Appraisal.FileError (HasFileError)
+--import Appraisal.FileError (HasFileError, FileError)
 import Control.Lens ((%=), at, makeLenses, view)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
 import Control.Monad.Reader (MonadReader(ask))
@@ -52,17 +51,19 @@ import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
 import Data.Serialize (label, Serialize)
 import Data.Set as Set (Set)
-import Extra.Except (catchError, HasIOException, liftIOError, MonadIO, MonadError, MonadIOError)
+import Extra.Except -- (catchError, HasIOException, liftIOError, MonadIO, MonadError, MonadIOError, tryIOError, throwError)
 import GHC.Generics (Generic)
 
-data CacheMap key val e = CacheMap {_unCacheMap :: Map key (Either e val)} deriving (Data, Generic, Serialize)
+-- Later we could make FileError a type parameter, but right now its
+-- tangled with the MonadError type.
+data CacheMap key val err = CacheMap {_unCacheMap :: Map key (Either err val)} deriving (Data, Generic, Serialize, Eq, Ord, Show)
 $(makeLenses ''CacheMap)
 
 #if 0
 $(deriveSafeCopy 2 'extension ''CacheMap)
 -- $(safeCopyInstance 2 'extension [t|CacheMap|])
 #else
-instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy e) => SafeCopy (CacheMap key val e) where
+instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
       putCopy (CacheMap a)
         = contain
             (do safeput <- getSafePut
@@ -78,92 +79,90 @@ instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy e) => SafeCopy (CacheMap
       errorTypeName _ = "Appraisal.AcidCache.CacheMap"
 #endif
 
-instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val e) where
-    type MigrateFrom (CacheMap key val e) = Map key val
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err) where
+    type MigrateFrom (CacheMap key val err) = Map key val
     migrate mp = CacheMap (fmap Right mp)
 
 -- | Install a key/value pair into the cache.
-putValue :: Ord key => key -> Either e val -> Update (CacheMap key val e) ()
+putValue :: Ord key => key -> Either err val -> Update (CacheMap key val err) ()
 putValue key img = unCacheMap %= Map.insert key img
 
 -- | Install several key/value pairs into the cache.
-putValues :: Ord key => Map key (Either e val) -> Update (CacheMap key val e) ()
+putValues :: Ord key => Map key (Either err val) -> Update (CacheMap key val err) ()
 putValues pairs = unCacheMap %= Map.union pairs
 
 -- | Look up a key.
-lookValue :: Ord key => key -> Query (CacheMap key val e) (Maybe (Either e val))
+lookValue :: Ord key => key -> Query (CacheMap key val err) (Maybe (Either err val))
 lookValue key = view (unCacheMap . at key)
 
 -- | Look up several keys.
-lookValues :: Ord key => Set key -> Query (CacheMap key val e) (Map key (Either e val))
+lookValues :: Ord key => Set key -> Query (CacheMap key val err) (Map key (Either err val))
 lookValues keys = Map.intersection <$> view unCacheMap <*> pure (Map.fromSet (const ()) keys)
 
 -- | Return the entire cache.  (Despite what ghc says, this constraint
 -- isn't redundant, without it the makeAcidic call has a missing Ord
 -- key instance.)
-lookMap :: Ord key => Query (CacheMap key val e) (CacheMap key val e)
+lookMap :: Ord key => Query (CacheMap key val err) (CacheMap key val err)
 lookMap = ask
 
 -- | Remove values from the database.
-deleteValue :: (Ord key{-, Serialize key, Serialize val, Serialize e-}) => key -> Update (CacheMap key val e) ()
+deleteValue :: (Ord key{-, Serialize key, Serialize val, Serialize e-}) => key -> Update (CacheMap key val err) ()
 deleteValue key = unCacheMap %= Map.delete key
 
-deleteValues :: Ord key => Set key -> Update (CacheMap key val e) ()
+deleteValues :: Ord key => Set key -> Update (CacheMap key val err) ()
 deleteValues keys = unCacheMap %= (`Map.difference` (Map.fromSet (const ()) keys))
 
 $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
-initCacheMap :: Ord key => CacheMap key val e
+initCacheMap :: Ord key => CacheMap key val err
 initCacheMap = CacheMap mempty
 
-openCache :: (SafeCopy e, Typeable e,
-              SafeCopy key, Typeable key,
-              SafeCopy val, Typeable val, Ord key) => FilePath -> IO (AcidState (CacheMap key val e))
+openCache :: (SafeCopy key, Typeable key, Ord key,
+              SafeCopy err, Typeable err,
+              SafeCopy val, Typeable val) => FilePath -> IO (AcidState (CacheMap key val err))
 openCache path = openLocalStateFrom path initCacheMap
 
 -- | In theory the MonadError type e1 might differ from the error type
 -- stored in the map e2.  But I'm not sure if it would work in practice.
-withCache :: (HasIOException e1, MonadError e1 m, MonadIO m, MonadMask m,
-              Typeable e2, SafeCopy e2,
-              Typeable val, SafeCopy val,
-              Ord key, Typeable key, SafeCopy key) => FilePath -> (AcidState (CacheMap key val e2) -> m b) -> m b
+withCache :: (HasIOException e, MonadError e m, MonadIO m, MonadMask m,
+              SafeCopy val, Typeable val, SafeCopy err, Typeable err,
+              Ord key, Typeable key, SafeCopy key) => FilePath -> (AcidState (CacheMap key val err) -> m b) -> m b
 withCache path f = bracket (liftIOError (openCache path)) (liftIOError . createCheckpointAndClose) $ f
 
+-- | Note that class 'HasCache' and the 'cacheInsert' function return
+-- values containing a 'FileError', but the monad m only has the
+-- constraint HasFileError.
 class (Ord key, SafeCopy key, Typeable key, Show key, Serialize key,
        SafeCopy val, Typeable val, Serialize val,
-       HasFileError e, MonadIOError e m, Serialize e, SafeCopy e, Typeable e) => HasCacheAcid key val e m where
-    askCacheAcid :: m (AcidState (CacheMap key val e))
-
-class (Ord key, HasFileError e, MonadIOError e m) => HasCacheFunction key val e m where
-    buildCacheValue :: key -> m (Either e val)
+       SafeCopy err, Typeable err, MonadIO m) => HasCache key val err m where
+    askCacheAcid :: m (AcidState (CacheMap key val err))
+    buildCacheValue :: key -> m (Either err val)
 
 -- | Call the build function on cache miss to build the value.
-cacheInsert :: forall key val e m. (HasCacheAcid key val e m, HasCacheFunction key val e m) => key -> m (Either e val)
+cacheInsert :: forall key val err m. (HasCache key val err m) => key -> m (Either err val)
 cacheInsert key = do
-  st <- askCacheAcid :: m (AcidState (CacheMap key val e))
-  liftIO (query st (LookValue key)) >>= maybe (cacheMiss `catchError` cacheError) return
-    where
-      cacheMiss :: m (Either e val)
-      cacheMiss = do
-        val <- buildCacheValue key
-        st <- askCacheAcid :: m (AcidState (CacheMap key val e))
-        () <- liftIO $ update st (PutValue key val)
-        return val
-      cacheError :: e -> m (Either e val)
-      cacheError e = return (Left e)
+  st <- askCacheAcid
+  liftIO (query st (LookValue key)) >>= maybe (cacheMiss key) return
+
+cacheMiss :: forall key val err m. (HasCache key val err m) => key -> m (Either err val)
+cacheMiss key = do
+  st <- askCacheAcid :: m (AcidState (CacheMap key val err))
+  val <- buildCacheValue key
+  () <- liftIO $ update st (PutValue key val)
+  return val
 
 -- | Query the cache, but do nothing on cache miss.
-cacheLook :: HasCacheAcid key val e m => key -> m (Maybe (Either e val))
+cacheLook :: HasCache key val err m => key -> m (Maybe (Either err val))
 cacheLook key = do
   st <- askCacheAcid
   liftIO $ query st (LookValue key)
 
-cacheMap :: HasCacheAcid key val e m => m (CacheMap key val e)
+cacheMap :: HasCache key val err m => m (CacheMap key val err)
 cacheMap = do
   st <- askCacheAcid
   liftIO $ query st LookMap
 
-cacheDelete :: forall key val e m. (HasCacheAcid key val e m) => Proxy val -> Set key -> m ()
+cacheDelete :: forall key val err m. (HasCache key val err m) => Proxy (val, err) -> Set key -> m ()
 cacheDelete _ keys = do
-  (st :: AcidState (CacheMap key val e)) <- askCacheAcid
+  (st :: AcidState (CacheMap key val err)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)

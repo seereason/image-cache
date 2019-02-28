@@ -5,8 +5,8 @@ import Appraisal.Exif
 import Control.Exception (ErrorCall(ErrorCall), try, evaluate)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 (pack)
-import Data.Binary.Get (Get, runGet)
-import GHC.IO.Exception
+import Data.Binary.Get (runGet)
+--import GHC.IO.Exception
 import GHC.Int (Int64)
 import Test.HUnit
 

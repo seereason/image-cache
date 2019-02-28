@@ -2,14 +2,14 @@
 module LaTeX (tests) where
 
 import Data.Monoid ((<>))
-import Data.Set (fromList)
-import Data.String (fromString)
-import Data.Text (Text)
-import Text.LaTeX.Base.Class (comm0, commS)
-import Text.LaTeX.Base.Commands (raw, vfill, textbf, vspace, large)
+--import Data.Set (fromList)
+--import Data.String (fromString)
+--import Data.Text (Text)
+import Text.LaTeX.Base.Class (comm0)
+import Text.LaTeX.Base.Commands (vfill, textbf, vspace, large)
 import Text.LaTeX.Base.Render (render)
 import Text.LaTeX.Base.Syntax (LaTeX(TeXCommS), Measure(..))
-import Text.LaTeX.Base.Writer (execLaTeXM, execLaTeXT)
+import Text.LaTeX.Base.Writer (execLaTeXM)
 import Text.LaTeX.Packages.Graphicx (IGOption(..), includegraphics)
 import Test.HUnit
 

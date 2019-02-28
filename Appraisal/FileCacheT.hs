@@ -29,20 +29,22 @@ module Appraisal.FileCacheT
     -- , MonadFileCache
     , ensureFileCacheTop
     , FileCacheT, FileCache
+    , runFileCacheT'
     , runFileCacheT
-    , runFileCacheTop  -- still used in AppraisalScope
+    , execFileCacheT
+    -- , runFileCacheTop  -- still used in AppraisalScope
     -- , runFileCache
     -- , mapFileCacheT
     ) where
 
-import Appraisal.FileError
-import Control.Lens (_2, view)
+--import Appraisal.FileError
+import Control.Lens (_1, _2, view)
 import Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
 import Control.Monad.Identity (Identity)
 import Control.Monad.Reader ({-mapReaderT,-} MonadReader(ask))
 import Control.Monad.RWS
 import Control.Monad.Trans (lift, MonadIO(..), MonadTrans(lift))
-import Data.Generics (Proxy(Proxy))
+import Data.Generics (Proxy)
 import System.Directory (createDirectoryIfMissing)
 
 {-
@@ -100,17 +102,22 @@ instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m
 instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
     fileCacheTop = lift fileCacheTop
 
-runFileCacheT ::
-    Monad m
-    => Proxy w
+runFileCacheT' ::
+       Proxy w
     -> s
     -> acid
     -> FileCacheTop
     -> RWST (acid, FileCacheTop) w s m a
-    -> m a
-runFileCacheT _ s0 r0 top action =
-    fst <$> evalRWST action (r0, top) s0
+    -> m (a, s, w)
+runFileCacheT' _ s0 r0 top action = runRWST action (r0, top) s0
 
+runFileCacheT :: Monad m => Proxy w -> s -> acid -> FileCacheTop -> RWST (acid, FileCacheTop) w s m a -> m a
+runFileCacheT w s0 r0 top action = view _1 <$> runFileCacheT' w s0 r0 top action
+
+execFileCacheT :: Monad m => Proxy w -> s -> acid -> FileCacheTop -> RWST (acid, FileCacheTop) w s m a -> m s
+execFileCacheT w s0 r0 top action = view _2 <$> runFileCacheT' w s0 r0 top action
+
+{-
 runFileCacheTop ::
      Monad m
     => FileCacheTop
@@ -120,6 +127,7 @@ runFileCacheTop ::
     -> m (Either FileError a)
 runFileCacheTop top acid action =
     runExceptT (runFileCacheT (Proxy :: Proxy w) () acid top action)
+-}
 
 -- mapFileCacheT :: Functor m => (e -> e') -> FileCacheT st m a -> FileCacheT st m a
 -- mapFileCacheT f = FileCacheT . mapReaderT (withExceptT f) . unFileCacheT
