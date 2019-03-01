@@ -39,7 +39,6 @@ module Appraisal.AcidCache
     -- , runMonadCacheT
     ) where
 
---import Appraisal.FileError (HasFileError, FileError)
 import Control.Lens ((%=), at, makeLenses, view)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
 import Control.Monad.Reader (MonadReader(ask))
@@ -51,7 +50,7 @@ import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
 import Data.Serialize (label, Serialize)
 import Data.Set as Set (Set)
-import Extra.Except -- (catchError, HasIOException, liftIOError, MonadIO, MonadError, MonadIOError, tryIOError, throwError)
+import Extra.Except (liftIOError, MonadIO, MonadIOError)
 import GHC.Generics (Generic)
 
 -- Later we could make FileError a type parameter, but right now its
@@ -124,7 +123,7 @@ openCache path = openLocalStateFrom path initCacheMap
 
 -- | In theory the MonadError type e1 might differ from the error type
 -- stored in the map e2.  But I'm not sure if it would work in practice.
-withCache :: (HasIOException e, MonadError e m, MonadIO m, MonadMask m,
+withCache :: (MonadIOError e m, MonadMask m,
               SafeCopy val, Typeable val, SafeCopy err, Typeable err,
               Ord key, Typeable key, SafeCopy key) => FilePath -> (AcidState (CacheMap key val err) -> m b) -> m b
 withCache path f = bracket (liftIOError (openCache path)) (liftIOError . createCheckpointAndClose) $ f
