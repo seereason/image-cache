@@ -45,7 +45,7 @@ module Appraisal.ImageCache
     ) where
 
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.AcidCache (CacheMap, HasCache(..))
+import Appraisal.AcidCache (CacheMap, CacheValue(..), HasCache(..))
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, loadBytesSafe)
 import Appraisal.FileCacheT (execFileCacheT, FileCacheT, FileCacheTop, HasFileCacheTop, runFileCacheT)
@@ -54,7 +54,7 @@ import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, Im
                         fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw, try)
-import Control.Lens (_1, _Left, makeLensesFor, over, view)
+import Control.Lens (_1, makeLensesFor, view)
 import Control.Monad.Except (catchError, MonadError)
 --import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.RWS (RWST)
@@ -92,24 +92,37 @@ imageFilePath img = fileCachePath (view imageFile img)
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes ::
-    forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
+    forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
     => ByteString
-    -> m (Either FileError ImageFile)
+    -> m (CacheValue FileError ImageFile)
 imageFileFromBytes bs = fileFromBytes (liftIOError . getFileType) fileExtension bs >>= makeImageFile
 
-imageFileFromURI :: (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e) => URI -> m (Either FileError ImageFile)
+imageFileFromURI ::
+    (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
+    => URI
+    -> m (CacheValue FileError ImageFile)
 imageFileFromURI uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
-imageFileFromPath :: (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e) => FilePath -> m (Either FileError ImageFile)
+imageFileFromPath ::
+    (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
+    => FilePath
+    -> m (CacheValue FileError ImageFile)
 imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
-makeImageFile :: forall e m. (MonadIOError e m, HasFileCacheTop m, Show e) => (File, ImageType) -> m (Either FileError ImageFile)
+-- Note that 'InProgress' is not a possible result here, it will only
+-- occur for derived (scaled, cropped, etc.) images.
+makeImageFile ::
+    forall e m. (MonadIOError e m, HasFileCacheTop m)
+    => (File, ImageType)
+    -> m (CacheValue FileError ImageFile)
 makeImageFile (file, ityp) = do
     path <- fileCachePath file
-    $logException ERROR $ liftIOError $ ((over _Left fromIOException <$> try (imageFileFromType path file ityp)) :: IO (Either FileError ImageFile))
+    (r :: Either IOException ImageFile) <- liftIO (try ($logException ERROR (imageFileFromType path file ityp)))
+    return $ either (Failed . fromIOException) Cached r
+    -- $logException ERROR $ liftIOError $ ((over _Left fromIOException <$> ) :: IO (CacheValue FileError ImageFile))
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -154,17 +167,17 @@ imageFileFromPnmfileOutput file typ out =
 uprightImage ::
     (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
     => ImageFile
-    -> m (Either FileError ImageFile)
+    -> m (CacheValue FileError ImageFile)
 uprightImage orig = do
   bs <- $logException ERROR (loadBytesSafe (view imageFile orig))
   bs' <- $logException ERROR (liftIOError (normalizeOrientationCode (P.fromStrict bs)))
-  either (const (return (Right orig))) (\bs'' -> $logException ERROR (fileFromBytes (liftIOError . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
+  either (const (return (Cached orig))) (\bs'' -> (fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
 
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
 -- of the old other than size.
-scaleImage :: forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e) => Double -> ImageFile -> m (Either FileError ImageFile)
-scaleImage scale orig | approx (toRational scale) == 1 = return (Right orig)
+scaleImage :: forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e) => Double -> ImageFile -> m (CacheValue FileError ImageFile)
+scaleImage scale orig | approx (toRational scale) == 1 = return (Cached orig)
 scaleImage scale orig = $logException ERROR $ do
     path <- fileCachePath (view imageFile orig)
     let decoder = case view imageFileType orig of
@@ -183,18 +196,18 @@ scaleImage scale orig = $logException ERROR $ do
     fileFromCmd (liftIOError . getFileType) fileExtension cmd >>= buildImage
     -- fileFromCmdViaTemp cmd >>= buildImage
     where
-      buildImage :: (File, ImageType) -> m (Either FileError ImageFile)
+      buildImage :: (File, ImageType) -> m (CacheValue FileError ImageFile)
       buildImage file = makeImageFile file `catchError` (\ e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)
 
 -- | Find or create a cached image which is a cropped version of
 -- another.
 editImage ::
     forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
-    => ImageCrop -> ImageFile -> m (Either FileError ImageFile)
+    => ImageCrop -> ImageFile -> m (CacheValue FileError ImageFile)
 editImage crop file = $logException ERROR $
     case commands of
       [] ->
-          return (Right file)
+          return (Cached file)
       _ ->
           (loadBytesSafe (view imageFile file) >>=
            liftIOError . pipeline commands >>=
@@ -236,8 +249,8 @@ editImage crop file = $logException ERROR $
       convert GIF x = proc "giftopnm" [] : convert PPM x
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
-      err :: e -> m (Either FileError ImageFile)
-      err e = return $ Left $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
+      err :: e -> m (CacheValue FileError ImageFile)
+      err e = return $ Failed $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
 
 pipeline :: [CreateProcess] -> P.ByteString -> IO P.ByteString
 pipeline [] bytes = return bytes
@@ -313,16 +326,17 @@ instance (MonadIOError e m, HasFileError e, Monoid w, m' ~ ImageCacheT w s e m, 
 -- Note that this does not insert the new 'ImageFile' into the acid
 -- state.
 buildImageFile :: (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
-  => ImageKey -> m (Either FileError ImageFile)
-buildImageFile (ImageOriginal img) = return (Right img)
+  => ImageKey -> m (CacheValue FileError ImageFile)
+buildImageFile (ImageOriginal img) = return (Cached img)
 buildImageFile (ImageUpright key) =
-  buildImageFile key >>= either (return . Left) uprightImage
+  buildImageFile key >>= overCached uprightImage
 buildImageFile (ImageScaled sz dpi key) = do
-  img' <- buildImageFile key
-  case img' of
-    Left e -> return $ Left e
-    Right img -> do
-      let scale = scaleFromDPI dpi sz img
-      $logException ERROR $ scaleImage (fromRat (fromMaybe 1 scale)) img
+  buildImageFile key >>= overCached (\img -> do
+                                        let scale = scaleFromDPI dpi sz img
+                                        $logException ERROR $ scaleImage (fromRat (fromMaybe 1 scale)) img)
 buildImageFile (ImageCropped crop key) = do
-  buildImageFile key >>= either (return . Left) (editImage crop)
+  buildImageFile key >>= overCached (editImage crop)
+
+overCached :: Monad m => (a -> m (CacheValue e a)) -> CacheValue e a -> m (CacheValue e a)
+overCached f (Cached a) = f a
+overCached _ v = pure v
