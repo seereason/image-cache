@@ -122,7 +122,6 @@ makeImageFile (file, ityp) = do
     path <- fileCachePath file
     (r :: Either IOException ImageFile) <- liftIO (try ($logException ERROR (imageFileFromType path file ityp)))
     return $ either (Failed . fromIOException) Cached r
-    -- $logException ERROR $ liftIOError $ ((over _Left fromIOException <$> ) :: IO (CacheValue FileError ImageFile))
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
