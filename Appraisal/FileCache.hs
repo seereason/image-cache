@@ -10,7 +10,6 @@
 
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveFunctor, DeriveGeneric, DeriveAnyClass #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -123,14 +122,8 @@ $(concat <$>
   sequence
   [ makeLenses ''File
   , deriveSafeCopy 1 'base ''FileSource
-  , deriveSafeCopy 0 'base ''URI
-  , deriveSafeCopy 0 'base ''URIAuth
   , deriveSafeCopy 2 'base ''File
-  , TH.deriveLiftMany [
-     ''FileSource,
-     ''URI,
-     ''URIAuth,
-     ''File]
+  , TH.deriveLiftMany [''FileSource, ''File]
   , deriveSerialize [t|FileSource|]
   , deriveSerialize [t|File|] ])
 

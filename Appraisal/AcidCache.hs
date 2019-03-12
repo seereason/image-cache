@@ -2,7 +2,7 @@
 -- values are monadically obtained from the keys using the 'build'
 -- method of the MonadCache instance, and stored using acid-state.
 
-{-# LANGUAGE CPP, ConstraintKinds #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass, DeriveFunctor, DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
