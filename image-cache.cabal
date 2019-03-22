@@ -54,10 +54,10 @@ Library
   Exposed-modules:
     Appraisal.AcidCache
     Appraisal.FileCache
-    Appraisal.FileCacheT
-    Appraisal.FileError
     Appraisal.Image
     Appraisal.ImageCache
+    Appraisal.FileCacheT
+    Appraisal.FileError
     Appraisal.Exif
     Appraisal.LogException
     Appraisal.Serialize
@@ -72,7 +72,6 @@ Library
     data-default,
     directory,
     exceptions,
-    filemanip-extra,
     filepath,
     hslogger,
     HUnit,
@@ -100,7 +99,10 @@ Library
     unix,
     Unixutils,
     utf8-string
-  if impl(ghcjs)
+  if !impl(ghcjs)
+    Build-Depends:
+      filemanip-extra
+  else
     Build-Depends: Cabal
 
 test-suite image-cache-tests
@@ -117,10 +119,12 @@ test-suite image-cache-tests
     directory,
     either,
     exceptions,
-    filemanip-extra,
     filepath,
     HaTeX,
     HUnit,
     image-cache,
     mtl,
     text
+  if !impl(ghcjs)
+    Build-Depends:
+      filemanip-extra

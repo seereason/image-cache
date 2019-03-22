@@ -38,6 +38,7 @@ module Appraisal.FileCache
     , addMessage
     , md5'
     -- * Create Files
+#if !__GHCJS__
     , fileFromBytes
     , fileFromURI               -- was importFile
     , fileFromPath
@@ -49,20 +50,18 @@ module Appraisal.FileCache
     -- * Query Files
     , loadBytesSafe
     , loadBytesUnsafe
+    , fileCachePathIO
+    , allFiles
+#endif
     , fileDir
     , filePath
     , fileCachePath
     , oldFileCachePath
     , fileCacheDir
-    , fileCachePathIO
-    -- * Utility
-    , allFiles
     ) where
 
 import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
-import Appraisal.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
 import Appraisal.Serialize (deriveSerialize)
-import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
 import Control.Lens (makeLenses, over, set, view)
 import Control.Monad ( unless )
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
@@ -83,20 +82,25 @@ import Data.Text (pack, unpack)
 import Extra.Except
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
+import System.FilePath ( (</>) )
+import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
+import System.Unix.FilePath ( (<++>) )
+import Test.QuickCheck ( Arbitrary(..), oneof )
+import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+
+#if !__GHCJS__
+import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
+import Appraisal.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
+import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
 import System.Exit ( ExitCode(..) )
-import System.FilePath ( (</>) )
-import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
-import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
 #if !MIN_VERSION_process(1,4,3)
 import System.Process.ListLike (showCreateProcessForUser)
 #endif
-import System.Unix.FilePath ( (<++>) )
-import Test.QuickCheck ( Arbitrary(..), oneof )
-import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+#endif
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -117,6 +121,9 @@ data File
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
            } deriving (Show, Read, Eq, Ord, Data, Typeable)
+
+instance Pretty File where
+    pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
 
 $(concat <$>
   sequence
@@ -150,6 +157,7 @@ md5' = show . md5
 md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
 
+#if !__GHCJS__
 -- | Turn the bytes in a ByteString into a File.  This is an IO
 -- operation because it saves the data into the local cache.  We
 -- use writeFileReadable because the files we create need to be
@@ -316,8 +324,26 @@ loadBytesUnsafe file = fileCachePath file >>= readFileBytes
 readFileBytes :: (MonadIOError e m) => FilePath -> m P.ByteString
 readFileBytes path = liftIOError (P.readFile path)
 
-instance Pretty File where
-    pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
+fileCachePathIO :: (MonadIOError e m, HasFileCacheTop m) => File -> m FilePath
+fileCachePathIO file = do
+  dir <- fileCacheDir file
+  liftIOError $ createDirectoryIfMissing True dir
+  fileCachePath file
+
+listDirectory :: FilePath -> IO [FilePath]
+listDirectory path =
+  (filter f) <$> (getDirectoryContents path)
+  where f filename = filename /= "." && filename /= ".."
+
+-- | Scan all the file cache directories for files without using
+-- the database.
+allFiles :: (MonadIOError e m, Monoid w) => FileCacheT st w s m [FilePath]
+allFiles = do
+  FileCacheTop top <- fileCacheTop
+  dirs <- liftIOError $ listDirectory top
+  concat <$> mapM (\dir -> let dir' = top </> dir in
+                           fmap (dir' </>) <$> liftIOError (listDirectory dir')) dirs
+#endif
 
 -- | The full path name for the local cache of the file.
 fileCachePath :: HasFileCacheTop m => File -> m FilePath
@@ -328,12 +354,6 @@ oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++
 
 fileCacheDir :: HasFileCacheTop m => File -> m FilePath
 fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
-
-fileCachePathIO :: (MonadIOError e m, HasFileCacheTop m) => File -> m FilePath
-fileCachePathIO file = do
-  dir <- fileCacheDir file
-  liftIOError $ createDirectoryIfMissing True dir
-  fileCachePath file
 
 filePath :: File -> FilePath
 filePath file = fileDir file <++> view fileChksum file <> view fileExt file
@@ -346,17 +366,3 @@ instance Arbitrary File where
 
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
-
--- | Scan all the file cache directories for files without using
--- the database.
-allFiles :: (MonadIOError e m, Monoid w) => FileCacheT st w s m [FilePath]
-allFiles = do
-  FileCacheTop top <- fileCacheTop
-  dirs <- liftIOError $ listDirectory top
-  concat <$> mapM (\dir -> let dir' = top </> dir in
-                           fmap (dir' </>) <$> liftIOError (listDirectory dir')) dirs
-
-listDirectory :: FilePath -> IO [FilePath]
-listDirectory path =
-  (filter f) <$> (getDirectoryContents path)
-  where f filename = filename /= "." && filename /= ".."
