@@ -19,6 +19,7 @@ module Appraisal.AcidCache
       CacheMap(..)
     , CacheValue(..), _InProgress, _Cached, _Failed
     , unCacheMap
+#if !__GHCJS__
     , initCacheMap
     , openCache
     , withCache
@@ -38,21 +39,24 @@ module Appraisal.AcidCache
     , cacheDelete
     -- * Instance
     -- , runMonadCacheT
+#endif
     ) where
 
 import Control.Lens ((%=), at, makeLenses, makePrisms, view)
+import Data.Generics (Data, Proxy, Typeable)
+import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, Map, union)
+import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
+import Data.Serialize (label, Serialize)
+import GHC.Generics (Generic)
+#if !__GHCJS__
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
 import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.State (liftIO)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
-import Data.Generics (Data, Proxy, Typeable)
-import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, Map, union)
-import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
-import Data.Serialize (label, Serialize)
 import Data.Set as Set (Set)
 import Extra.Except (liftIOError, MonadIO, MonadIOError)
-import GHC.Generics (Generic)
+#endif
 
 data CacheValue err val
     = InProgress
@@ -94,6 +98,7 @@ instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err)
     type MigrateFrom (CacheMap key val err) = Map key val
     migrate mp = CacheMap (fmap Cached mp)
 
+#if !__GHCJS__
 -- | Install a key/value pair into the cache.
 putValue :: Ord key => key -> CacheValue err val -> Update (CacheMap key val err) ()
 putValue key img = unCacheMap %= Map.insert key img
@@ -123,10 +128,10 @@ deleteValue key = unCacheMap %= Map.delete key
 deleteValues :: Ord key => Set key -> Update (CacheMap key val err) ()
 deleteValues keys = unCacheMap %= (`Map.difference` (Map.fromSet (const ()) keys))
 
-$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
-
 initCacheMap :: Ord key => CacheMap key val err
 initCacheMap = CacheMap mempty
+
+$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
 openCache :: (SafeCopy key, Typeable key, Ord key,
               SafeCopy err, Typeable err,
@@ -177,3 +182,4 @@ cacheDelete :: forall key val err m. (HasCache key val err m) => Proxy (val, err
 cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val err)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)
+#endif

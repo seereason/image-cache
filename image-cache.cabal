@@ -63,7 +63,6 @@ Library
     Appraisal.Serialize
     Appraisal.Utils.ErrorWithIO
   Build-Depends:
-    acid-state,
     base >= 4,
     binary,
     bytestring,
@@ -101,6 +100,7 @@ Library
     utf8-string
   if !impl(ghcjs)
     Build-Depends:
+      acid-state,
       filemanip-extra
   else
     Build-Depends: Cabal

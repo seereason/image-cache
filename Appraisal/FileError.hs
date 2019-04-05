@@ -35,7 +35,6 @@ import Data.Data (Data)
 import Data.SafeCopy (base, deriveSafeCopy)
 import Data.Serialize (Serialize)
 import Data.Text (pack, Text, unpack)
-import Debug.Show (V(V))
 import Extra.Except (HasIOException(fromIOException))
 import Extra.Orphans ({-instance Serialize Text-})
 import GHC.Generics (Generic)
@@ -65,8 +64,6 @@ data CommandInfo
     | FunctionName String CommandInfo -- ^ The function that ran the command
     | Description String CommandInfo -- ^ free form description of what happened
     deriving (Data, Eq, Ord, Show, Generic, Serialize)
-
-instance Show (V FileError) where show (V x) = show x
 
 instance Loggable FileError where
   logit priority loc (IOException e) = liftIO (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
