@@ -27,7 +27,6 @@ module Appraisal.Image
     , imageFileArea
     , PixmapShape(..)
     , ImageType(..)
-    , getFileType
     , fileExtension
     , ImageKey(..)
     , ImageCacheMap
@@ -39,21 +38,25 @@ module Appraisal.Image
     , SaneSize(unSaneSize)
     , defaultSize
     , fixKey
-    , tests
     , readRationalMaybe
     , showRational
+#if !__GHCJS__
+    , getFileType
     -- * validation tools
     , validateJPG
+    , tests
+#endif
     ) where
 
 import Appraisal.FileCache (File(..))
-import Appraisal.Serialize (deriveSerialize)
 import Control.Lens (_2, Iso', iso, Lens', lens, makeLenses, view)
 --import Control.Monad.Except (catchError)
+#if !__GHCJS__
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString.UTF8 as P
+#endif
 #endif
 import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
@@ -61,20 +64,24 @@ import Data.Map (Map)
 --import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
-import Data.SafeCopy (base, deriveSafeCopy)
+import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
+import Data.Serialize (Serialize(..))
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
-import qualified Data.THUnify.Serialize (deriveSerialize)
+import Extra.Serialize (deriveSerializeViaSafeCopy)
+import GHC.Generics (Generic)
 import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import System.Exit (ExitCode)
+#if !__GHCJS__
 import System.Process (proc{-, showCommandForUser-})
 import System.Process.ListLike (readCreateProcess, readProcessWithExitCode)
 import System.Process.ByteString ()
 import Test.HUnit (assertEqual, Test(..))
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
+#endif
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import "regex-compat-tdfa" Text.Regex (Regex, mkRegex, matchRegex)
 
@@ -238,11 +245,13 @@ instance Default (SaneSize ImageSize) where
 -- the ImageSize within.
 newtype SaneSize a = SaneSize {unSaneSize :: a} deriving (Read, Show, Eq, Ord, Typeable, Data)
 
+#if !__GHCJS__
 tests :: Test
 tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
                                (SaneSize (ImageSize {dim = TheHeight, size = 0.25, units = Inches}))
                                (saneSize (ImageSize {dim = TheHeight, size = 0.0, units = Inches})))
                  ]
+#endif
 
 defaultSize :: ImageSize
 defaultSize = ImageSize {dim = TheArea, units = Inches, size = 6.0}
@@ -285,6 +294,7 @@ data ImageFile
 
 data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
 
+#if !__GHCJS__
 -- | Helper function to learn the 'ImageType' of a file by runing
 -- @file -b@.
 getFileType :: P.ByteString -> IO ImageType
@@ -304,6 +314,7 @@ getFileType bytes =
               ,(mkRegex "JPEG image data", JPEG)
               ,(mkRegex "PNG image data", PNG)
               ,(mkRegex "GIF image data", GIF)]
+#endif
 
 instance PixmapShape ImageFile where
     pixmapHeight = _imageFileHeight
@@ -313,11 +324,9 @@ instance PixmapShape ImageFile where
 instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
-$(makeLenses ''ImageFile)
-
 -- |Return the area of an image in square pixels.
 imageFileArea :: ImageFile -> Int
-imageFileArea image = view imageFileWidth image * view imageFileHeight image
+imageFileArea image = _imageFileWidth image * _imageFileHeight image
 
 fileExtension :: ImageType -> String
 fileExtension JPEG = ".jpg"
@@ -348,6 +357,7 @@ instance Ppr ImageKey where ppr = ptext . show
 
 type ImageCacheMap = Map ImageKey ImageFile
 
+#if !__GHCJS__
 instance Arbitrary Units where
     arbitrary = elements [Inches, Cm, Points]
 
@@ -382,6 +392,7 @@ instance Arbitrary ImageKey where
                       , ImageCropped <$> arbitrary <*> arbitrary
                       , ImageScaled <$> arbitrary <*> arbitrary <*> arbitrary
                       , ImageUpright <$> arbitrary ]
+#endif
 
 -- | Remove null crops
 fixKey :: ImageKey -> ImageKey
@@ -395,6 +406,7 @@ data Format = Binary | Gray | Color deriving Show
 data RawOrPlain = Raw | Plain deriving Show
 data Pnmfile = Pnmfile Format RawOrPlain (Integer, Integer, Maybe Integer) deriving Show
 
+#if !__GHCJS__
 -- | Check whether the outputs of extractbb is valid by comparing it
 -- to the output of pnmfile.
 validateJPG :: FilePath -> IO (Either String (Integer, Integer))
@@ -412,6 +424,7 @@ validateJPG path = do
           if l /= 0 || t /= 0 || r < 1 || b < 1 || r > 1000000 || b > 1000000
           then return (Left (path ++ ": image data error\n\npnmfile ->\n" ++ show s1 ++ "\nextractbb ->\n" ++ show s2))
           else return (Right (w, h))
+#endif
 
 -- | Parse the output of the pnmfile command (based on examination of
 -- its C source code.)
@@ -489,31 +502,39 @@ parseExtractBBOutput = do
       creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
-$(deriveSafeCopy 2 'base ''ImageSize)
-$(deriveSafeCopy 1 'base ''SaneSize)
-$(deriveSafeCopy 1 'base ''Dimension)
-$(deriveSafeCopy 0 'base ''Units)
-$(deriveSafeCopy 0 'base ''ImageCrop)
-$(deriveSafeCopy 2 'base ''ImageKey)
-$(deriveSafeCopy 0 'base ''ImageType)
-$(deriveSafeCopy 1 'base ''ImageFile)
+instance SafeCopy a => Serialize (SaneSize a) where
+    get = safeGet
+    put = safePut
 
-$(deriveLiftMany [
-   ''ImageFile,
-   ''ImageType,
-   ''ImageKey,
-   ''ImageSize,
-   ''Units,
-   ''ImageCrop,
-   ''Dimension,
-   ''SaneSize
+$(concat <$>
+  sequence
+  [ makeLenses ''ImageFile
+  , deriveSafeCopy 2 'base ''ImageSize
+  , deriveSafeCopy 1 'base ''SaneSize
+  , deriveSafeCopy 1 'base ''Dimension
+  , deriveSafeCopy 0 'base ''Units
+  , deriveSafeCopy 0 'base ''ImageCrop
+  , deriveSafeCopy 2 'base ''ImageKey
+  , deriveSafeCopy 0 'base ''ImageType
+  , deriveSafeCopy 1 'base ''ImageFile
+
+  , deriveLiftMany [
+       ''ImageFile,
+       ''ImageType,
+       ''ImageKey,
+       ''ImageSize,
+       ''Units,
+       ''ImageCrop,
+       ''Dimension,
+       ''SaneSize
+      ]
+
+  , deriveSerializeViaSafeCopy [t|ImageSize|]
+  , deriveSerializeViaSafeCopy [t|Dimension|]
+  , deriveSerializeViaSafeCopy [t|Units|]
+  , deriveSerializeViaSafeCopy [t|ImageCrop|]
+  -- , deriveSerializeViaSafeCopy [t|forall a. SaneSize a|]
+  , deriveSerializeViaSafeCopy [t|ImageFile|]
+  , deriveSerializeViaSafeCopy [t|ImageType|]
+  , deriveSerializeViaSafeCopy [t|ImageKey|]
   ])
-
-$(deriveSerialize [t|ImageSize|])
-$(deriveSerialize [t|Dimension|])
-$(deriveSerialize [t|Units|])
-$(deriveSerialize [t|ImageCrop|])
-$(Data.THUnify.Serialize.deriveSerialize [t|SaneSize|])
-$(deriveSerialize [t|ImageFile|])
-$(deriveSerialize [t|ImageType|])
-$(deriveSerialize [t|ImageKey|])

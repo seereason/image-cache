@@ -6,8 +6,10 @@ module Appraisal.Utils.ErrorWithIO
     , prefix
     , mapIOErrorDescription
     , ensureLink
+#if !__GHCJS__
     , readCreateProcess'
     , readCreateProcessWithExitCode'
+#endif
     ) where
 
 import Appraisal.LogException (logException)
@@ -20,8 +22,10 @@ import Prelude hiding (error, undefined, log)
 import System.Exit (ExitCode(..))
 import System.IO.Error (isDoesNotExistError)
 import qualified System.Posix.Files as F
+#if !__GHCJS__
 import System.Process
 import System.Process.ListLike as LL (ListLikeProcessIO, ProcessResult, readCreateProcessWithExitCode, readCreateProcess)
+#endif
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 type ErrorWithIO m = ExceptT IOError m
@@ -42,6 +46,7 @@ catchDoesNotExist = catchJust (\ e -> if isDoesNotExistError e then Just () else
 ensureLink :: String -> FilePath -> IO ()
 ensureLink file path = (F.getSymbolicLinkStatus path >> return ()) `catchDoesNotExist` (\ () -> F.createSymbolicLink file path)
 
+#if !__GHCJS__
 readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
 readCreateProcessWithExitCode' p s =
     -- logM "Appraisal.Utils.ErrorWithIO" DEBUG ("readCreateProcessWithExitCode': " <> show (pPrint p)) >>
@@ -58,3 +63,4 @@ instance Pretty CreateProcess where
 instance Pretty CmdSpec where
     pPrint (ShellCommand s) = text s
     pPrint (RawCommand path args) = text (showCommandForUser path args)
+#endif

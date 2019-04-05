@@ -61,7 +61,6 @@ module Appraisal.FileCache
     ) where
 
 import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
-import Appraisal.Serialize (deriveSerialize)
 import Control.Lens (makeLenses, over, set, view)
 import Control.Monad ( unless )
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
@@ -80,26 +79,27 @@ import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, deriveSafeCopy)
 import Data.Text (pack, unpack)
 import Extra.Except
+import Extra.Serialize (deriveSerializeViaSafeCopy)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany)
 import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
 import System.FilePath ( (</>) )
 import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
 import System.Unix.FilePath ( (<++>) )
-import Test.QuickCheck ( Arbitrary(..), oneof )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 #if !__GHCJS__
-import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import Appraisal.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
 import System.Exit ( ExitCode(..) )
+import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
 #if !MIN_VERSION_process(1,4,3)
 import System.Process.ListLike (showCreateProcessForUser)
 #endif
+import Test.QuickCheck ( Arbitrary(..), oneof )
 #endif
 
 -- |The original source if the file is saved, in case
@@ -131,8 +131,8 @@ $(concat <$>
   , deriveSafeCopy 1 'base ''FileSource
   , deriveSafeCopy 2 'base ''File
   , TH.deriveLiftMany [''FileSource, ''File]
-  , deriveSerialize [t|FileSource|]
-  , deriveSerialize [t|File|] ])
+  , deriveSerializeViaSafeCopy [t|FileSource|]
+  , deriveSerializeViaSafeCopy [t|File|] ])
 
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
@@ -361,8 +361,10 @@ filePath file = fileDir file <++> view fileChksum file <> view fileExt file
 fileDir :: File -> FilePath
 fileDir file = take 2 (view fileChksum file)
 
+#if !__GHCJS__
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
 
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
+#endif

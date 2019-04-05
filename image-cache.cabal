@@ -60,7 +60,6 @@ Library
     Appraisal.FileError
     Appraisal.Exif
     Appraisal.LogException
-    Appraisal.Serialize
     Appraisal.Utils.ErrorWithIO
   Build-Depends:
     base >= 4,
@@ -73,35 +72,33 @@ Library
     exceptions,
     filepath,
     hslogger,
-    HUnit,
     lens,
     mtl,
     network-uri,
     parsec,
     pretty >= 1.1.2,
-    process >= 1.4.3,
-    process-extras >= 0.7,
     pureMD5,
-    QuickCheck >= 2,
     regex-tdfa,
     regex-compat-tdfa,
     safecopy,
-    show-please,
-    sr-extra,
+    sr-extra >= 1.58,
     syb,
     template-haskell,
     text,
-    th-orphans >= 0.9,
     th-lift,
-    th-unify-clients,
+    th-orphans >= 0.9,
     transformers,
     unix,
-    Unixutils,
-    utf8-string
+    Unixutils
   if !impl(ghcjs)
     Build-Depends:
       acid-state,
-      filemanip-extra
+      filemanip-extra,
+      HUnit,
+      process >= 1.4.3,
+      process-extras >= 0.7,
+      QuickCheck,
+      utf8-string
   else
     Build-Depends: Cabal
 
