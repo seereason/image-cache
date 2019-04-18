@@ -81,7 +81,7 @@ import Data.Text (pack, unpack)
 import Extra.Except
 import Extra.Serialize (deriveSerializeViaSafeCopy)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany)
-import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
+import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import System.FilePath ( (</>) )
 import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
 import System.Unix.FilePath ( (<++>) )
