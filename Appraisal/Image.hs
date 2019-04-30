@@ -16,7 +16,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Appraisal.Image
-    ( ImageSize(..)
+    ( ImageSize(..), dim, size, units
     , approx
     , rationalIso
     , rationalLens
@@ -35,7 +35,7 @@ module Appraisal.Image
     , widthInInches'
     , heightInInches
     , saneSize
-    , SaneSize(unSaneSize)
+    , SaneSize(..), unSaneSize
     , defaultSize
     , fixKey
     , readRationalMaybe
@@ -69,7 +69,6 @@ import Data.Serialize (Serialize(..))
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
 import Extra.Serialize (deriveSerializeViaSafeCopy)
-import GHC.Generics (Generic)
 import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.PprLib (ptext)
@@ -129,9 +128,9 @@ readRationalMaybe s =
 
 data ImageSize
     = ImageSize
-      { dim :: Dimension
-      , size :: Rational
-      , units :: Units
+      { _dim :: Dimension
+      , _size :: Rational
+      , _units :: Units
       } deriving (Show, Read, Eq, Ord, Typeable, Data)
 
 instance Default ImageSize where
@@ -174,8 +173,8 @@ class PixmapShape a where
 -- which an image should be scaled.
 scaleFromDPI :: PixmapShape a => Rational -> ImageSize -> a -> Maybe Rational
 scaleFromDPI dpi sz file =
-    case dim sz of
-      _ | size sz < 0.000001 || size sz > 1000000.0 -> Nothing
+    case _dim sz of
+      _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
       TheHeight -> Just $ inches sz * dpi / h
       TheWidth -> Just $ inches sz * dpi / w
       -- If we want an area of 9 square inches, and the dpi is 100, and the image
@@ -187,10 +186,10 @@ scaleFromDPI dpi sz file =
 
 widthInInches :: PixmapShape a => a -> ImageSize -> Rational
 widthInInches p s =
-    case dim s of
-      TheWidth -> toInches (units s) (size s)
-      TheHeight -> widthInInches p (s {dim = TheWidth, size = approx (size s / r)})
-      TheArea -> widthInInches p (s {dim = TheWidth, size = approx (rsqrt (size s / r))})
+    case _dim s of
+      TheWidth -> toInches (_units s) (_size s)
+      TheHeight -> widthInInches p (s {_dim = TheWidth, _size = approx (_size s / r)})
+      TheArea -> widthInInches p (s {_dim = TheWidth, _size = approx (rsqrt (_size s / r))})
     where
       r :: Rational
       r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
@@ -204,10 +203,10 @@ rsqrt = toRational . (sqrt :: Double -> Double) . fromRat
 
 heightInInches :: PixmapShape a => a -> ImageSize -> Rational
 heightInInches p s =
-    case dim s of
-      TheHeight -> toInches (units s) (size s)
-      TheWidth -> heightInInches p (s {dim = TheHeight, size = approx (size s / r)})
-      TheArea -> heightInInches p (s {dim = TheHeight, size = approx (rsqrt (size s / r))})
+    case _dim s of
+      TheHeight -> toInches (_units s) (_size s)
+      TheWidth -> heightInInches p (s {_dim = TheHeight, _size = approx (_size s / r)})
+      TheArea -> heightInInches p (s {_dim = TheHeight, _size = approx (rsqrt (_size s / r))})
     where
       r :: Rational
       r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
@@ -219,15 +218,15 @@ heightInInches p s =
 -- are inches.  This way we can figure out how many images fit across
 -- the page.
 widthInInches' :: PixmapShape a => a -> ImageSize -> ImageSize
-widthInInches' p s = s {units = Inches, size = approx (widthInInches p s), dim = TheWidth}
+widthInInches' p s = s {_units = Inches, _size = approx (widthInInches p s), _dim = TheWidth}
 
 saneSize :: ImageSize -> SaneSize ImageSize
 saneSize sz = SaneSize $
-    case (dim sz, inches sz) of
-      (TheArea, n) | n < minArea -> sz {units = Inches, size = minArea}
-      (TheArea, n) | n > maxArea -> sz {units = Inches, size = maxArea}
-      (_, n) | n < minDist -> sz {units = Inches, size = toRational minDist}
-      (_, n) | n > maxDist -> sz {units = Inches, size = maxDist}
+    case (_dim sz, inches sz) of
+      (TheArea, n) | n < minArea -> sz {_units = Inches, _size = minArea}
+      (TheArea, n) | n > maxArea -> sz {_units = Inches, _size = maxArea}
+      (_, n) | n < minDist -> sz {_units = Inches, _size = toRational minDist}
+      (_, n) | n > maxDist -> sz {_units = Inches, _size = maxDist}
       _ -> sz
     where
       -- inches and square inches
@@ -243,23 +242,23 @@ instance Default (SaneSize ImageSize) where
 
 -- | A wrapper type to suggest that lens_saneSize has been applied to
 -- the ImageSize within.
-newtype SaneSize a = SaneSize {unSaneSize :: a} deriving (Read, Show, Eq, Ord, Typeable, Data)
+newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Read, Show, Eq, Ord, Typeable, Data)
 
 #if !__GHCJS__
 tests :: Test
 tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
-                               (SaneSize (ImageSize {dim = TheHeight, size = 0.25, units = Inches}))
-                               (saneSize (ImageSize {dim = TheHeight, size = 0.0, units = Inches})))
+                               (SaneSize (ImageSize {_dim = TheHeight, _size = 0.25, _units = Inches}))
+                               (saneSize (ImageSize {_dim = TheHeight, _size = 0.0, _units = Inches})))
                  ]
 #endif
 
 defaultSize :: ImageSize
-defaultSize = ImageSize {dim = TheArea, units = Inches, size = 6.0}
+defaultSize = ImageSize {_dim = TheArea, _units = Inches, _size = 6.0}
 
 -- | Return the value of size in inches
 inches :: ImageSize -> Rational
 inches sz =
-    size sz / case (dim sz, units sz) of
+    _size sz / case (_dim sz, _units sz) of
                 (_, Inches) -> 1
                 (TheArea, Cm) -> (254 % 100) * (254 % 100)
                 (TheArea, Points) -> (7227 % 100) * (7227 % 100)
@@ -537,4 +536,7 @@ $(concat <$>
   , deriveSerializeViaSafeCopy [t|ImageFile|]
   , deriveSerializeViaSafeCopy [t|ImageType|]
   , deriveSerializeViaSafeCopy [t|ImageKey|]
+
+  , makeLenses ''ImageSize
+  , makeLenses ''SaneSize
   ])
