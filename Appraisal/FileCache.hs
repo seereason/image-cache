@@ -96,9 +96,6 @@ import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
-#if !MIN_VERSION_process(1,4,3)
-import System.Process.ListLike (showCreateProcessForUser)
-#endif
 import Test.QuickCheck ( Arbitrary(..), oneof )
 #endif
 
