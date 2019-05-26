@@ -46,7 +46,7 @@ import Control.Lens ((%=), at, makeLenses, makePrisms, view)
 import Data.Generics (Data, Proxy, Typeable)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, Map, union)
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
-import Data.Serialize (label, Serialize)
+import Extra.Serialize (label, Serialize)
 import GHC.Generics (Generic)
 #if !__GHCJS__
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)

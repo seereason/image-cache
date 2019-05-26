@@ -33,7 +33,7 @@ import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
 import Data.SafeCopy (base, deriveSafeCopy)
-import Data.Serialize (Serialize)
+import Extra.Serialize (Serialize)
 import Data.Text (pack, Text, unpack)
 import Extra.Except (HasIOException(fromIOException))
 import Extra.Orphans ({-instance Serialize Text-})
