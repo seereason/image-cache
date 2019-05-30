@@ -12,6 +12,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall -Wredundant-constraints -fno-warn-orphans #-}
 
 module Appraisal.AcidCache
@@ -62,7 +63,7 @@ data CacheValue err val
     = InProgress
     | Cached val
     | Failed err
-    deriving (Data, Generic, Serialize, Eq, Ord, Show, Functor)
+    deriving (Generic, Eq, Ord, Functor)
 
 $(makePrisms ''CacheValue)
 
@@ -70,7 +71,7 @@ $(makePrisms ''CacheValue)
 -- tangled with the MonadError type.
 data CacheMap key val err =
     CacheMap {_unCacheMap :: Map key (CacheValue err val)}
-    deriving (Data, Generic, Serialize, Eq, Ord, Show)
+    deriving (Generic, Eq, Ord)
 $(makeLenses ''CacheMap)
 
 $(deriveSafeCopy 1 'base ''CacheValue)
@@ -183,3 +184,10 @@ cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val err)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)
 #endif
+
+deriving instance (Data err, Data val) => Data (CacheValue err val)
+deriving instance (Ord key, Data key, Data val, Data err) => Data (CacheMap key val err)
+deriving instance (Serialize err, Serialize val) => Serialize (CacheValue err val)
+deriving instance (Ord key, Serialize err, Serialize key, Serialize val) => Serialize (CacheMap key val err)
+deriving instance (Show err, Show val) => Show (CacheValue err val)
+deriving instance (Show key, Show val, Show err) => Show (CacheMap key val err)

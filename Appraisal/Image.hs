@@ -131,7 +131,7 @@ data ImageSize
       { _dim :: Dimension
       , _size :: Rational
       , _units :: Units
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Eq, Ord)
 
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
@@ -140,13 +140,13 @@ data Dimension
     = TheHeight
     | TheWidth
     | TheArea
-    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded)
+    deriving (Eq, Ord, Enum, Bounded)
 
 data Units
     = Inches
     | Cm
     | Points
-    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded)
+    deriving (Eq, Ord, Enum, Bounded)
 
 -- |This describes the cropping and rotation of an image.
 data ImageCrop
@@ -156,7 +156,7 @@ data ImageCrop
       , leftCrop :: Int
       , rightCrop :: Int
       , rotation :: Int         -- 0, 90, 180, 270
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Eq, Ord)
 
 instance Default ImageCrop where
     def = ImageCrop 0 0 0 0 0
@@ -242,7 +242,7 @@ instance Default (SaneSize ImageSize) where
 
 -- | A wrapper type to suggest that lens_saneSize has been applied to
 -- the ImageSize within.
-newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Read, Show, Eq, Ord, Typeable, Data)
+newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Eq, Ord)
 
 #if !__GHCJS__
 tests :: Test
@@ -289,9 +289,9 @@ data ImageFile
       , _imageFileWidth :: Int
       , _imageFileHeight :: Int
       , _imageFileMaxVal :: Int
-      } deriving (Show, Read, Eq, Ord, Data, Typeable)
+      } deriving (Eq, Ord)
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
+data ImageType = PPM | JPEG | GIF | PNG deriving (Eq, Ord)
 
 #if !__GHCJS__
 -- | Helper function to learn the 'ImageType' of a file by runing
@@ -344,7 +344,7 @@ data ImageKey
     -- ^ A resized version of another image
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data)
+    deriving (Eq, Ord)
 
 instance Pretty ImageKey where
     pPrint (ImageOriginal _) = text "ImageOriginal"
@@ -401,9 +401,9 @@ fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
 fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
 fixKey (ImageUpright key) = ImageUpright (fixKey key)
 
-data Format = Binary | Gray | Color deriving Show
-data RawOrPlain = Raw | Plain deriving Show
-data Pnmfile = Pnmfile Format RawOrPlain (Integer, Integer, Maybe Integer) deriving Show
+data Format = Binary | Gray | Color
+data RawOrPlain = Raw | Plain
+data Pnmfile = Pnmfile Format RawOrPlain (Integer, Integer, Maybe Integer)
 
 #if !__GHCJS__
 -- | Check whether the outputs of extractbb is valid by comparing it
@@ -451,9 +451,9 @@ parsePnmfileOutput = do
 
 data ExtractBB =
     ExtractBB (Integer, Integer, Integer, Integer)
-              (Hires, Hires, Hires, Hires) deriving Show
+              (Hires, Hires, Hires, Hires)
 
-data Hires = Inf | Rational Rational deriving Show
+data Hires = Inf | Rational Rational
 
 -- | Parse the output of extractbb (based on trial and error.)
 parseExtractBBOutput :: Parsec Text () ExtractBB
@@ -540,3 +540,44 @@ $(concat <$>
   , makeLenses ''ImageSize
   , makeLenses ''SaneSize
   ])
+
+deriving instance Data ImageSize
+deriving instance Data Dimension
+deriving instance Data Units
+deriving instance Data ImageCrop
+deriving instance Data a => Data (SaneSize a)
+deriving instance Data ImageFile
+deriving instance Data ImageType
+deriving instance Data ImageKey
+
+deriving instance Read ImageSize
+deriving instance Read Dimension
+deriving instance Read Units
+deriving instance Read ImageCrop
+deriving instance Read a => Read (SaneSize a)
+deriving instance Read ImageFile
+deriving instance Read ImageType
+deriving instance Read ImageKey
+
+deriving instance Show ImageSize
+deriving instance Show Dimension
+deriving instance Show Units
+deriving instance Show ImageCrop
+deriving instance Show a => Show (SaneSize a)
+deriving instance Show ImageFile
+deriving instance Show ImageType
+deriving instance Show ImageKey
+deriving instance Show Format
+deriving instance Show RawOrPlain
+deriving instance Show Pnmfile
+deriving instance Show ExtractBB
+deriving instance Show Hires
+
+deriving instance Typeable ImageKey
+deriving instance Typeable ImageType
+deriving instance Typeable ImageSize
+deriving instance Typeable Dimension
+deriving instance Typeable Units
+deriving instance Typeable ImageCrop
+deriving instance Typeable (SaneSize a)
+deriving instance Typeable ImageFile

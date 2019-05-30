@@ -9,6 +9,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -48,7 +49,7 @@ data FileError
     | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
     | CommandFailure CommandInfo -- ^ A shell command failed
     | CacheDamage -- ^ The contents of a cache file are wrong
-    deriving (Data, Eq, Ord, Show, Generic, Serialize)
+    deriving (Eq, Ord, Generic)
 
 class HasIOException e => HasFileError e where fromFileError :: FileError -> e
 instance HasFileError FileError where fromFileError = id
@@ -63,7 +64,7 @@ data CommandInfo
     | CommandErr P.ByteString CommandInfo -- ^ stderr
     | FunctionName String CommandInfo -- ^ The function that ran the command
     | Description String CommandInfo -- ^ free form description of what happened
-    deriving (Data, Eq, Ord, Show, Generic, Serialize)
+    deriving (Eq, Ord, Generic)
 
 instance Loggable FileError where
   logit priority loc (IOException e) = liftIO (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
@@ -88,3 +89,10 @@ logErrorCall x =
 
 $(deriveSafeCopy 1 'base ''CommandInfo)
 $(deriveSafeCopy 1 'base ''FileError)
+
+deriving instance Data FileError
+deriving instance Data CommandInfo
+deriving instance Serialize FileError
+deriving instance Serialize CommandInfo
+deriving instance Show FileError
+deriving instance Show CommandInfo

@@ -106,7 +106,7 @@ import Test.QuickCheck ( Arbitrary(..), oneof )
 data FileSource
     = TheURI String
     | ThePath FilePath
-    deriving (Show, Read, Eq, Ord, Data, Typeable)
+    deriving (Eq, Ord)
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
@@ -117,7 +117,7 @@ data File
            , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
-           } deriving (Show, Read, Eq, Ord, Data, Typeable)
+           } deriving (Eq, Ord)
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
@@ -365,3 +365,13 @@ instance Arbitrary File where
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
 #endif
+
+deriving instance Show FileSource
+deriving instance Read FileSource
+deriving instance Data FileSource
+deriving instance Typeable FileSource
+
+deriving instance Show File
+deriving instance Read File
+deriving instance Data File
+deriving instance Typeable File
