@@ -48,7 +48,6 @@ import Control.Lens ((%=), at, makeLenses, makePrisms, view)
 import Data.Generics (Data, Proxy, Typeable)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, Map, union)
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
-import Data.Serialize.Get (label)
 import GHC.Generics (Generic)
 #if !__GHCJS__
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
@@ -72,7 +71,7 @@ data CacheMap key val err =
     CacheMap {_unCacheMap :: Map key (CacheValue err val)}
     deriving (Generic, Eq, Ord)
 
-instance SafeCopy CacheValue where version = 1
+instance (SafeCopy err, SafeCopy val) => SafeCopy (CacheValue err val) where version = 1
 instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
   version = 2
   kind = extension
@@ -80,6 +79,12 @@ instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheM
 instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err) where
     type MigrateFrom (CacheMap key val err) = Map key val
     migrate mp = CacheMap (fmap Cached mp)
+
+$(concat <$>
+  sequence
+  [ makePrisms ''CacheValue
+  , makeLenses ''CacheMap
+  ])
 
 #if !__GHCJS__
 -- | Install a key/value pair into the cache.
@@ -101,7 +106,7 @@ lookValues keys = Map.intersection <$> view unCacheMap <*> pure (Map.fromSet (co
 -- | Return the entire cache.  (Despite what ghc says, this constraint
 -- isn't redundant, without it the makeAcidic call has a missing Ord
 -- key instance.)
-lookMap :: Ord key => Query (CacheMap key val err) (CacheMap key val err)
+lookMap :: {-Ord key =>-} Query (CacheMap key val err) (CacheMap key val err)
 lookMap = ask
 
 -- | Remove values from the database.
@@ -134,6 +139,8 @@ class (Ord key, SafeCopy key, Typeable key, Show key,
        SafeCopy err, Typeable err, MonadIO m) => HasCache key val err m where
     askCacheAcid :: m (AcidState (CacheMap key val err))
     buildCacheValue :: key -> m (CacheValue err val)
+
+$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
 -- | Call the build function on cache miss to build the value.
 cacheInsert :: forall key val err m. (HasCache key val err m) => key -> m (CacheValue err val)
@@ -169,11 +176,3 @@ deriving instance (Data err, Data val) => Data (CacheValue err val)
 deriving instance (Ord key, Data key, Data val, Data err) => Data (CacheMap key val err)
 deriving instance (Show err, Show val) => Show (CacheValue err val)
 deriving instance (Show key, Show val, Show err) => Show (CacheMap key val err)
-
-$(concat <$>
-  sequence
-  [ makePrisms ''CacheValue
-  , makeLenses ''CacheMap
-  , makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues]
-  ])
-

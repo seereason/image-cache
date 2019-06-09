@@ -69,6 +69,7 @@ import Data.SafeCopy (SafeCopy(..), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
+import GHC.Generics (Generic)
 import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
@@ -131,7 +132,7 @@ data ImageSize
       { _dim :: Dimension
       , _size :: Rational
       , _units :: Units
-      } deriving (Eq, Ord)
+      } deriving (Generic, Eq, Ord)
 
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
@@ -140,13 +141,13 @@ data Dimension
     = TheHeight
     | TheWidth
     | TheArea
-    deriving (Eq, Ord, Enum, Bounded)
+    deriving (Generic, Eq, Ord, Enum, Bounded)
 
 data Units
     = Inches
     | Cm
     | Points
-    deriving (Eq, Ord, Enum, Bounded)
+    deriving (Generic, Eq, Ord, Enum, Bounded)
 
 -- |This describes the cropping and rotation of an image.
 data ImageCrop
@@ -156,7 +157,7 @@ data ImageCrop
       , leftCrop :: Int
       , rightCrop :: Int
       , rotation :: Int         -- 0, 90, 180, 270
-      } deriving (Eq, Ord)
+      } deriving (Generic, Eq, Ord)
 
 instance Default ImageCrop where
     def = ImageCrop 0 0 0 0 0
@@ -242,7 +243,7 @@ instance Default (SaneSize ImageSize) where
 
 -- | A wrapper type to suggest that lens_saneSize has been applied to
 -- the ImageSize within.
-newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Eq, Ord)
+newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Generic, Eq, Ord)
 
 #if !__GHCJS__
 tests :: Test
@@ -289,9 +290,9 @@ data ImageFile
       , _imageFileWidth :: Int
       , _imageFileHeight :: Int
       , _imageFileMaxVal :: Int
-      } deriving (Eq, Ord)
+      } deriving (Generic, Eq, Ord)
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Eq, Ord)
+data ImageType = PPM | JPEG | GIF | PNG deriving (Generic, Eq, Ord)
 
 #if !__GHCJS__
 -- | Helper function to learn the 'ImageType' of a file by runing
@@ -344,7 +345,7 @@ data ImageKey
     -- ^ A resized version of another image
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord)
+    deriving (Generic, Eq, Ord)
 
 instance Pretty ImageKey where
     pPrint (ImageOriginal _) = text "ImageOriginal"
