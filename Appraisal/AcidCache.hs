@@ -66,36 +66,16 @@ data CacheValue err val
     | Failed err
     deriving (Generic, Eq, Ord, Functor)
 
-$(makePrisms ''CacheValue)
-
 -- Later we could make FileError a type parameter, but right now its
 -- tangled with the MonadError type.
 data CacheMap key val err =
     CacheMap {_unCacheMap :: Map key (CacheValue err val)}
     deriving (Generic, Eq, Ord)
-$(makeLenses ''CacheMap)
 
-$(deriveSafeCopy 1 'base ''CacheValue)
-#if 0
--- Need an Ord key constraint here for some reason.
-$(deriveSafeCopy 2 'extension ''CacheMap)
--- $(safeCopyInstance 2 'extension [t|CacheMap|])
-#else
+instance SafeCopy CacheValue where version = 1
 instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
-      putCopy (CacheMap a)
-        = contain
-            (do safeput <- getSafePut
-                safeput a
-                return ())
-      getCopy
-        = contain
-            ((label "Appraisal.AcidCache.CacheMap:")
-               (do safeget <- getSafeGet @(Map key (CacheValue err val))
-                   (return CacheMap <*> safeget)))
-      version = 2
-      kind = extension
-      errorTypeName _ = "Appraisal.AcidCache.CacheMap"
-#endif
+  version = 2
+  kind = extension
 
 instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err) where
     type MigrateFrom (CacheMap key val err) = Map key val
@@ -133,8 +113,6 @@ deleteValues keys = unCacheMap %= (`Map.difference` (Map.fromSet (const ()) keys
 
 initCacheMap :: Ord key => CacheMap key val err
 initCacheMap = CacheMap mempty
-
-$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
 openCache :: (SafeCopy key, Typeable key, Ord key,
               SafeCopy err, Typeable err,
@@ -191,3 +169,11 @@ deriving instance (Data err, Data val) => Data (CacheValue err val)
 deriving instance (Ord key, Data key, Data val, Data err) => Data (CacheMap key val err)
 deriving instance (Show err, Show val) => Show (CacheValue err val)
 deriving instance (Show key, Show val, Show err) => Show (CacheMap key val err)
+
+$(concat <$>
+  sequence
+  [ makePrisms ''CacheValue
+  , makeLenses ''CacheMap
+  , makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues]
+  ])
+

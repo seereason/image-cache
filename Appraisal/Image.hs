@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -64,15 +65,16 @@ import Data.Map (Map)
 --import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
-import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
+import Data.SafeCopy (SafeCopy(..), safeGet, safePut)
+import Data.Serialize (Serialize(..))
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
 import Language.Haskell.TH (Ppr(ppr))
-import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import System.Exit (ExitCode)
 #if !__GHCJS__
+import Language.Haskell.TH.Lift (Lift)
 import System.Process (proc{-, showCommandForUser-})
 import System.Process.ListLike (readCreateProcess, readProcessWithExitCode)
 import System.Process.ByteString ()
@@ -499,31 +501,23 @@ parseExtractBBOutput = do
       creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
-$(concat <$>
-  sequence
-  [ makeLenses ''ImageFile
-  , deriveSafeCopy 2 'base ''ImageSize
-  , deriveSafeCopy 1 'base ''SaneSize
-  , deriveSafeCopy 1 'base ''Dimension
-  , deriveSafeCopy 0 'base ''Units
-  , deriveSafeCopy 0 'base ''ImageCrop
-  , deriveSafeCopy 2 'base ''ImageKey
-  , deriveSafeCopy 0 'base ''ImageType
-  , deriveSafeCopy 1 'base ''ImageFile
+instance SafeCopy ImageSize where version = 2
+instance SafeCopy a => SafeCopy (SaneSize a) where version = 1
+instance SafeCopy Dimension where version = 1
+instance SafeCopy Units where version = 0
+instance SafeCopy ImageCrop where version = 0
+instance SafeCopy ImageKey where version = 2
+instance SafeCopy ImageType where version = 0
+instance SafeCopy ImageFile where version = 1
 
-  , deriveLiftMany [
-       ''ImageFile,
-       ''ImageType,
-       ''ImageKey,
-       ''ImageSize,
-       ''Units,
-       ''ImageCrop,
-       ''Dimension,
-       ''SaneSize
-      ]
-  , makeLenses ''ImageSize
-  , makeLenses ''SaneSize
-  ])
+instance Serialize ImageSize where get = safeGet; put = safePut
+instance SafeCopy a => Serialize (SaneSize a) where get = safeGet; put = safePut
+instance Serialize Dimension where get = safeGet; put = safePut
+instance Serialize Units where get = safeGet; put = safePut
+instance Serialize ImageCrop where get = safeGet; put = safePut
+instance Serialize ImageKey where get = safeGet; put = safePut
+instance Serialize ImageType where get = safeGet; put = safePut
+instance Serialize ImageFile where get = safeGet; put = safePut
 
 deriving instance Data ImageSize
 deriving instance Data Dimension
@@ -565,3 +559,21 @@ deriving instance Typeable Units
 deriving instance Typeable ImageCrop
 deriving instance Typeable (SaneSize a)
 deriving instance Typeable ImageFile
+
+#if !__GHCJS__
+deriving instance Lift ImageFile
+deriving instance Lift ImageType
+deriving instance Lift ImageKey
+deriving instance Lift ImageSize
+deriving instance Lift Units
+deriving instance Lift ImageCrop
+deriving instance Lift Dimension
+deriving instance Lift a => Lift (SaneSize a)
+#endif
+
+$(concat <$>
+  sequence
+  [ makeLenses ''ImageFile
+  , makeLenses ''ImageSize
+  , makeLenses ''SaneSize
+  ])

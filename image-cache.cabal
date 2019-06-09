@@ -80,7 +80,7 @@ Library
     pureMD5,
     regex-tdfa,
     regex-compat-tdfa,
-    safecopy,
+    safecopy >= 0.9.4.4,
     sr-extra >= 1.58,
     syb,
     template-haskell,
