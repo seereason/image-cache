@@ -65,10 +65,8 @@ import Data.Map (Map)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
-import Extra.Serialize (Serialize(..))
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
-import Extra.Serialize (deriveSerializeViaSafeCopy)
 import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.PprLib (ptext)
@@ -501,10 +499,6 @@ parseExtractBBOutput = do
       creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
-instance SafeCopy a => Serialize (SaneSize a) where
-    get = safeGet
-    put = safePut
-
 $(concat <$>
   sequence
   [ makeLenses ''ImageFile
@@ -527,16 +521,6 @@ $(concat <$>
        ''Dimension,
        ''SaneSize
       ]
-
-  , deriveSerializeViaSafeCopy [t|ImageSize|]
-  , deriveSerializeViaSafeCopy [t|Dimension|]
-  , deriveSerializeViaSafeCopy [t|Units|]
-  , deriveSerializeViaSafeCopy [t|ImageCrop|]
-  -- , deriveSerializeViaSafeCopy [t|forall a. SaneSize a|]
-  , deriveSerializeViaSafeCopy [t|ImageFile|]
-  , deriveSerializeViaSafeCopy [t|ImageType|]
-  , deriveSerializeViaSafeCopy [t|ImageKey|]
-
   , makeLenses ''ImageSize
   , makeLenses ''SaneSize
   ])

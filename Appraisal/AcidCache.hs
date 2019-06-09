@@ -4,6 +4,7 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass, DeriveFunctor, DeriveGeneric #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -47,7 +48,7 @@ import Control.Lens ((%=), at, makeLenses, makePrisms, view)
 import Data.Generics (Data, Proxy, Typeable)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, Map, union)
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
-import Extra.Serialize (label, Serialize)
+import Data.Serialize.Get (label)
 import GHC.Generics (Generic)
 #if !__GHCJS__
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
@@ -76,6 +77,7 @@ $(makeLenses ''CacheMap)
 
 $(deriveSafeCopy 1 'base ''CacheValue)
 #if 0
+-- Need an Ord key constraint here for some reason.
 $(deriveSafeCopy 2 'extension ''CacheMap)
 -- $(safeCopyInstance 2 'extension [t|CacheMap|])
 #else
@@ -88,7 +90,7 @@ instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheM
       getCopy
         = contain
             ((label "Appraisal.AcidCache.CacheMap:")
-               (do safeget <- getSafeGet
+               (do safeget <- getSafeGet @(Map key (CacheValue err val))
                    (return CacheMap <*> safeget)))
       version = 2
       kind = extension
@@ -149,8 +151,8 @@ withCache path f = bracket (liftIOError (openCache path)) (liftIOError . createC
 -- | Note that class 'HasCache' and the 'cacheInsert' function return
 -- values containing a 'FileError', but the monad m only has the
 -- constraint HasFileError.
-class (Ord key, SafeCopy key, Typeable key, Show key, Serialize key,
-       SafeCopy val, Typeable val, Serialize val,
+class (Ord key, SafeCopy key, Typeable key, Show key,
+       SafeCopy val, Typeable val,
        SafeCopy err, Typeable err, MonadIO m) => HasCache key val err m where
     askCacheAcid :: m (AcidState (CacheMap key val err))
     buildCacheValue :: key -> m (CacheValue err val)
@@ -187,7 +189,5 @@ cacheDelete _ keys = do
 
 deriving instance (Data err, Data val) => Data (CacheValue err val)
 deriving instance (Ord key, Data key, Data val, Data err) => Data (CacheMap key val err)
-deriving instance (Serialize err, Serialize val) => Serialize (CacheValue err val)
-deriving instance (Ord key, Serialize err, Serialize key, Serialize val) => Serialize (CacheMap key val err)
 deriving instance (Show err, Show val) => Show (CacheValue err val)
 deriving instance (Show key, Show val, Show err) => Show (CacheMap key val err)

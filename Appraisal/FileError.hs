@@ -34,7 +34,6 @@ import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
 import Data.SafeCopy (base, deriveSafeCopy)
-import Extra.Serialize (Serialize)
 import Data.Text (pack, Text, unpack)
 import Extra.Except (HasIOException(fromIOException))
 import Extra.Orphans ({-instance Serialize Text-})
@@ -92,7 +91,5 @@ $(deriveSafeCopy 1 'base ''FileError)
 
 deriving instance Data FileError
 deriving instance Data CommandInfo
-deriving instance Serialize FileError
-deriving instance Serialize CommandInfo
 deriving instance Show FileError
 deriving instance Show CommandInfo

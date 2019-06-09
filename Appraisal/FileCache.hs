@@ -79,9 +79,8 @@ import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, deriveSafeCopy)
 import Data.Text (pack, unpack)
 import Extra.Except
-import Extra.Serialize (deriveSerializeViaSafeCopy)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany)
-import Network.URI ( URI(..), URIAuth(..), parseRelativeReference, parseURI )
+import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import System.FilePath ( (</>) )
 import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
 import System.Unix.FilePath ( (<++>) )
@@ -128,8 +127,7 @@ $(concat <$>
   , deriveSafeCopy 1 'base ''FileSource
   , deriveSafeCopy 2 'base ''File
   , TH.deriveLiftMany [''FileSource, ''File]
-  , deriveSerializeViaSafeCopy [t|FileSource|]
-  , deriveSerializeViaSafeCopy [t|File|] ])
+  ])
 
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
