@@ -47,6 +47,7 @@ module Appraisal.AcidCache
 import Control.Lens ((%=), at, makeLenses, makePrisms, view)
 import Data.Generics (Data, Proxy, Typeable)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, Map, union)
+import Data.Serialize (label)
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
 import GHC.Generics (Generic)
 #if !__GHCJS__
@@ -71,10 +72,28 @@ data CacheMap key val err =
     CacheMap {_unCacheMap :: Map key (CacheValue err val)}
     deriving (Generic, Eq, Ord)
 
+#if 1
+$(deriveSafeCopy 1 'base ''CacheValue)
+instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
+      putCopy (CacheMap a)
+        = contain
+            (do safeput <- getSafePut
+                safeput a
+                return ())
+      getCopy
+        = contain
+            ((label "Appraisal.AcidCache.CacheMap:")
+               (do safeget <- getSafeGet @(Map key (CacheValue err val))
+                   (return CacheMap <*> safeget)))
+      version = 2
+      kind = extension
+      errorTypeName _ = "Appraisal.AcidCache.CacheMap"
+#else
 instance (SafeCopy err, SafeCopy val) => SafeCopy (CacheValue err val) where version = 1
 instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
   version = 2
   kind = extension
+#endif
 
 instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err) where
     type MigrateFrom (CacheMap key val err) = Map key val

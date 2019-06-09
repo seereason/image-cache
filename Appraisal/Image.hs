@@ -65,7 +65,7 @@ import Data.Map (Map)
 --import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
-import Data.SafeCopy (SafeCopy(..), safeGet, safePut)
+import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
@@ -502,6 +502,19 @@ parseExtractBBOutput = do
       creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
+#if 1
+$(concat <$>
+  sequence
+  [ deriveSafeCopy 2 'base ''ImageSize
+  , deriveSafeCopy 1 'base ''SaneSize
+  , deriveSafeCopy 1 'base ''Dimension
+  , deriveSafeCopy 0 'base ''Units
+  , deriveSafeCopy 0 'base ''ImageCrop
+  , deriveSafeCopy 2 'base ''ImageKey
+  , deriveSafeCopy 0 'base ''ImageType
+  , deriveSafeCopy 1 'base ''ImageFile
+  ])
+#else
 instance SafeCopy ImageSize where version = 2
 instance SafeCopy a => SafeCopy (SaneSize a) where version = 1
 instance SafeCopy Dimension where version = 1
@@ -510,6 +523,7 @@ instance SafeCopy ImageCrop where version = 0
 instance SafeCopy ImageKey where version = 2
 instance SafeCopy ImageType where version = 0
 instance SafeCopy ImageFile where version = 1
+#endif
 
 instance Serialize ImageSize where get = safeGet; put = safePut
 instance SafeCopy a => Serialize (SaneSize a) where get = safeGet; put = safePut

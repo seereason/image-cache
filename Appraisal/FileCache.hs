@@ -76,7 +76,7 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics ( Data(..), Typeable )
 --import Data.Map ( Map )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy (SafeCopy(..))
+import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..))
 import Data.Text (pack, unpack)
 import Extra.Except
 import GHC.Generics (Generic)
@@ -127,8 +127,13 @@ $(concat <$>
   [ makeLenses ''File
   ])
 
+#if 1
+$(deriveSafeCopy 1 'base ''FileSource)
+$(deriveSafeCopy 2 'base ''File)
+#else
 instance SafeCopy FileSource where version = 1
 instance SafeCopy File where version = 2
+#endif
 
 #if !__GHCJS__
 deriving instance Lift FileSource
