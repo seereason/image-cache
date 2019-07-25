@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.12
+Version:        0.13
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -80,7 +80,7 @@ Library
     pureMD5,
     regex-tdfa,
     regex-compat-tdfa,
-    safecopy,
+    safecopy >= 0.9.4.4,
     sr-extra >= 1.58,
     syb,
     template-haskell,

@@ -9,6 +9,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -32,8 +33,8 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
-import Data.SafeCopy (base, deriveSafeCopy)
-import Data.Serialize (Serialize)
+import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
+import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
 import Extra.Except (HasIOException(fromIOException))
 import Extra.Orphans ({-instance Serialize Text-})
@@ -48,7 +49,7 @@ data FileError
     | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
     | CommandFailure CommandInfo -- ^ A shell command failed
     | CacheDamage -- ^ The contents of a cache file are wrong
-    deriving (Data, Eq, Ord, Show, Generic, Serialize)
+    deriving (Eq, Ord, Generic)
 
 class HasIOException e => HasFileError e where fromFileError :: FileError -> e
 instance HasFileError FileError where fromFileError = id
@@ -63,7 +64,7 @@ data CommandInfo
     | CommandErr P.ByteString CommandInfo -- ^ stderr
     | FunctionName String CommandInfo -- ^ The function that ran the command
     | Description String CommandInfo -- ^ free form description of what happened
-    deriving (Data, Eq, Ord, Show, Generic, Serialize)
+    deriving (Eq, Ord, Generic)
 
 instance Loggable FileError where
   logit priority loc (IOException e) = liftIO (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
@@ -86,5 +87,18 @@ logErrorCall x =
                               liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
                           _ -> return (Left e)) (return . Right)
 
+#if 1
 $(deriveSafeCopy 1 'base ''CommandInfo)
 $(deriveSafeCopy 1 'base ''FileError)
+#else
+instance SafeCopy CommandInfo where version = 1
+instance SafeCopy FileError where version = 1
+#endif
+
+instance Serialize CommandInfo where get = safeGet; put = safePut
+instance Serialize FileError where get = safeGet; put = safePut
+
+deriving instance Data FileError
+deriving instance Data CommandInfo
+deriving instance Show FileError
+deriving instance Show CommandInfo

@@ -11,7 +11,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveFunctor, DeriveGeneric, DeriveAnyClass #-}
+{-# LANGUAGE DeriveFunctor, DeriveGeneric, DeriveAnyClass, DeriveLift #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -76,10 +76,11 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics ( Data(..), Typeable )
 --import Data.Map ( Map )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy (base, deriveSafeCopy)
+import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..))
 import Data.Text (pack, unpack)
 import Extra.Except
 import Extra.Serialize (deriveSerializeViaSafeCopy)
+import GHC.Generics (Generic)
 import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany)
 import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import System.FilePath ( (</>) )
@@ -106,7 +107,7 @@ import Test.QuickCheck ( Arbitrary(..), oneof )
 data FileSource
     = TheURI String
     | ThePath FilePath
-    deriving (Show, Read, Eq, Ord, Data, Typeable)
+    deriving (Generic, Eq, Ord)
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
@@ -117,7 +118,7 @@ data File
            , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
-           } deriving (Show, Read, Eq, Ord, Data, Typeable)
+           } deriving (Generic, Eq, Ord)
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
@@ -125,11 +126,20 @@ instance Pretty File where
 $(concat <$>
   sequence
   [ makeLenses ''File
-  , deriveSafeCopy 1 'base ''FileSource
-  , deriveSafeCopy 2 'base ''File
-  , TH.deriveLiftMany [''FileSource, ''File]
-  , deriveSerializeViaSafeCopy [t|FileSource|]
-  , deriveSerializeViaSafeCopy [t|File|] ])
+  ])
+
+#if 1
+$(deriveSafeCopy 1 'base ''FileSource)
+$(deriveSafeCopy 2 'base ''File)
+#else
+instance SafeCopy FileSource where version = 1
+instance SafeCopy File where version = 2
+#endif
+
+#if !__GHCJS__
+deriving instance Lift FileSource
+deriving instance Lift File
+#endif
 
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
@@ -365,3 +375,13 @@ instance Arbitrary File where
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
 #endif
+
+deriving instance Show FileSource
+deriving instance Read FileSource
+deriving instance Data FileSource
+deriving instance Typeable FileSource
+
+deriving instance Show File
+deriving instance Read File
+deriving instance Data File
+deriving instance Typeable File

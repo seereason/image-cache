@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -68,13 +69,13 @@ import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
-import Extra.Serialize (deriveSerializeViaSafeCopy)
+import GHC.Generics (Generic)
 import Language.Haskell.TH (Ppr(ppr))
-import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import System.Exit (ExitCode)
 #if !__GHCJS__
+import Language.Haskell.TH.Lift (Lift)
 import System.Process (proc{-, showCommandForUser-})
 import System.Process.ListLike (readCreateProcess, readProcessWithExitCode)
 import System.Process.ByteString ()
@@ -131,7 +132,7 @@ data ImageSize
       { _dim :: Dimension
       , _size :: Rational
       , _units :: Units
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Generic, Eq, Ord)
 
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
@@ -140,13 +141,13 @@ data Dimension
     = TheHeight
     | TheWidth
     | TheArea
-    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded)
+    deriving (Generic, Eq, Ord, Enum, Bounded)
 
 data Units
     = Inches
     | Cm
     | Points
-    deriving (Show, Read, Eq, Ord, Typeable, Data, Enum, Bounded)
+    deriving (Generic, Eq, Ord, Enum, Bounded)
 
 -- |This describes the cropping and rotation of an image.
 data ImageCrop
@@ -156,7 +157,7 @@ data ImageCrop
       , leftCrop :: Int
       , rightCrop :: Int
       , rotation :: Int         -- 0, 90, 180, 270
-      } deriving (Show, Read, Eq, Ord, Typeable, Data)
+      } deriving (Generic, Eq, Ord)
 
 instance Default ImageCrop where
     def = ImageCrop 0 0 0 0 0
@@ -242,7 +243,7 @@ instance Default (SaneSize ImageSize) where
 
 -- | A wrapper type to suggest that lens_saneSize has been applied to
 -- the ImageSize within.
-newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Read, Show, Eq, Ord, Typeable, Data)
+newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Generic, Eq, Ord)
 
 #if !__GHCJS__
 tests :: Test
@@ -289,9 +290,9 @@ data ImageFile
       , _imageFileWidth :: Int
       , _imageFileHeight :: Int
       , _imageFileMaxVal :: Int
-      } deriving (Show, Read, Eq, Ord, Data, Typeable)
+      } deriving (Generic, Eq, Ord)
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Show, Read, Eq, Ord, Typeable, Data)
+data ImageType = PPM | JPEG | GIF | PNG deriving (Generic, Eq, Ord)
 
 #if !__GHCJS__
 -- | Helper function to learn the 'ImageType' of a file by runing
@@ -344,7 +345,7 @@ data ImageKey
     -- ^ A resized version of another image
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Eq, Ord, Read, Show, Typeable, Data)
+    deriving (Generic, Eq, Ord)
 
 instance Pretty ImageKey where
     pPrint (ImageOriginal _) = text "ImageOriginal"
@@ -401,9 +402,9 @@ fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
 fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
 fixKey (ImageUpright key) = ImageUpright (fixKey key)
 
-data Format = Binary | Gray | Color deriving Show
-data RawOrPlain = Raw | Plain deriving Show
-data Pnmfile = Pnmfile Format RawOrPlain (Integer, Integer, Maybe Integer) deriving Show
+data Format = Binary | Gray | Color
+data RawOrPlain = Raw | Plain
+data Pnmfile = Pnmfile Format RawOrPlain (Integer, Integer, Maybe Integer)
 
 #if !__GHCJS__
 -- | Check whether the outputs of extractbb is valid by comparing it
@@ -451,9 +452,9 @@ parsePnmfileOutput = do
 
 data ExtractBB =
     ExtractBB (Integer, Integer, Integer, Integer)
-              (Hires, Hires, Hires, Hires) deriving Show
+              (Hires, Hires, Hires, Hires)
 
-data Hires = Inf | Rational Rational deriving Show
+data Hires = Inf | Rational Rational
 
 -- | Parse the output of extractbb (based on trial and error.)
 parseExtractBBOutput :: Parsec Text () ExtractBB
@@ -501,14 +502,10 @@ parseExtractBBOutput = do
       creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
-instance SafeCopy a => Serialize (SaneSize a) where
-    get = safeGet
-    put = safePut
-
+#if 1
 $(concat <$>
   sequence
-  [ makeLenses ''ImageFile
-  , deriveSafeCopy 2 'base ''ImageSize
+  [ deriveSafeCopy 2 'base ''ImageSize
   , deriveSafeCopy 1 'base ''SaneSize
   , deriveSafeCopy 1 'base ''Dimension
   , deriveSafeCopy 0 'base ''Units
@@ -516,27 +513,82 @@ $(concat <$>
   , deriveSafeCopy 2 'base ''ImageKey
   , deriveSafeCopy 0 'base ''ImageType
   , deriveSafeCopy 1 'base ''ImageFile
+  ])
+#else
+instance SafeCopy ImageSize where version = 2
+instance SafeCopy a => SafeCopy (SaneSize a) where version = 1
+instance SafeCopy Dimension where version = 1
+instance SafeCopy Units where version = 0
+instance SafeCopy ImageCrop where version = 0
+instance SafeCopy ImageKey where version = 2
+instance SafeCopy ImageType where version = 0
+instance SafeCopy ImageFile where version = 1
+#endif
 
-  , deriveLiftMany [
-       ''ImageFile,
-       ''ImageType,
-       ''ImageKey,
-       ''ImageSize,
-       ''Units,
-       ''ImageCrop,
-       ''Dimension,
-       ''SaneSize
-      ]
+instance Serialize ImageSize where get = safeGet; put = safePut
+instance SafeCopy a => Serialize (SaneSize a) where get = safeGet; put = safePut
+instance Serialize Dimension where get = safeGet; put = safePut
+instance Serialize Units where get = safeGet; put = safePut
+instance Serialize ImageCrop where get = safeGet; put = safePut
+instance Serialize ImageKey where get = safeGet; put = safePut
+instance Serialize ImageType where get = safeGet; put = safePut
+instance Serialize ImageFile where get = safeGet; put = safePut
 
-  , deriveSerializeViaSafeCopy [t|ImageSize|]
-  , deriveSerializeViaSafeCopy [t|Dimension|]
-  , deriveSerializeViaSafeCopy [t|Units|]
-  , deriveSerializeViaSafeCopy [t|ImageCrop|]
-  -- , deriveSerializeViaSafeCopy [t|forall a. SaneSize a|]
-  , deriveSerializeViaSafeCopy [t|ImageFile|]
-  , deriveSerializeViaSafeCopy [t|ImageType|]
-  , deriveSerializeViaSafeCopy [t|ImageKey|]
+deriving instance Data ImageSize
+deriving instance Data Dimension
+deriving instance Data Units
+deriving instance Data ImageCrop
+deriving instance Data a => Data (SaneSize a)
+deriving instance Data ImageFile
+deriving instance Data ImageType
+deriving instance Data ImageKey
 
+deriving instance Read ImageSize
+deriving instance Read Dimension
+deriving instance Read Units
+deriving instance Read ImageCrop
+deriving instance Read a => Read (SaneSize a)
+deriving instance Read ImageFile
+deriving instance Read ImageType
+deriving instance Read ImageKey
+
+deriving instance Show ImageSize
+deriving instance Show Dimension
+deriving instance Show Units
+deriving instance Show ImageCrop
+deriving instance Show a => Show (SaneSize a)
+deriving instance Show ImageFile
+deriving instance Show ImageType
+deriving instance Show ImageKey
+deriving instance Show Format
+deriving instance Show RawOrPlain
+deriving instance Show Pnmfile
+deriving instance Show ExtractBB
+deriving instance Show Hires
+
+deriving instance Typeable ImageKey
+deriving instance Typeable ImageType
+deriving instance Typeable ImageSize
+deriving instance Typeable Dimension
+deriving instance Typeable Units
+deriving instance Typeable ImageCrop
+deriving instance Typeable (SaneSize a)
+deriving instance Typeable ImageFile
+
+#if !__GHCJS__
+deriving instance Lift ImageFile
+deriving instance Lift ImageType
+deriving instance Lift ImageKey
+deriving instance Lift ImageSize
+deriving instance Lift Units
+deriving instance Lift ImageCrop
+deriving instance Lift Dimension
+deriving instance Lift a => Lift (SaneSize a)
+#endif
+
+$(concat <$>
+  sequence
+  [ makeLenses ''ImageFile
   , makeLenses ''ImageSize
   , makeLenses ''SaneSize
   ])

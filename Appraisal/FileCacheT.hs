@@ -17,6 +17,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -81,7 +82,7 @@ toFileError e =
                  fmap (Appraisal.FileError.ErrorCall . pack . show) (fromException e :: Maybe E.ErrorCall)])
 -}
 
-newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
+newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath}
 
 -- | Class of monads with a 'FilePath' value containing the top
 -- of a 'FileCache'.  MonadIO is not a superclass here because
@@ -133,3 +134,5 @@ runFileCacheTop top acid action =
 
 ensureFileCacheTop :: (MonadIO m, Monoid w) => FileCacheT acid w s m ()
 ensureFileCacheTop = fileCacheTop >>= lift . liftIO . createDirectoryIfMissing True . unFileCacheTop
+
+deriving instance Show FileCacheTop
