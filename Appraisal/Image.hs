@@ -50,7 +50,9 @@ module Appraisal.Image
     ) where
 
 import Appraisal.FileCache (File(..))
-import Control.Lens (_2, Iso', iso, Lens', lens, makeLenses, view)
+import Control.Lens (_2, Iso', iso, Lens', lens, makeLenses, _Show, view)
+import Control.Lens.Path
+import Control.Lens.Path.View (viewIso)
 --import Control.Monad.Except (catchError)
 #if !__GHCJS__
 #ifdef LAZYIMAGES
@@ -67,7 +69,7 @@ import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
 import Data.Serialize (Serialize(..))
-import Data.Text (Text)
+import Data.Text (pack, Text, unpack)
 import Data.Text.Encoding (decodeUtf8)
 import GHC.Generics (Generic)
 import Language.Haskell.TH (Ppr(ppr))
@@ -86,6 +88,7 @@ import "regex-compat-tdfa" Text.Regex (Regex, mkRegex, matchRegex)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 import Text.Parsec
+import Text.Read (readMaybe)
 import Data.Char (isSpace)
 
 -- | Simplify the ratio to avoid a long representation:
@@ -124,6 +127,20 @@ readRationalMaybe s =
       [] -> fail $ "readRationalMaybe " ++ s
       _rs -> fail $ "readRationalMaybe " ++ s
 
+instance View Rational where type ViewType Rational = Text; _View = rationalIso . iso pack unpack
+
+#if 0
+$(makePathInstances [] ''Rational)
+#else
+instance Value Rational where
+  ixHop_ _ _ _ = error "_ixHop Rational"
+  atHop_ _ _ _ = error "_atHop Rational"
+  nonHop_ _ _ _ = error "_nonHop Rational"
+  fPos_ _ _ _ = error "_fPos Rational"
+  newtypeHop_ _ _ = error "_newtypeHop Rational"
+  viewHop_ _ _ = error "_viewHop Rational"
+#endif
+
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
 -- mapRatio f r = f (numerator r) % f (denominator r)
 
@@ -143,11 +160,15 @@ data Dimension
     | TheArea
     deriving (Generic, Eq, Ord, Enum, Bounded)
 
+instance View Dimension where type ViewType Dimension = Text; _View = viewIso _Show TheHeight . iso pack unpack
+
 data Units
     = Inches
     | Cm
     | Points
     deriving (Generic, Eq, Ord, Enum, Bounded)
+
+instance View Units where type ViewType Units = Text; _View = viewIso _Show Inches . iso pack unpack
 
 -- |This describes the cropping and rotation of an image.
 data ImageCrop
@@ -578,3 +599,30 @@ $(concat <$>
   , makeLenses ''ImageSize
   , makeLenses ''SaneSize
   ])
+
+instance View (SaneSize ImageSize) where
+    type ViewType (SaneSize ImageSize) = ImageSize
+    _View = unSaneSize
+
+instance View (Maybe ImageFile) where type ViewType (Maybe ImageFile) = String; _View = iso (maybe "" show) readMaybe
+
+$(concat <$>
+  sequence
+  [ makePathInstances [FIELDS] ''ImageFile
+  , makePathInstances [FIELDS] ''ImageType
+  , makePathInstances [FIELDS] ''ImageSize
+  , makePathInstances [FIELDS] ''Dimension
+  , makePathInstances [FIELDS] ''ImageCrop
+  , makePathInstances [FIELDS] ''ImageKey
+  , makePathInstances [FIELDS] ''Units
+  ])
+
+#if 0
+$(makePathInstances [NEWTYPE, VIEW] ''SaneSize)
+#else
+instance Value ImageSize => Value (SaneSize ImageSize) where
+  ixHop_ _ _ _ = error "Value method withIxHop failed: Appraisal.Image.SaneSize a_0 is marked not an instance of Ixed"
+  atHop_ _ _ _ = error "withAtHop failed: In its Value instance, Appraisal.Image.SaneSize a_0 is marked not an instance of At"
+  nonHop_ _ _ _ = error "withNonHop failed: It was called on Appraisal.Image.SaneSize a_0, which is not a Maybe"
+  fPos_ _ _ _ = error "withFPos failed: Appraisal.Image.SaneSize a_0 does not have the requested field."
+#endif

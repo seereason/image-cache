@@ -62,6 +62,7 @@ module Appraisal.FileCache
 
 import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
 import Control.Lens (makeLenses, over, set, view)
+import Control.Lens.Path
 import Control.Monad ( unless )
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
 --import Control.Monad.Reader (MonadReader)
@@ -379,3 +380,6 @@ deriving instance Show File
 deriving instance Read File
 deriving instance Data File
 deriving instance Typeable File
+
+$(makePathInstances [FIELDS] ''File)
+$(makePathInstances [FIELDS] ''FileSource)
