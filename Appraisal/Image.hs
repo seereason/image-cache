@@ -81,9 +81,9 @@ import System.Process.ListLike (readCreateProcess, readProcessWithExitCode)
 import System.Process.ByteString ()
 import Test.HUnit (assertEqual, Test(..))
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
+import "regex-compat-tdfa" Text.Regex (Regex, mkRegex, matchRegex)
 #endif
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
-import "regex-compat-tdfa" Text.Regex (Regex, mkRegex, matchRegex)
 
 import Text.Parsec
 import Data.Char (isSpace)
@@ -502,37 +502,23 @@ parseExtractBBOutput = do
       creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
 
-#if 1
-$(concat <$>
-  sequence
-  [ deriveSafeCopy 2 'base ''ImageSize
-  , deriveSafeCopy 1 'base ''SaneSize
-  , deriveSafeCopy 1 'base ''Dimension
-  , deriveSafeCopy 0 'base ''Units
-  , deriveSafeCopy 0 'base ''ImageCrop
-  , deriveSafeCopy 2 'base ''ImageKey
-  , deriveSafeCopy 0 'base ''ImageType
-  , deriveSafeCopy 1 'base ''ImageFile
-  ])
-#else
 instance SafeCopy ImageSize where version = 2
-instance SafeCopy a => SafeCopy (SaneSize a) where version = 1
+instance (SafeCopy a, Typeable a) => SafeCopy (SaneSize a) where version = 1
 instance SafeCopy Dimension where version = 1
 instance SafeCopy Units where version = 0
 instance SafeCopy ImageCrop where version = 0
 instance SafeCopy ImageKey where version = 2
 instance SafeCopy ImageType where version = 0
 instance SafeCopy ImageFile where version = 1
-#endif
 
 instance Serialize ImageSize where get = safeGet; put = safePut
-instance SafeCopy a => Serialize (SaneSize a) where get = safeGet; put = safePut
 instance Serialize Dimension where get = safeGet; put = safePut
 instance Serialize Units where get = safeGet; put = safePut
 instance Serialize ImageCrop where get = safeGet; put = safePut
-instance Serialize ImageKey where get = safeGet; put = safePut
-instance Serialize ImageType where get = safeGet; put = safePut
+instance (SafeCopy a, Typeable a) => Serialize (SaneSize a) where get = safeGet; put = safePut
 instance Serialize ImageFile where get = safeGet; put = safePut
+instance Serialize ImageType where get = safeGet; put = safePut
+instance Serialize ImageKey where get = safeGet; put = safePut
 
 deriving instance Data ImageSize
 deriving instance Data Dimension

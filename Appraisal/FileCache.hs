@@ -76,12 +76,12 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics ( Data(..), Typeable )
 --import Data.Map ( Map )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..))
+import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(version), safeGet, safePut)
+import Data.Serialize (Serialize(get, put))
 import Data.Text (pack, unpack)
 import Extra.Except
-import Extra.Serialize (deriveSerializeViaSafeCopy)
 import GHC.Generics (Generic)
-import qualified Language.Haskell.TH.Lift as TH (deriveLiftMany)
+import Language.Haskell.TH.Lift as TH (Lift)
 import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import System.FilePath ( (</>) )
 import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
@@ -123,18 +123,12 @@ data File
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
 
-$(concat <$>
-  sequence
-  [ makeLenses ''File
-  ])
+$(makeLenses ''File)
 
-#if 1
-$(deriveSafeCopy 1 'base ''FileSource)
-$(deriveSafeCopy 2 'base ''File)
-#else
 instance SafeCopy FileSource where version = 1
 instance SafeCopy File where version = 2
-#endif
+instance Serialize FileSource where get = safeGet; put = safePut
+instance Serialize File where get = safeGet; put = safePut
 
 #if !__GHCJS__
 deriving instance Lift FileSource
