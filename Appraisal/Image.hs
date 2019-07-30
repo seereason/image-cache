@@ -133,12 +133,14 @@ instance View Rational where type ViewType Rational = Text; _View = rationalIso 
 $(makePathInstances [] ''Rational)
 #else
 instance Value Rational where
-  ixHop_ _ _ _ = error "_ixHop Rational"
-  atHop_ _ _ _ = error "_atHop Rational"
-  nonHop_ _ _ _ = error "_nonHop Rational"
-  fPos_ _ _ _ = error "_fPos Rational"
-  newtypeHop_ _ _ = error "_newtypeHop Rational"
-  viewHop_ _ _ = error "_viewHop Rational"
+  ixPath_ _ _ _ = error "_ixHop Rational"
+  atPath_ _ _ _ = error "_atHop Rational"
+  nonPath_ _ _ _ = error "_nonHop Rational"
+  fieldPath_ _ _ _ = error "_fPos Rational"
+  newtypePath_ _ _ = error "_newtypeHop Rational"
+  viewPath_ _ _ = error "_viewHop Rational"
+  ixedPath_ _ _ = error "ixedPath_ Rational"
+  orderPath_ _ _ = error "_orderHop Rational"
 #endif
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
@@ -621,8 +623,10 @@ $(concat <$>
 $(makePathInstances [NEWTYPE, VIEW] ''SaneSize)
 #else
 instance Value ImageSize => Value (SaneSize ImageSize) where
-  ixHop_ _ _ _ = error "Value method withIxHop failed: Appraisal.Image.SaneSize a_0 is marked not an instance of Ixed"
-  atHop_ _ _ _ = error "withAtHop failed: In its Value instance, Appraisal.Image.SaneSize a_0 is marked not an instance of At"
-  nonHop_ _ _ _ = error "withNonHop failed: It was called on Appraisal.Image.SaneSize a_0, which is not a Maybe"
-  fPos_ _ _ _ = error "withFPos failed: Appraisal.Image.SaneSize a_0 does not have the requested field."
+  ixPath_ _ _ _ = error "ixPath_"
+  atPath_ _ _ _ = error "atPath_"
+  nonPath_ _ _ _ = error "nonPath_"
+  fieldPath_ _ _ _ = error "fieldPath_"
+  ixedPath_ _ _ = error "orderPath_"
+  orderPath_ _ _ = error "orderPath_"
 #endif
