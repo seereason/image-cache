@@ -77,7 +77,7 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics ( Data(..), Typeable )
 --import Data.Map ( Map )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(version), safeGet, safePut)
+import Data.SafeCopy ({-base, deriveSafeCopy,-} SafeCopy(version), safeGet, safePut)
 import Data.Serialize (Serialize(get, put))
 import Data.Text (pack, unpack)
 import Extra.Except

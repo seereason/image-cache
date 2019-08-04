@@ -137,6 +137,7 @@ instance Value Rational where
   atPath_ _ _ _ = error "_atHop Rational"
   nonPath_ _ _ _ = error "_nonHop Rational"
   fieldPath_ _ _ _ = error "_fPos Rational"
+  ctorPath_ _ _ _ = error "_fPos Rational"
   newtypePath_ _ _ = error "_newtypeHop Rational"
   viewPath_ _ _ = error "_viewHop Rational"
   ixedPath_ _ _ = error "ixedPath_ Rational"
@@ -627,6 +628,7 @@ instance Value ImageSize => Value (SaneSize ImageSize) where
   atPath_ _ _ _ = error "atPath_"
   nonPath_ _ _ _ = error "nonPath_"
   fieldPath_ _ _ _ = error "fieldPath_"
+  ctorPath_ _ _ _ = error "fieldPath_"
   ixedPath_ _ _ = error "orderPath_"
   orderPath_ _ _ = error "orderPath_"
 #endif
