@@ -73,6 +73,7 @@ Library
     filepath,
     hslogger,
     lens,
+    lens-path,
     mtl,
     network-uri,
     parsec,
