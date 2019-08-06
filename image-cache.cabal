@@ -50,7 +50,7 @@ Library
   Hs-Source-Dirs: .
   GHC-Options: -Wall -Wredundant-constraints -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
-  Extensions: CPP
+  Extensions: CPP, DataKinds
   Exposed-modules:
     Appraisal.AcidCache
     Appraisal.FileCache
