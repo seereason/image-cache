@@ -50,7 +50,7 @@ module Appraisal.Image
     ) where
 
 import Appraisal.FileCache (File(..))
-import Control.Lens (_2, Iso', iso, Lens', lens, makeLenses, _Show, view)
+import Control.Lens (Iso', iso, Lens', lens, makeLenses, _Show)
 import Control.Lens.Path
 import Control.Lens.Path.View (viewIso)
 --import Control.Monad.Except (catchError)
@@ -67,17 +67,18 @@ import Data.Map (Map)
 --import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
-import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
+import Data.SafeCopy (SafeCopy(..), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
-import Data.Text.Encoding (decodeUtf8)
 import GHC.Generics (Generic)
 import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
-import System.Exit (ExitCode)
 #if !__GHCJS__
+import Control.Lens (_2, view)
+import Data.Text.Encoding (decodeUtf8)
 import Language.Haskell.TH.Lift (Lift)
+import System.Exit (ExitCode)
 import System.Process (proc{-, showCommandForUser-})
 import System.Process.ListLike (readCreateProcess, readProcessWithExitCode)
 import System.Process.ByteString ()
@@ -133,15 +134,15 @@ instance View Rational where type ViewType Rational = Text; _View = rationalIso 
 $(makePathInstances [] ''Rational)
 #else
 instance Value Rational where
-  ixPath_ _ _ _ = error "_ixHop Rational"
-  atPath_ _ _ _ = error "_atHop Rational"
-  nonPath_ _ _ _ = error "_nonHop Rational"
-  fieldPath_ _ _ _ = error "_fPos Rational"
-  ctorPath_ _ _ _ = error "_fPos Rational"
-  newtypePath_ _ _ = error "_newtypeHop Rational"
-  viewPath_ _ _ = error "_viewHop Rational"
-  ixedPath_ _ _ = error "ixedPath_ Rational"
-  orderPath_ _ _ = error "_orderHop Rational"
+  ixValue_ _ _ _ = error "_ixHop Rational"
+  atValue_ _ _ _ = error "_atHop Rational"
+  nonValue_ _ _ _ = error "_nonHop Rational"
+  recValue_ _ _ _ = error "_fPos Rational"
+  ctorValue_ _ _ _ = error "_fPos Rational"
+  newtypeValue_ _ _ = error "_newtypeHop Rational"
+  viewValue_ _ _ = error "_viewHop Rational"
+  ixedValue_ _ _ = error "ixedValue_ Rational"
+  orderValue_ _ _ = error "_orderHop Rational"
 #endif
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
@@ -624,11 +625,11 @@ $(concat <$>
 $(makePathInstances [NEWTYPE, VIEW] ''SaneSize)
 #else
 instance Value ImageSize => Value (SaneSize ImageSize) where
-  ixPath_ _ _ _ = error "ixPath_"
-  atPath_ _ _ _ = error "atPath_"
-  nonPath_ _ _ _ = error "nonPath_"
-  fieldPath_ _ _ _ = error "fieldPath_"
-  ctorPath_ _ _ _ = error "fieldPath_"
-  ixedPath_ _ _ = error "orderPath_"
-  orderPath_ _ _ = error "orderPath_"
+  ixValue_ _ _ _ = error "ixValue_"
+  atValue_ _ _ _ = error "atValue_"
+  nonValue_ _ _ _ = error "nonValue_"
+  recValue_ _ _ _ = error "recValue_"
+  ctorValue_ _ _ _ = error "recValue_"
+  ixedValue_ _ _ = error "orderValue_"
+  orderValue_ _ _ = error "orderValue_"
 #endif
