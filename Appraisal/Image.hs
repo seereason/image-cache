@@ -130,20 +130,7 @@ readRationalMaybe s =
 
 instance View Rational where type ViewType Rational = Text; _View = rationalIso . iso pack unpack
 
-#if 0
-$(makePathInstances [] ''Rational)
-#else
-instance Value Rational where
-  ixType_ _ _ _ = error "_ixHop Rational"
-  atType_ _ _ _ = error "_atHop Rational"
-  nonType_ _ _ _ = error "_nonHop Rational"
-  recType_ _ _ _ = error "_fPos Rational"
-  ctorType_ _ _ _ = error "_fPos Rational"
-  newtypeType_ _ _ = error "_newtypeHop Rational"
-  viewType_ _ _ = error "_viewHop Rational"
-  ixedType_ _ _ = error "ixedType_ Rational"
-  orderType_ _ _ = error "_orderHop Rational"
-#endif
+$(makeValueInstance [] [t|Rational|])
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
 -- mapRatio f r = f (numerator r) % f (denominator r)
@@ -621,15 +608,4 @@ $(concat <$>
   , makePathInstances [FIELDS] ''Units
   ])
 
-#if 0
-$(makePathInstances [NEWTYPE, VIEW] ''SaneSize)
-#else
-instance Value ImageSize => Value (SaneSize ImageSize) where
-  ixType_ _ _ _ = error "ixType_"
-  atType_ _ _ _ = error "atType_"
-  nonType_ _ _ _ = error "nonType_"
-  recType_ _ _ _ = error "recType_"
-  ctorType_ _ _ _ = error "recType_"
-  ixedType_ _ _ = error "orderType_"
-  orderType_ _ _ = error "orderType_"
-#endif
+$(makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|])
