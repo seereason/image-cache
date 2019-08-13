@@ -134,15 +134,15 @@ instance View Rational where type ViewType Rational = Text; _View = rationalIso 
 $(makePathInstances [] ''Rational)
 #else
 instance Value Rational where
-  ixValue_ _ _ _ = error "_ixHop Rational"
-  atValue_ _ _ _ = error "_atHop Rational"
-  nonValue_ _ _ _ = error "_nonHop Rational"
-  recValue_ _ _ _ = error "_fPos Rational"
-  ctorValue_ _ _ _ = error "_fPos Rational"
-  newtypeValue_ _ _ = error "_newtypeHop Rational"
-  viewValue_ _ _ = error "_viewHop Rational"
-  ixedValue_ _ _ = error "ixedValue_ Rational"
-  orderValue_ _ _ = error "_orderHop Rational"
+  ixType_ _ _ _ = error "_ixHop Rational"
+  atType_ _ _ _ = error "_atHop Rational"
+  nonType_ _ _ _ = error "_nonHop Rational"
+  recType_ _ _ _ = error "_fPos Rational"
+  ctorType_ _ _ _ = error "_fPos Rational"
+  newtypeType_ _ _ = error "_newtypeHop Rational"
+  viewType_ _ _ = error "_viewHop Rational"
+  ixedType_ _ _ = error "ixedType_ Rational"
+  orderType_ _ _ = error "_orderHop Rational"
 #endif
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
@@ -625,11 +625,11 @@ $(concat <$>
 $(makePathInstances [NEWTYPE, VIEW] ''SaneSize)
 #else
 instance Value ImageSize => Value (SaneSize ImageSize) where
-  ixValue_ _ _ _ = error "ixValue_"
-  atValue_ _ _ _ = error "atValue_"
-  nonValue_ _ _ _ = error "nonValue_"
-  recValue_ _ _ _ = error "recValue_"
-  ctorValue_ _ _ _ = error "recValue_"
-  ixedValue_ _ _ = error "orderValue_"
-  orderValue_ _ _ = error "orderValue_"
+  ixType_ _ _ _ = error "ixType_"
+  atType_ _ _ _ = error "atType_"
+  nonType_ _ _ _ = error "nonType_"
+  recType_ _ _ _ = error "recType_"
+  ctorType_ _ _ _ = error "recType_"
+  ixedType_ _ _ = error "orderType_"
+  orderType_ _ _ = error "orderType_"
 #endif
