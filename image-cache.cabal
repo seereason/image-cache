@@ -108,7 +108,7 @@ Library
     Build-Depends: Cabal
 
   if !flag(local-lens-path)
-    Build-Depends: lens-path,
+    Build-Depends: lens-path
   else
     Hs-Source-Dirs: ../lens-path
 
