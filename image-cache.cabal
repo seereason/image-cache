@@ -46,11 +46,6 @@ flag pretty-112
   Description: The prettyclass package is included in pretty-1.1.2
   Default: True
 
-flag local-lens-path
-  Description: Use local source for the lens-path package
-  Default: True
-  Manual: True
-
 Library
   Hs-Source-Dirs: .
   GHC-Options: -Wall -Wredundant-constraints -fno-warn-name-shadowing -O
@@ -78,6 +73,7 @@ Library
     filepath,
     hslogger,
     lens,
+    lens-path,
     mtl,
     network-uri,
     parsec,
@@ -106,11 +102,6 @@ Library
       utf8-string
   else
     Build-Depends: Cabal
-
-  if !flag(local-lens-path)
-    Build-Depends: lens-path
-  else
-    Hs-Source-Dirs: ../lens-path
 
 test-suite image-cache-tests
   type: exitcode-stdio-1.0
