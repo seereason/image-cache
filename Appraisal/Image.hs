@@ -600,12 +600,12 @@ instance View (Maybe ImageFile) where type ViewType (Maybe ImageFile) = String; 
 $(concat <$>
   sequence
   [ makePathInstances [FIELDS] ''ImageFile
-  , makePathInstances [FIELDS] ''ImageType
+  , makePathInstances [] ''ImageType
   , makePathInstances [FIELDS] ''ImageSize
-  , makePathInstances [FIELDS] ''Dimension
+  , makePathInstances [] ''Dimension
   , makePathInstances [FIELDS] ''ImageCrop
   , makePathInstances [FIELDS] ''ImageKey
-  , makePathInstances [FIELDS] ''Units
+  , makePathInstances [] ''Units
   ])
 
 $(makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|])

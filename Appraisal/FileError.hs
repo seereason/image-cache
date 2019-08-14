@@ -33,7 +33,7 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
-import Data.SafeCopy (base, deriveSafeCopy, SafeCopy(..), safeGet, safePut)
+import Data.SafeCopy (base, deriveSafeCopy, safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
 import Extra.Except (HasIOException(fromIOException))
