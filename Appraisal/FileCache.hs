@@ -60,13 +60,9 @@ module Appraisal.FileCache
     , fileCacheDir
     ) where
 
-import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
-import Control.Lens (makeLenses, over, set, view)
+import Appraisal.FileCacheT (FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
+import Control.Lens (makeLenses, over, view)
 import Control.Lens.Path
-import Control.Monad ( unless )
-import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
---import Control.Monad.Reader (MonadReader)
---import Control.Monad.Trans (MonadIO(..))
 import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -75,27 +71,30 @@ import qualified Data.ByteString as P
 #endif
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics ( Data(..), Typeable )
---import Data.Map ( Map )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ({-base, deriveSafeCopy,-} SafeCopy(version), safeGet, safePut)
+import Data.SafeCopy (SafeCopy(version), safeGet, safePut)
 import Data.Serialize (Serialize(get, put))
-import Data.Text (pack, unpack)
-import Extra.Except
 import GHC.Generics (Generic)
-import Language.Haskell.TH.Lift as TH (Lift)
 import Network.URI ( URI(..), parseRelativeReference, parseURI )
-import System.FilePath ( (</>) )
-import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
 import System.Unix.FilePath ( (<++>) )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 #if !__GHCJS__
+import Appraisal.FileCacheT (FileCacheT)
 import Appraisal.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
 import Appraisal.Utils.ErrorWithIO (readCreateProcessWithExitCode')
+import Control.Lens (set)
+import Control.Monad ( unless )
+import Control.Monad.Except (catchError, throwError)
+import Data.Text (pack, unpack)
+import Extra.Except (liftIOError, MonadIOError)
+import Language.Haskell.TH.Lift as TH (Lift)
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
 import System.Exit ( ExitCode(..) )
+import System.FilePath ( (</>) )
 import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
+import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
 import Test.QuickCheck ( Arbitrary(..), oneof )
