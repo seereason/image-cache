@@ -7,13 +7,15 @@ module Appraisal.Exif
     ) where
 
 import Control.Monad (when)
-import Data.ByteString.Lazy (ByteString, pack, unpack, take, drop, concat)
-import Data.Binary.Get (getLazyByteString, Get, skip, bytesRead, runGetOrFail,
+import Data.ByteString.Lazy (ByteString, unpack)
+import Data.Binary.Get (getLazyByteString, Get, skip, bytesRead,
                         getWord16be, getWord32be, getWord16le, getWord32le)
 import Data.Word (Word16, Word32)
 import GHC.Int (Int64)
 import Prelude hiding (take, drop, concat)
 #if !__GHCJS__
+import Data.ByteString.Lazy (pack, take, drop, concat)
+import Data.Binary.Get (runGetOrFail)
 import System.Exit (ExitCode(..))
 import System.Process (proc, showCommandForUser)
 import System.Process.ByteString.Lazy (readCreateProcessWithExitCode)

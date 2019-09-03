@@ -12,21 +12,24 @@ module Appraisal.Utils.ErrorWithIO
 #endif
     ) where
 
-import Appraisal.LogException (logException)
-import System.Log.Logger (Priority(ERROR))
+--import Appraisal.LogException (logException)
+--import System.Log.Logger (Priority(ERROR))
 import Control.Monad.Catch (catchJust)
 import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
 import GHC.IO.Exception (IOException(ioe_description))
 import Language.Haskell.TH.Instances ({- instance Lift Loc -})
 import Prelude hiding (error, undefined, log)
-import System.Exit (ExitCode(..))
+--import System.Exit (ExitCode(..))
 import System.IO.Error (isDoesNotExistError)
 import qualified System.Posix.Files as F
 #if !__GHCJS__
+import Appraisal.LogException (logException)
+import System.Exit (ExitCode(..))
+import System.Log.Logger (Priority(ERROR))
 import System.Process
 import System.Process.ListLike as LL (ListLikeProcessIO, ProcessResult, readCreateProcessWithExitCode, readCreateProcess)
-#endif
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
+#endif
 
 type ErrorWithIO m = ExceptT IOError m
 

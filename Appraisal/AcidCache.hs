@@ -44,18 +44,21 @@ module Appraisal.AcidCache
 #endif
     ) where
 
-import Control.Lens ((%=), at, makeLenses, makePrisms, view)
-import Data.Generics (Data, Proxy, Typeable)
-import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, Map, union)
+import Control.Lens (makeLenses, makePrisms)
+import Data.Generics (Data)
+import Data.Map.Strict as Map (Map)
 import Data.Serialize (label)
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
 import GHC.Generics (Generic)
 #if !__GHCJS__
+import Control.Lens ((%=), at, view)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
 import Control.Monad.Reader (MonadReader(ask))
 import Control.Monad.State (liftIO)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
+import Data.Generics (Proxy, Typeable)
+import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, union)
 import Data.Set as Set (Set)
 import Extra.Except (liftIOError, MonadIO, MonadIOError)
 #endif
