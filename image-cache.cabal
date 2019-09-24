@@ -47,7 +47,7 @@ flag pretty-112
   Default: True
 
 Library
-  Hs-Source-Dirs: .
+  Hs-Source-Dirs: src
   GHC-Options: -Wall -Wredundant-constraints -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP, DataKinds
