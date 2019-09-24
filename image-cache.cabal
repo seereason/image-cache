@@ -79,8 +79,6 @@ Library
     parsec,
     pretty >= 1.1.2,
     pureMD5,
-    regex-tdfa,
-    regex-compat-tdfa,
     safecopy >= 0.9.4.4,
     sr-extra >= 1.58,
     syb,
@@ -88,9 +86,7 @@ Library
     text,
     th-lift,
     th-orphans >= 0.9,
-    transformers,
-    unix,
-    Unixutils
+    transformers
   if !impl(ghcjs)
     Build-Depends:
       acid-state,
@@ -99,11 +95,17 @@ Library
       process >= 1.4.3,
       process-extras >= 0.7,
       QuickCheck,
+      regex-tdfa,
+      regex-compat-tdfa,
+      unix,
+      Unixutils,
       utf8-string
   else
     Build-Depends: Cabal
 
 test-suite image-cache-tests
+  if impl(ghcjs)
+    Buildable: False
   type: exitcode-stdio-1.0
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs

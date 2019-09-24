@@ -76,6 +76,7 @@ import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 #if !__GHCJS__
 import Control.Lens (_2, view)
+import Data.Char (isSpace)
 import Data.Text.Encoding (decodeUtf8)
 import Language.Haskell.TH.Lift (Lift)
 import System.Exit (ExitCode)
@@ -85,12 +86,11 @@ import System.Process.ByteString ()
 import Test.HUnit (assertEqual, Test(..))
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
 import "regex-compat-tdfa" Text.Regex (Regex, mkRegex, matchRegex)
+import Text.Parsec
 #endif
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
-import Text.Parsec
 import Text.Read (readMaybe)
-import Data.Char (isSpace)
 
 -- | Simplify the ratio to avoid a long representation:
 --
@@ -436,7 +436,6 @@ validateJPG path = do
           if l /= 0 || t /= 0 || r < 1 || b < 1 || r > 1000000 || b > 1000000
           then return (Left (path ++ ": image data error\n\npnmfile ->\n" ++ show s1 ++ "\nextractbb ->\n" ++ show s2))
           else return (Right (w, h))
-#endif
 
 -- | Parse the output of the pnmfile command (based on examination of
 -- its C source code.)
@@ -513,6 +512,7 @@ parseExtractBBOutput = do
 
       creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
+#endif
 
 instance SafeCopy ImageSize where version = 2
 instance (SafeCopy a, Typeable a) => SafeCopy (SaneSize a) where version = 1
@@ -561,8 +561,6 @@ deriving instance Show ImageKey
 deriving instance Show Format
 deriving instance Show RawOrPlain
 deriving instance Show Pnmfile
-deriving instance Show ExtractBB
-deriving instance Show Hires
 
 deriving instance Typeable ImageKey
 deriving instance Typeable ImageType
@@ -574,6 +572,9 @@ deriving instance Typeable (SaneSize a)
 deriving instance Typeable ImageFile
 
 #if !__GHCJS__
+deriving instance Show ExtractBB
+deriving instance Show Hires
+
 deriving instance Lift ImageFile
 deriving instance Lift ImageType
 deriving instance Lift ImageKey

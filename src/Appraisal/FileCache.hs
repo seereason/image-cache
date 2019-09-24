@@ -34,11 +34,12 @@ module Appraisal.FileCache
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
     , File(..)
     , fileURI
-    , fileCacheURI
+    , fileDir
     , addMessage
     , md5'
     -- * Create Files
 #if !__GHCJS__
+    , fileCacheURI
     , fileFromBytes
     , fileFromURI               -- was importFile
     , fileFromPath
@@ -52,15 +53,13 @@ module Appraisal.FileCache
     , loadBytesUnsafe
     , fileCachePathIO
     , allFiles
-#endif
-    , fileDir
     , filePath
     , fileCachePath
     , oldFileCachePath
     , fileCacheDir
+#endif
     ) where
 
-import Appraisal.FileCacheT ({-FileCacheT,-} FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
 import Control.Lens (makeLenses, over, view)
 import Control.Lens.Path (makePathInstances, HOP(FIELDS))
 --import Control.Monad ( unless )
@@ -86,11 +85,10 @@ import GHC.Generics (Generic)
 import Network.URI ( URI(..), parseRelativeReference, parseURI )
 --import System.FilePath ( (</>) )
 --import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
-import System.Unix.FilePath ( (<++>) )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 #if !__GHCJS__
-import Appraisal.FileCacheT (FileCacheT)
+import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
 import Control.Lens (makeLenses, set)
 import Control.Monad ( unless )
 import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
@@ -107,6 +105,7 @@ import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
+import System.Unix.FilePath ( (<++>) )
 import Test.QuickCheck ( Arbitrary(..), oneof )
 #endif
 
@@ -143,6 +142,12 @@ instance Serialize File where get = safeGet; put = safePut
 #if !__GHCJS__
 deriving instance Lift FileSource
 deriving instance Lift File
+
+-- | Build a URI for the locally cached version of the file given the
+-- uri of the cache home directory.
+fileCacheURI :: URI -> File -> URI
+fileCacheURI cacheDirectoryURI file =
+    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> view fileChksum file}
 #endif
 
 -- |Return the remote URI if the file resulted from downloading a URI.
@@ -150,12 +155,6 @@ fileURI :: File -> Maybe URI
 fileURI file = case view fileSource file of
                  Just (TheURI uri) -> maybe (parseRelativeReference uri) Just (parseURI uri)
                  _ -> Nothing
-
--- | Build a URI for the locally cached version of the file given the
--- uri of the cache home directory.
-fileCacheURI :: URI -> File -> URI
-fileCacheURI cacheDirectoryURI file =
-    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> view fileChksum file}
 
 -- |Add a message to the file message list.
 addMessage :: String -> File -> File
@@ -354,7 +353,6 @@ allFiles = do
   dirs <- liftIOError $ listDirectory top
   concat <$> mapM (\dir -> let dir' = top </> dir in
                            fmap (dir' </>) <$> liftIOError (listDirectory dir')) dirs
-#endif
 
 -- | The full path name for the local cache of the file.
 fileCachePath :: HasFileCacheTop m => File -> m FilePath
@@ -368,6 +366,7 @@ fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fi
 
 filePath :: File -> FilePath
 filePath file = fileDir file <++> view fileChksum file <> view fileExt file
+#endif
 
 fileDir :: File -> FilePath
 fileDir file = take 2 (view fileChksum file)

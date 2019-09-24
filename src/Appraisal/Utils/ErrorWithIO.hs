@@ -5,8 +5,8 @@ module Appraisal.Utils.ErrorWithIO
     , modify
     , prefix
     , mapIOErrorDescription
-    , ensureLink
 #if !__GHCJS__
+    , ensureLink
     , readCreateProcess'
     , readCreateProcessWithExitCode'
 #endif
@@ -14,18 +14,18 @@ module Appraisal.Utils.ErrorWithIO
 
 --import Appraisal.LogException (logException)
 --import System.Log.Logger (Priority(ERROR))
-import Control.Monad.Catch (catchJust)
 import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
 import GHC.IO.Exception (IOException(ioe_description))
 import Language.Haskell.TH.Instances ({- instance Lift Loc -})
 import Prelude hiding (error, undefined, log)
 --import System.Exit (ExitCode(..))
-import System.IO.Error (isDoesNotExistError)
-import qualified System.Posix.Files as F
 #if !__GHCJS__
 import Appraisal.LogException (logException)
+import Control.Monad.Catch (catchJust)
 import System.Exit (ExitCode(..))
+import System.IO.Error (isDoesNotExistError)
 import System.Log.Logger (Priority(ERROR))
+import qualified System.Posix.Files as F
 import System.Process
 import System.Process.ListLike as LL (ListLikeProcessIO, ProcessResult, readCreateProcessWithExitCode, readCreateProcess)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
@@ -43,13 +43,13 @@ prefix s action = modify (mapIOErrorDescription (s ++)) action
 mapIOErrorDescription :: (String -> String) -> IOError -> IOError
 mapIOErrorDescription f e = e {ioe_description = f (ioe_description e)}
 
-catchDoesNotExist :: IO a -> (() -> IO a) -> IO a
-catchDoesNotExist = catchJust (\ e -> if isDoesNotExistError e then Just () else Nothing)
-
+#if !__GHCJS__
 ensureLink :: String -> FilePath -> IO ()
 ensureLink file path = (F.getSymbolicLinkStatus path >> return ()) `catchDoesNotExist` (\ () -> F.createSymbolicLink file path)
 
-#if !__GHCJS__
+catchDoesNotExist :: IO a -> (() -> IO a) -> IO a
+catchDoesNotExist = catchJust (\ e -> if isDoesNotExistError e then Just () else Nothing)
+
 readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
 readCreateProcessWithExitCode' p s =
     -- logM "Appraisal.Utils.ErrorWithIO" DEBUG ("readCreateProcessWithExitCode': " <> show (pPrint p)) >>
