@@ -34,6 +34,7 @@ module Appraisal.FileCache
     , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
     , File(..)
     , fileURI
+    , filePath
     , fileDir
     , addMessage
     , md5'
@@ -53,7 +54,6 @@ module Appraisal.FileCache
     , loadBytesUnsafe
     , fileCachePathIO
     , allFiles
-    , filePath
     , fileCachePath
     , oldFileCachePath
     , fileCacheDir
@@ -62,10 +62,6 @@ module Appraisal.FileCache
 
 import Control.Lens (makeLenses, over, view)
 import Control.Lens.Path (makePathInstances, HOP(FIELDS))
---import Control.Monad ( unless )
---import "mtl" Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
---import Control.Monad.Reader (MonadReader)
---import Control.Monad.Trans (MonadIO(..))
 import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -74,17 +70,12 @@ import qualified Data.ByteString as P
 #endif
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics ( Data(..), Typeable )
---import Data.Map ( Map )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ({-base, deriveSafeCopy,-} SafeCopy(version), safeGet, safePut)
+import Data.SafeCopy (SafeCopy(version), safeGet, safePut)
 import Data.Serialize (Serialize(get, put))
---import Data.Text (pack, unpack)
---import Extra.Except
 import GHC.Generics (Generic)
---import Language.Haskell.TH.Lift as TH (Lift)
 import Network.URI ( URI(..), parseRelativeReference, parseURI )
---import System.FilePath ( (</>) )
---import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
+import System.FilePath (makeRelative, (</>))
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 #if !__GHCJS__
@@ -105,9 +96,11 @@ import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
-import System.Unix.FilePath ( (<++>) )
 import Test.QuickCheck ( Arbitrary(..), oneof )
 #endif
+
+(<++>) :: FilePath -> FilePath -> FilePath
+a <++> b = a </> (makeRelative "" b)
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't
@@ -166,6 +159,12 @@ md5' = show . md5
 #else
 md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
+
+filePath :: File -> FilePath
+filePath file = fileDir file <++> view fileChksum file <> view fileExt file
+
+fileDir :: File -> FilePath
+fileDir file = take 2 (view fileChksum file)
 
 #if !__GHCJS__
 -- | Turn the bytes in a ByteString into a File.  This is an IO
@@ -364,14 +363,6 @@ oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++
 fileCacheDir :: HasFileCacheTop m => File -> m FilePath
 fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
 
-filePath :: File -> FilePath
-filePath file = fileDir file <++> view fileChksum file <> view fileExt file
-#endif
-
-fileDir :: File -> FilePath
-fileDir file = take 2 (view fileChksum file)
-
-#if !__GHCJS__
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
 
