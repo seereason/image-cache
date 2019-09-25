@@ -71,6 +71,8 @@ Library
     directory,
     exceptions,
     filepath,
+    generic-data,
+    generic-lens,
     hslogger,
     lens,
     lens-path >= 3.2,

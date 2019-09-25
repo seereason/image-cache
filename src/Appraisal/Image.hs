@@ -13,18 +13,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Appraisal.Image
-    ( ImageSize(..), dim, size, units
+    ( ImageSize(..) -- , dim, size, units
     , approx
     , rationalIso
     , rationalLens
     , ImageCrop(..)
     , Dimension(..)
     , Units(..)
-    , ImageFile(..), imageFile, imageFileType, imageFileWidth, imageFileHeight, imageFileMaxVal
+    , ImageFile(..) -- , imageFile, imageFileType, imageFileWidth, imageFileHeight, imageFileMaxVal
     , imageFileArea
     , PixmapShape(..)
     , ImageType(..)
@@ -36,7 +37,7 @@ module Appraisal.Image
     , widthInInches'
     , heightInInches
     , saneSize
-    , SaneSize(..), unSaneSize
+    , SaneSize(..) -- , unSaneSize
     , defaultSize
     , fixKey
     , readRationalMaybe
@@ -50,8 +51,9 @@ module Appraisal.Image
     ) where
 
 import Appraisal.FileCache (File(..))
-import Control.Lens (Iso', iso, Lens', lens, makeLenses, _Show)
+import Control.Lens (Iso', iso, Lens', lens, _Show)
 import Control.Lens.Path
+import Control.Lens.Path.PathValue (newtypeIso)
 import Control.Lens.Path.View (viewIso)
 --import Control.Monad.Except (catchError)
 #if !__GHCJS__
@@ -64,7 +66,6 @@ import qualified Data.ByteString.UTF8 as P
 import Data.Default (Default(def))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
---import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (SafeCopy(..), safeGet, safePut)
@@ -585,16 +586,18 @@ deriving instance Lift Dimension
 deriving instance Lift a => Lift (SaneSize a)
 #endif
 
+{-
 $(concat <$>
   sequence
   [ makeLenses ''ImageFile
   , makeLenses ''ImageSize
   , makeLenses ''SaneSize
   ])
+-}
 
 instance View (SaneSize ImageSize) where
     type ViewType (SaneSize ImageSize) = ImageSize
-    _View = unSaneSize
+    _View = newtypeIso
 
 instance View (Maybe ImageFile) where type ViewType (Maybe ImageFile) = String; _View = iso (maybe "" show) readMaybe
 

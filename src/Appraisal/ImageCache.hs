@@ -23,6 +23,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints #-}
@@ -52,8 +53,8 @@ import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromByt
                             fileFromCmd, loadBytesSafe)
 import Appraisal.FileCacheT (execFileCacheT, FileCacheT, FileCacheTop, HasFileCacheTop, runFileCacheT)
 import Appraisal.FileError (FileError(..), HasFileError)
-import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), imageFile, ImageType(..), ImageKey(..),
-                        fileExtension, imageFileType, PixmapShape(..), scaleFromDPI, approx)
+import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..),
+                        fileExtension, PixmapShape(..), scaleFromDPI, approx)
 import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw, try)
 import Control.Lens (_1, makeLensesFor, view)
@@ -71,6 +72,7 @@ import qualified Data.ByteString.UTF8 as P
 import qualified Data.ByteString as P
 #endif
 import Data.Generics (Proxy)
+import Data.Generics.Product (field)
 import Data.List (intercalate)
 import Data.Maybe ( fromMaybe )
 --import Data.SafeCopy (SafeCopy)
@@ -90,7 +92,7 @@ import "regex-compat-tdfa" Text.Regex (mkRegex, matchRegex)
 -- suitable extension (e.g. .jpg) for the benefit of software that
 -- depends on this, so the result might point to a symbolic link.
 imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
-imageFilePath img = fileCachePath (view imageFile img)
+imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes ::
@@ -170,7 +172,7 @@ uprightImage ::
     => ImageFile
     -> m (CacheValue FileError ImageFile)
 uprightImage orig = do
-  bs <- $logException ERROR (loadBytesSafe (view imageFile orig))
+  bs <- $logException ERROR (loadBytesSafe (view (field @"_imageFile") orig))
   bs' <- $logException ERROR (liftIOError (normalizeOrientationCode (P.fromStrict bs)))
   either (const (return (Cached orig))) (\bs'' -> (fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
 
@@ -180,15 +182,15 @@ uprightImage orig = do
 scaleImage :: forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e) => Double -> ImageFile -> m (CacheValue FileError ImageFile)
 scaleImage scale orig | approx (toRational scale) == 1 = return (Cached orig)
 scaleImage scale orig = $logException ERROR $ do
-    path <- fileCachePath (view imageFile orig)
-    let decoder = case view imageFileType orig of
+    path <- fileCachePath (view (field @"_imageFile") orig)
+    let decoder = case view (field @"_imageFileType") orig of
                     JPEG -> showCommandForUser "jpegtopnm" [path]
                     PPM -> showCommandForUser "cat" [path]
                     GIF -> showCommandForUser "giftopnm" [path]
                     PNG -> showCommandForUser "pngtopnm" [path]
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
         -- To save space, build a jpeg here rather than the original file type.
-        encoder = case view imageFileType orig of
+        encoder = case view (field @"_imageFileType") orig of
                     JPEG -> showCommandForUser "cjpeg" []
                     PPM -> showCommandForUser {-"cat"-} "cjpeg" []
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
@@ -210,12 +212,12 @@ editImage crop file = $logException ERROR $
       [] ->
           return (Cached file)
       _ ->
-          (loadBytesSafe (view imageFile file) >>=
+          (loadBytesSafe (view (field @"_imageFile") file) >>=
            liftIOError . pipeline commands >>=
            fileFromBytes (liftIOError . getFileType) fileExtension >>=
            makeImageFile) `catchError` err
     where
-      commands = buildPipeline (view imageFileType file) [cut, rotate] (latexImageFileType (view imageFileType file))
+      commands = buildPipeline (view (field @"_imageFileType") file) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") file))
       -- We can only embed JPEG and PNG images in a LaTeX
       -- includegraphics command, so here we choose which one to use.
       latexImageFileType GIF = JPEG

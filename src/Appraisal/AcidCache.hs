@@ -2,7 +2,7 @@
 -- values are monadically obtained from the keys using the 'build'
 -- method of the MonadCache instance, and stored using acid-state.
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, DataKinds #-}
 {-# LANGUAGE DeriveAnyClass, DeriveFunctor, DeriveGeneric #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -19,8 +19,7 @@
 module Appraisal.AcidCache
     ( -- * Open cache
       CacheMap(..)
-    , CacheValue(..), _InProgress, _Cached, _Failed
-    , unCacheMap
+    , CacheValue(..){-, _InProgress, _Cached, _Failed-}
 #if !__GHCJS__
     , initCacheMap
     , openCache
@@ -44,7 +43,6 @@ module Appraisal.AcidCache
 #endif
     ) where
 
-import Control.Lens (makeLenses, makePrisms)
 import Data.Generics (Data)
 import Data.Map.Strict as Map (Map)
 import Data.Serialize (label)
@@ -58,6 +56,7 @@ import Control.Monad.State (liftIO)
 import Data.Acid (AcidState, makeAcidic, openLocalStateFrom, Query, query, Update, update)
 import Data.Acid.Local (createCheckpointAndClose)
 import Data.Generics (Proxy, Typeable)
+import Data.Generics.Product (field)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, union)
 import Data.Set as Set (Set)
 import Extra.Except (liftIOError, MonadIO, MonadIOError)
@@ -102,28 +101,30 @@ instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err)
     type MigrateFrom (CacheMap key val err) = Map key val
     migrate mp = CacheMap (fmap Cached mp)
 
+{-
 $(concat <$>
   sequence
   [ makePrisms ''CacheValue
   , makeLenses ''CacheMap
   ])
+-}
 
 #if !__GHCJS__
 -- | Install a key/value pair into the cache.
 putValue :: Ord key => key -> CacheValue err val -> Update (CacheMap key val err) ()
-putValue key img = unCacheMap %= Map.insert key img
+putValue key img = field @"_unCacheMap" %= Map.insert key img
 
 -- | Install several key/value pairs into the cache.
 putValues :: Ord key => Map key (CacheValue err val) -> Update (CacheMap key val err) ()
-putValues pairs = unCacheMap %= Map.union pairs
+putValues pairs = field @"_unCacheMap" %= Map.union pairs
 
 -- | Look up a key.
 lookValue :: Ord key => key -> Query (CacheMap key val err) (Maybe (CacheValue err val))
-lookValue key = view (unCacheMap . at key)
+lookValue key = view (field @"_unCacheMap" . at key)
 
 -- | Look up several keys.
 lookValues :: Ord key => Set key -> Query (CacheMap key val err) (Map key (CacheValue err val))
-lookValues keys = Map.intersection <$> view unCacheMap <*> pure (Map.fromSet (const ()) keys)
+lookValues keys = Map.intersection <$> view (field @"_unCacheMap") <*> pure (Map.fromSet (const ()) keys)
 
 -- | Return the entire cache.  (Despite what ghc says, this constraint
 -- isn't redundant, without it the makeAcidic call has a missing Ord
@@ -133,10 +134,10 @@ lookMap = ask
 
 -- | Remove values from the database.
 deleteValue :: (Ord key{-, Serialize key, Serialize val, Serialize e-}) => key -> Update (CacheMap key val err) ()
-deleteValue key = unCacheMap %= Map.delete key
+deleteValue key = field @"_unCacheMap" %= Map.delete key
 
 deleteValues :: Ord key => Set key -> Update (CacheMap key val err) ()
-deleteValues keys = unCacheMap %= (`Map.difference` (Map.fromSet (const ()) keys))
+deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (const ()) keys))
 
 initCacheMap :: Ord key => CacheMap key val err
 initCacheMap = CacheMap mempty
