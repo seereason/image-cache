@@ -17,11 +17,7 @@
 {-# OPTIONS_GHC -Wall -Wredundant-constraints -fno-warn-orphans #-}
 
 module Appraisal.AcidCache
-    ( -- * Open cache
-      CacheMap(..)
-    , CacheValue(..){-, _InProgress, _Cached, _Failed-}
-#if !__GHCJS__
-    , initCacheMap
+    ( initCacheMap
     , openCache
     , withCache
     -- * Cached map events
@@ -40,15 +36,10 @@ module Appraisal.AcidCache
     , cacheDelete
     -- * Instance
     -- , runMonadCacheT
-#endif
     ) where
 
-import Data.Generics (Data)
 import Data.Map.Strict as Map (Map)
-import Data.Serialize (label)
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
-import GHC.Generics (Generic)
-#if !__GHCJS__
 import Control.Lens ((%=), at, view)
 import Control.Monad.Catch (bracket, {-MonadCatch,-} MonadMask)
 import Control.Monad.Reader (MonadReader(ask))
@@ -60,56 +51,8 @@ import Data.Generics.Product (field)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, union)
 import Data.Set as Set (Set)
 import Extra.Except (liftIOError, MonadIO, MonadIOError)
-#endif
+import FileCache.Types
 
-data CacheValue err val
-    = InProgress
-    | Cached val
-    | Failed err
-    deriving (Generic, Eq, Ord, Functor)
-
--- Later we could make FileError a type parameter, but right now its
--- tangled with the MonadError type.
-data CacheMap key val err =
-    CacheMap {_unCacheMap :: Map key (CacheValue err val)}
-    deriving (Generic, Eq, Ord)
-
-#if 1
-$(deriveSafeCopy 1 'base ''CacheValue)
-instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
-      putCopy (CacheMap a)
-        = contain
-            (do safeput <- getSafePut
-                safeput a
-                return ())
-      getCopy
-        = contain
-            ((label "Appraisal.AcidCache.CacheMap:")
-               (do safeget <- getSafeGet @(Map key (CacheValue err val))
-                   (return CacheMap <*> safeget)))
-      version = 2
-      kind = extension
-      errorTypeName _ = "Appraisal.AcidCache.CacheMap"
-#else
-instance (SafeCopy err, SafeCopy val) => SafeCopy (CacheValue err val) where version = 1
-instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
-  version = 2
-  kind = extension
-#endif
-
-instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err) where
-    type MigrateFrom (CacheMap key val err) = Map key val
-    migrate mp = CacheMap (fmap Cached mp)
-
-{-
-$(concat <$>
-  sequence
-  [ makePrisms ''CacheValue
-  , makeLenses ''CacheMap
-  ])
--}
-
-#if !__GHCJS__
 -- | Install a key/value pair into the cache.
 putValue :: Ord key => key -> CacheValue err val -> Update (CacheMap key val err) ()
 putValue key img = field @"_unCacheMap" %= Map.insert key img
@@ -193,9 +136,3 @@ cacheDelete :: forall key val err m. (HasCache key val err m) => Proxy (val, err
 cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val err)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)
-#endif
-
-deriving instance (Data err, Data val) => Data (CacheValue err val)
-deriving instance (Ord key, Data key, Data val, Data err) => Data (CacheMap key val err)
-deriving instance (Show err, Show val) => Show (CacheValue err val)
-deriving instance (Show key, Show val, Show err) => Show (CacheMap key val err)

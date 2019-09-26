@@ -27,6 +27,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints #-}
+
 module Appraisal.ImageCache
     ( -- * Image cache monad
 #if !__GHCJS__
@@ -48,7 +49,7 @@ module Appraisal.ImageCache
 
 #if !__GHCJS__
 import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.AcidCache (CacheMap, CacheValue(..), HasCache(..))
+import Appraisal.AcidCache (HasCache(..))
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, loadBytesSafe)
 import Appraisal.FileCacheT (execFileCacheT, FileCacheT, FileCacheTop, HasFileCacheTop, runFileCacheT)
@@ -75,11 +76,9 @@ import Data.Generics (Proxy)
 import Data.Generics.Product (field)
 import Data.List (intercalate)
 import Data.Maybe ( fromMaybe )
---import Data.SafeCopy (SafeCopy)
 import Data.Text (pack)
 import Extra.Except
---import Debug.Show (V)
---import Language.Haskell.TH (pprint)
+import FileCache.Types (CacheMap, CacheValue(..))
 import Network.URI (URI, uriToString)
 import Numeric (fromRat, showFFloat)
 import System.Exit (ExitCode(..))

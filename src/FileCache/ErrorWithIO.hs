@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP, FlexibleContexts, MultiParamTypeClasses, ScopedTypeVariables, TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
-module Appraisal.Utils.ErrorWithIO
+module FileCache.ErrorWithIO
     ( ErrorWithIO
     , modify
     , prefix

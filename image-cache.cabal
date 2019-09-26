@@ -52,7 +52,6 @@ Library
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP, DataKinds
   Exposed-modules:
-    Appraisal.AcidCache
     Appraisal.FileCache
     Appraisal.Image
     Appraisal.ImageCache
@@ -60,7 +59,8 @@ Library
     Appraisal.FileError
     Appraisal.Exif
     Appraisal.LogException
-    Appraisal.Utils.ErrorWithIO
+    FileCache.ErrorWithIO
+    FileCache.Types
   Build-Depends:
     base >= 4,
     binary,
@@ -90,6 +90,8 @@ Library
     th-orphans >= 0.9,
     transformers
   if !impl(ghcjs)
+    Exposed-modules:
+      Appraisal.AcidCache
     Build-Depends:
       acid-state,
       filemanip-extra,
