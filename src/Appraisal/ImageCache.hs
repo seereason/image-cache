@@ -30,7 +30,6 @@
 
 module Appraisal.ImageCache
     ( -- * Image cache monad
-#if !__GHCJS__
       ImageCacheT
     , runImageCacheT
     , execImageCacheT
@@ -44,18 +43,17 @@ module Appraisal.ImageCache
     , uprightImage
     , scaleImage
     , editImage
-#endif
     ) where
 
-#if !__GHCJS__
 import Appraisal.Exif (normalizeOrientationCode)
 import Appraisal.AcidCache (HasCache(..))
 import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, loadBytesSafe)
 import Appraisal.FileCacheT (execFileCacheT, FileCacheT, FileCacheTop, HasFileCacheTop, runFileCacheT)
 import Appraisal.FileError (FileError(..), HasFileError)
-import Appraisal.Image (getFileType, ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..),
+import Appraisal.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..),
                         fileExtension, PixmapShape(..), scaleFromDPI, approx)
+import Appraisal.ImageFile (getFileType)
 import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw, try)
 import Control.Lens (_1, makeLensesFor, view)
@@ -342,4 +340,3 @@ buildImageFile (ImageCropped crop key) = do
 overCached :: Monad m => (a -> m (CacheValue e a)) -> CacheValue e a -> m (CacheValue e a)
 overCached f (Cached a) = f a
 overCached _ v = pure v
-#endif

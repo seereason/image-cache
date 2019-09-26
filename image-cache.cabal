@@ -54,7 +54,6 @@ Library
   Exposed-modules:
     Appraisal.FileCache
     Appraisal.Image
-    Appraisal.ImageCache
     Appraisal.FileCacheT
     Appraisal.FileError
     Appraisal.Exif
@@ -92,6 +91,8 @@ Library
   if !impl(ghcjs)
     Exposed-modules:
       Appraisal.AcidCache
+      Appraisal.ImageCache
+      Appraisal.ImageFile
     Build-Depends:
       acid-state,
       filemanip-extra,
