@@ -1,9 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
-module Appraisal.Exif
+module Data.FileCache.Exif
     ( getEXIFOrientationCode
-#if !__GHCJS__
     , normalizeOrientationCode
-#endif
     ) where
 
 import Control.Monad (when)
@@ -13,15 +11,12 @@ import Data.Binary.Get (getLazyByteString, Get, skip, bytesRead,
 import Data.Word (Word16, Word32)
 import GHC.Int (Int64)
 import Prelude hiding (take, drop, concat)
-#if !__GHCJS__
 import Data.ByteString.Lazy (pack, take, drop, concat)
 import Data.Binary.Get (runGetOrFail)
 import System.Exit (ExitCode(..))
 import System.Process (proc, showCommandForUser)
 import System.Process.ByteString.Lazy (readCreateProcessWithExitCode)
-#endif
 
-#if !__GHCJS__
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the
 -- image into the "normal" orientation and change the orientation flag
@@ -57,7 +52,6 @@ normalizeOrientationCode bs = do
         case result of
           ExitSuccess -> return $ Right out
           ExitFailure n -> return $ Left $ showCommandForUser cmd args' ++ " -> " ++ show n ++ "\n error output: " ++ show err
-#endif
 
 -- | Read the orientation code of a JPEG file, returning its value,
 -- the offset of the two byte code in the file, and the "isMotorola"

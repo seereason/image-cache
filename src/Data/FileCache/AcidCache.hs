@@ -16,7 +16,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall -Wredundant-constraints -fno-warn-orphans #-}
 
-module Appraisal.AcidCache
+module Data.FileCache.AcidCache
     ( initCacheMap
     , openCache
     , withCache
@@ -51,7 +51,7 @@ import Data.Generics.Product (field)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, union)
 import Data.Set as Set (Set)
 import Extra.Except (liftIOError, MonadIO, MonadIOError)
-import FileCache.Types
+import Data.FileCache.Types
 
 -- | Install a key/value pair into the cache.
 putValue :: Ord key => key -> CacheValue err val -> Update (CacheMap key val err) ()

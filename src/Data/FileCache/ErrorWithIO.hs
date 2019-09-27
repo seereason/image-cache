@@ -1,27 +1,21 @@
 {-# LANGUAGE CPP, FlexibleContexts, MultiParamTypeClasses, ScopedTypeVariables, TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
-module FileCache.ErrorWithIO
+module Data.FileCache.ErrorWithIO
     ( ErrorWithIO
     , modify
     , prefix
     , mapIOErrorDescription
-#if !__GHCJS__
     , ensureLink
     , readCreateProcess'
     , readCreateProcessWithExitCode'
-#endif
     ) where
 
---import Appraisal.LogException (logException)
---import System.Log.Logger (Priority(ERROR))
+import Control.Monad.Catch (catchJust)
 import Control.Monad.Trans.Except (ExceptT(ExceptT), runExceptT)
+import Data.FileCache.LogException (logException)
 import GHC.IO.Exception (IOException(ioe_description))
 import Language.Haskell.TH.Instances ({- instance Lift Loc -})
 import Prelude hiding (error, undefined, log)
---import System.Exit (ExitCode(..))
-#if !__GHCJS__
-import Appraisal.LogException (logException)
-import Control.Monad.Catch (catchJust)
 import System.Exit (ExitCode(..))
 import System.IO.Error (isDoesNotExistError)
 import System.Log.Logger (Priority(ERROR))
@@ -29,7 +23,6 @@ import qualified System.Posix.Files as F
 import System.Process
 import System.Process.ListLike as LL (ListLikeProcessIO, ProcessResult, readCreateProcessWithExitCode, readCreateProcess)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
-#endif
 
 type ErrorWithIO m = ExceptT IOError m
 
@@ -43,7 +36,6 @@ prefix s action = modify (mapIOErrorDescription (s ++)) action
 mapIOErrorDescription :: (String -> String) -> IOError -> IOError
 mapIOErrorDescription f e = e {ioe_description = f (ioe_description e)}
 
-#if !__GHCJS__
 ensureLink :: String -> FilePath -> IO ()
 ensureLink file path = (F.getSymbolicLinkStatus path >> return ()) `catchDoesNotExist` (\ () -> F.createSymbolicLink file path)
 
@@ -66,4 +58,3 @@ instance Pretty CreateProcess where
 instance Pretty CmdSpec where
     pPrint (ShellCommand s) = text s
     pPrint (RawCommand path args) = text (showCommandForUser path args)
-#endif

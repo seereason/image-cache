@@ -17,7 +17,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Appraisal.Image
+module Data.FileCache.Image
     ( ImageSize(..) -- , dim, size, units
     , approx
     , rationalIso
@@ -44,13 +44,13 @@ module Appraisal.Image
     , showRational
     ) where
 
-import Appraisal.FileCache (File(..))
 import Control.Lens (Iso', iso, Lens', lens, _Show)
 import Control.Lens.Path
 import Control.Lens.Path.PathValue (newtypeIso)
 import Control.Lens.Path.View (viewIso)
 --import Control.Monad.Except (catchError)
 import Data.Default (Default(def))
+import Data.FileCache.Types (File(..))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
 import Data.Monoid ((<>))

@@ -17,40 +17,22 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Appraisal.ImageFile
+module Data.FileCache.ImageFile
     ( getFileType
     -- * validation tools
     , validateJPG
     , tests
     ) where
 
-import Appraisal.Image
---import Control.Lens (Iso', iso, _Show)
---import Control.Lens.Path
---import Control.Lens.Path.PathValue (newtypeIso)
---import Control.Lens.Path.View (viewIso)
---import Control.Monad.Except (catchError)
-#if !__GHCJS__
+import Control.Lens (_2, view)
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString.UTF8 as P
 #endif
-#endif
---import Data.Default (Default(def))
---import Data.Generics (Data, Typeable)
---import Data.Monoid ((<>))
-import Data.Ratio ((%))
---import Data.SafeCopy (SafeCopy(..), safeGet, safePut)
---import Data.Serialize (Serialize(..))
-import Data.Text (Text)
---import GHC.Generics (Generic)
---import Language.Haskell.TH (Ppr(ppr))
---import Language.Haskell.TH.PprLib (ptext)
---import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
-
-import Control.Lens (_2, view)
 import Data.Char (isSpace)
+import Data.FileCache.Image
+import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
 import Language.Haskell.TH.Lift (Lift)
 import System.Exit (ExitCode)
@@ -58,7 +40,10 @@ import System.Process (proc{-, showCommandForUser-})
 import System.Process.ListLike (readCreateProcess, readProcessWithExitCode)
 import System.Process.ByteString ()
 import Test.HUnit (assertEqual, Test(..))
+#if ARBITRARY
+import Data.Ratio ((%))
 import Test.QuickCheck (Arbitrary(..), choose, elements, Gen, oneof)
+#endif
 import "regex-compat-tdfa" Text.Regex (Regex, mkRegex, matchRegex)
 import Text.Parsec
 --import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
@@ -90,6 +75,7 @@ getFileType bytes =
               ,(mkRegex "PNG image data", PNG)
               ,(mkRegex "GIF image data", GIF)]
 
+#if ARBITRARY
 instance Arbitrary Units where
     arbitrary = elements [Inches, Cm, Points]
 
@@ -124,6 +110,7 @@ instance Arbitrary ImageKey where
                       , ImageCropped <$> arbitrary <*> arbitrary
                       , ImageScaled <$> arbitrary <*> arbitrary <*> arbitrary
                       , ImageUpright <$> arbitrary ]
+#endif
 
 data Format = Binary | Gray | Color
 data RawOrPlain = Raw | Plain

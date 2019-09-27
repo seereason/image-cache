@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Appraisal.LogException
+module Data.FileCache.LogException
     ( logException
     , logExceptionV
     , logAndThrow

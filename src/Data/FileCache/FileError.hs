@@ -15,14 +15,13 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall #-}
 
-module Appraisal.FileError
+module Data.FileCache.FileError
     ( FileError(..)
     , CommandInfo(..)
     , HasFileError(fromFileError)
     , logErrorCall
     ) where
 
-import Appraisal.LogException (Loggable(logit))
 import Control.Exception as E (ErrorCall(ErrorCallWithLocation), fromException, SomeException)
 --import Control.Monad.Catch (try)
 --import Control.Monad.Except (MonadError, throwError)
@@ -33,6 +32,7 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
+import Data.FileCache.LogException (Loggable(logit))
 import Data.SafeCopy (base, deriveSafeCopy, safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)

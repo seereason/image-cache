@@ -11,7 +11,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveFunctor, DeriveGeneric, DeriveAnyClass, DeriveLift #-}
+{-# LANGUAGE DeriveFunctor, DeriveGeneric, DeriveAnyClass #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -27,20 +27,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints -fno-warn-orphans #-}
 
-module Appraisal.FileCache
-    (
-    -- * Types
-      Checksum
-    , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
-    , File(..)
-    , fileURI
-    , filePath
-    , fileDir
-    , addMessage
-    , md5'
-    -- * Create Files
-#if !__GHCJS__
-    , fileCacheURI
+module Data.FileCache.FileCache
+    ( fileCacheURI
     , fileFromBytes
     , fileFromURI               -- was importFile
     , fileFromPath
@@ -57,117 +45,43 @@ module Appraisal.FileCache
     , fileCachePath
     , oldFileCachePath
     , fileCacheDir
-#endif
     ) where
 
--- import Appraisal.FileCacheT (FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
-import Control.Lens (makeLenses, over, view)
-import Control.Lens.Path (makePathInstances, HOP(FIELDS))
-import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
+import Control.Lens (set, view)
+import Control.Monad ( unless )
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString as P
 #endif
-import Data.Digest.Pure.MD5 ( md5 )
-import Data.Generics ( Data(..), Typeable )
+import Data.FileCache.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
+import Data.FileCache.Types
 import Data.Monoid ( (<>) )
-import Data.SafeCopy (SafeCopy(version), safeGet, safePut)
-import Data.Serialize (Serialize(get, put))
-import GHC.Generics (Generic)
-import Network.URI ( URI(..), parseRelativeReference, parseURI )
-import System.FilePath (makeRelative, (</>))
-import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
-
-#if !__GHCJS__
-import Appraisal.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
-import Control.Lens (set)
-import Control.Monad ( unless )
 import Data.Text (pack, unpack)
-import Language.Haskell.TH.Lift as TH (Lift)
 import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
-import Appraisal.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
 import Control.Monad.Except (catchError, throwError)
+import Data.FileCache.ErrorWithIO (readCreateProcessWithExitCode')
+import Data.FileCache.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
 import Extra.Except (liftIOError, MonadIOError)
-import FileCache.ErrorWithIO (readCreateProcessWithExitCode')
+import Network.URI (URI(..))
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
 import System.Exit ( ExitCode(..) )
+import System.FilePath (makeRelative, (</>))
 import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
 -- import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
-import Test.QuickCheck ( Arbitrary(..), oneof )
-#endif
 
 (<++>) :: FilePath -> FilePath -> FilePath
 a <++> b = a </> (makeRelative "" b)
-
--- |The original source if the file is saved, in case
--- the cache needs to be reconstructed.  However, we don't
--- store the original ByteString if that is all we began
--- with, that would be redundant and wasteful.
-data FileSource
-    = TheURI String
-    | ThePath FilePath
-    deriving (Generic, Eq, Ord)
-
--- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
-type Checksum = String
-
--- |A local cache of a file obtained from a 'FileSource'.
-data File
-    = File { _fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
-           , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
-           , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
-           , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
-           } deriving (Generic, Eq, Ord)
-
-instance Pretty File where
-    pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
-
-$(makeLenses ''File)
-
-instance SafeCopy FileSource where version = 1
-instance SafeCopy File where version = 2
-instance Serialize FileSource where get = safeGet; put = safePut
-instance Serialize File where get = safeGet; put = safePut
-
-#if !__GHCJS__
-deriving instance Lift FileSource
-deriving instance Lift File
 
 -- | Build a URI for the locally cached version of the file given the
 -- uri of the cache home directory.
 fileCacheURI :: URI -> File -> URI
 fileCacheURI cacheDirectoryURI file =
     cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> view fileChksum file}
-#endif
 
--- |Return the remote URI if the file resulted from downloading a URI.
-fileURI :: File -> Maybe URI
-fileURI file = case view fileSource file of
-                 Just (TheURI uri) -> maybe (parseRelativeReference uri) Just (parseURI uri)
-                 _ -> Nothing
-
--- |Add a message to the file message list.
-addMessage :: String -> File -> File
-addMessage message file = over fileMessages (++ [message]) file
-
-md5' :: P.ByteString -> String
-#ifdef LAZYIMAGES
-md5' = show . md5
-#else
-md5' = show . md5 . Lazy.fromChunks . (: [])
-#endif
-
-filePath :: File -> FilePath
-filePath file = fileDir file <++> view fileChksum file <> view fileExt file
-
-fileDir :: File -> FilePath
-fileDir file = take 2 (view fileChksum file)
-
-#if !__GHCJS__
 -- | Turn the bytes in a ByteString into a File.  This is an IO
 -- operation because it saves the data into the local cache.  We
 -- use writeFileReadable because the files we create need to be
@@ -363,23 +277,3 @@ oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++
 
 fileCacheDir :: HasFileCacheTop m => File -> m FilePath
 fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
-
-instance Arbitrary File where
-    arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
-
-instance Arbitrary FileSource where
-    arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
-#endif
-
-deriving instance Show FileSource
-deriving instance Read FileSource
-deriving instance Data FileSource
-deriving instance Typeable FileSource
-
-deriving instance Show File
-deriving instance Read File
-deriving instance Data File
-deriving instance Typeable File
-
-$(makePathInstances [FIELDS] ''File)
-$(makePathInstances [FIELDS] ''FileSource)

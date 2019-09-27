@@ -28,7 +28,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints #-}
 
-module Appraisal.ImageCache
+module Data.FileCache.ImageCache
     ( -- * Image cache monad
       ImageCacheT
     , runImageCacheT
@@ -45,16 +45,6 @@ module Appraisal.ImageCache
     , editImage
     ) where
 
-import Appraisal.Exif (normalizeOrientationCode)
-import Appraisal.AcidCache (HasCache(..))
-import Appraisal.FileCache (File(..), {-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, loadBytesSafe)
-import Appraisal.FileCacheT (execFileCacheT, FileCacheT, FileCacheTop, HasFileCacheTop, runFileCacheT)
-import Appraisal.FileError (FileError(..), HasFileError)
-import Appraisal.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..),
-                        fileExtension, PixmapShape(..), scaleFromDPI, approx)
-import Appraisal.ImageFile (getFileType)
-import Appraisal.LogException (logException)
 import Control.Exception (IOException, throw, try)
 import Control.Lens (_1, makeLensesFor, view)
 import Control.Monad.Except (catchError, MonadError)
@@ -70,13 +60,23 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString.UTF8 as P
 import qualified Data.ByteString as P
 #endif
+import Data.FileCache.AcidCache (HasCache(..))
+import Data.FileCache.Exif (normalizeOrientationCode)
+import Data.FileCache.FileCache ({-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
+                            fileFromCmd, loadBytesSafe)
+import Data.FileCache.FileCacheT (execFileCacheT, FileCacheT, FileCacheTop, HasFileCacheTop, runFileCacheT)
+import Data.FileCache.FileError (FileError(..), HasFileError)
+import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..),
+                        fileExtension, PixmapShape(..), scaleFromDPI, approx)
+import Data.FileCache.ImageFile (getFileType)
+import Data.FileCache.LogException (logException)
+import Data.FileCache.Types (CacheMap, CacheValue(..), File(..))
 import Data.Generics (Proxy)
 import Data.Generics.Product (field)
 import Data.List (intercalate)
 import Data.Maybe ( fromMaybe )
 import Data.Text (pack)
 import Extra.Except
-import FileCache.Types (CacheMap, CacheValue(..))
 import Network.URI (URI, uriToString)
 import Numeric (fromRat, showFFloat)
 import System.Exit (ExitCode(..))

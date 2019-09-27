@@ -23,7 +23,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall #-}
 
-module Appraisal.FileCacheT
+module Data.FileCache.FileCacheT
     ( FileCacheTop(..)
     , HasFileCacheTop(fileCacheTop)
     -- , MonadFileCache

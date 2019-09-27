@@ -51,15 +51,14 @@ Library
   GHC-Options: -Wall -Wredundant-constraints -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
   Extensions: CPP, DataKinds
-  Exposed-modules:
-    Appraisal.FileCache
-    Appraisal.Image
-    Appraisal.FileCacheT
-    Appraisal.FileError
-    Appraisal.Exif
-    Appraisal.LogException
-    FileCache.ErrorWithIO
-    FileCache.Types
+  Exposed-Modules:
+    Data.FileCache
+  Other-modules:
+    Data.FileCache.Image
+    Data.FileCache.FileCacheT
+    Data.FileCache.FileError
+    Data.FileCache.LogException
+    Data.FileCache.Types
   Build-Depends:
     base >= 4,
     binary,
@@ -89,10 +88,13 @@ Library
     th-orphans >= 0.9,
     transformers
   if !impl(ghcjs)
-    Exposed-modules:
-      Appraisal.AcidCache
-      Appraisal.ImageCache
-      Appraisal.ImageFile
+    Other-Modules:
+      Data.FileCache.AcidCache
+      Data.FileCache.ErrorWithIO
+      Data.FileCache.Exif
+      Data.FileCache.FileCache
+      Data.FileCache.ImageCache
+      Data.FileCache.ImageFile
     Build-Depends:
       acid-state,
       filemanip-extra,
