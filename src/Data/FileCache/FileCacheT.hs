@@ -28,7 +28,7 @@ module Data.FileCache.FileCacheT
     , HasFileCacheTop(fileCacheTop)
     -- , MonadFileCache
     , ensureFileCacheTop
-    , FileCacheT, FileCache
+    -- , FileCacheT, FileCache
     , runFileCacheT'
     , runFileCacheT
     , execFileCacheT
@@ -40,7 +40,7 @@ module Data.FileCache.FileCacheT
 --import Appraisal.FileError
 import Control.Lens (_1, _2, view)
 import Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
-import Control.Monad.Identity (Identity)
+--import Control.Monad.Identity (Identity)
 import Control.Monad.Reader ({-mapReaderT,-} MonadReader(ask))
 import Control.Monad.RWS
 import Control.Monad.Trans (lift, MonadIO(..), MonadTrans(lift))
@@ -85,14 +85,12 @@ toFileError e =
 newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath}
 
 -- | Class of monads with a 'FilePath' value containing the top
--- of a 'FileCache'.  MonadIO is not a superclass here because
--- some FileCache operations (e.g. path construction) do not need it.
+-- directory of a file cache.
 class Monad m => HasFileCacheTop m where
     fileCacheTop :: m FileCacheTop
 
-type FileCacheT acid w s m = RWST (acid, FileCacheTop) w s m
-
-type FileCache acid w s = FileCacheT acid w s Identity
+-- type FileCacheT acid w s m = RWST (acid, FileCacheTop) w s m
+-- type FileCache acid w s = FileCacheT acid w s Identity
 
 -- type MonadFileCache m = (MonadIO m, {-MonadError FileError m,-} HasFileCacheTop m)
 
@@ -132,7 +130,7 @@ runFileCacheTop top acid action =
 -- mapFileCacheT :: Functor m => (e -> e') -> FileCacheT st m a -> FileCacheT st m a
 -- mapFileCacheT f = FileCacheT . mapReaderT (withExceptT f) . unFileCacheT
 
-ensureFileCacheTop :: (MonadIO m, Monoid w) => FileCacheT acid w s m ()
+ensureFileCacheTop :: (MonadIO m, Monoid w) => RWST (acid, FileCacheTop) w s m ()
 ensureFileCacheTop = fileCacheTop >>= lift . liftIO . createDirectoryIfMissing True . unFileCacheTop
 
 deriving instance Show FileCacheTop

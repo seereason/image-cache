@@ -1,7 +1,3 @@
--- | Maintain a cache of key/value pairs in acid state, where the
--- values are monadically obtained from the keys using the 'build'
--- method of the MonadCache instance, and stored using acid-state.
-
 {-# LANGUAGE CPP, DataKinds #-}
 {-# LANGUAGE DeriveAnyClass, DeriveFunctor, DeriveGeneric, DeriveLift #-}
 {-# LANGUAGE TypeApplications #-}

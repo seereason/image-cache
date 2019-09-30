@@ -54,12 +54,13 @@ import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString as P
 #endif
-import Data.FileCache.FileCacheT (FileCacheT, FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
+import Data.FileCache.FileCacheT (FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
 import Data.FileCache.Types
 import Data.Monoid ( (<>) )
 import Data.Text (pack, unpack)
 import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
 import Control.Monad.Except (catchError, throwError)
+import Control.Monad.RWS (RWST)
 import Data.FileCache.ErrorWithIO (readCreateProcessWithExitCode')
 import Data.FileCache.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
 import Extra.Except (liftIOError, MonadIOError)
@@ -261,7 +262,7 @@ listDirectory path =
 
 -- | Scan all the file cache directories for files without using
 -- the database.
-allFiles :: (MonadIOError e m, Monoid w) => FileCacheT st w s m [FilePath]
+allFiles :: (MonadIOError e m, Monoid w) => RWST (st, FileCacheTop) w s m [FilePath]
 allFiles = do
   FileCacheTop top <- fileCacheTop
   dirs <- liftIOError $ listDirectory top

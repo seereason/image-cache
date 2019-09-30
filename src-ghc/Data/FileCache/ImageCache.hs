@@ -8,10 +8,10 @@
 -- and added.
 --
 -- The 'ImageKey' type describes the 'ImageFile' we would like the
--- system to produce.  This is passed to the 'build' method (which may
--- use IO) of 'MonadCache', and if that 'ImageKey' is not already in
--- the cache the desired 'ImageFile' is generated, added to the cache,
--- and returned.
+-- system to produce.  This is passed to the 'buildCacheValue' method
+-- (which may use IO) of 'MonadCache', and if that 'ImageKey' is not
+-- already in the cache the desired 'ImageFile' is generated, added to
+-- the cache, and returned.
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -30,8 +30,7 @@
 
 module Data.FileCache.ImageCache
     ( -- * Image cache monad
-      ImageCacheT
-    , runImageCacheT
+      runImageCacheT
     , execImageCacheT
     -- * ImageFile upload
     , imageFileFromBytes
@@ -64,7 +63,7 @@ import Data.FileCache.AcidCache (HasCache(..))
 import Data.FileCache.Exif (normalizeOrientationCode)
 import Data.FileCache.FileCache ({-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, loadBytesSafe)
-import Data.FileCache.FileCacheT (execFileCacheT, FileCacheT, FileCacheTop, HasFileCacheTop, runFileCacheT)
+import Data.FileCache.FileCacheT (execFileCacheT, FileCacheTop, HasFileCacheTop, runFileCacheT)
 import Data.FileCache.FileError (FileError(..), HasFileError)
 import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..),
                         fileExtension, PixmapShape(..), scaleFromDPI, approx)
@@ -303,7 +302,7 @@ pipe' = intercalate " | "
 
 $(makeLensesFor [("imageFile", "imageFileL")] ''ImageFile)
 
-type ImageCacheT w s e m = FileCacheT (AcidState (CacheMap ImageKey ImageFile FileError)) w s m
+-- type ImageCacheT w s e m = RWST (AcidState (CacheMap ImageKey ImageFile FileError), FileCacheTop) w s m
 
 runImageCacheT ::
     (top ~ FileCacheTop, Monad m)
@@ -315,9 +314,10 @@ execImageCacheT ::
     => Proxy w -> s -> acid -> top -> RWST (acid, top) w s m a -> m s
 execImageCacheT = execFileCacheT
 
--- | Build a MonadCache instance for images on top of a MonadFileCache
--- instance and a reader for the acid state.
-instance (MonadIOError e m, HasFileError e, Monoid w, m' ~ ImageCacheT w s e m, Show e)
+-- | 'HasCache' instance for images on top of the 'RWST' monad run by
+-- 'runFileCacheT'
+instance (MonadIOError e m, HasFileError e, Show e, Monoid w,
+          m' ~ RWST (acid, top) w s m, acid ~ AcidState (CacheMap ImageKey ImageFile FileError), top ~ FileCacheTop)
   => HasCache ImageKey ImageFile FileError m' where
     askCacheAcid = view _1 :: m' (AcidState (CacheMap ImageKey ImageFile FileError))
     buildCacheValue = buildImageFile
