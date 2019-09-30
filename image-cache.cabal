@@ -88,6 +88,7 @@ Library
     th-orphans >= 0.9,
     transformers
   if !impl(ghcjs)
+    Hs-Source-Dirs: src-ghc
     Other-Modules:
       Data.FileCache.AcidCache
       Data.FileCache.ErrorWithIO

@@ -157,7 +157,8 @@ class PixmapShape a where
     pixmapMaxVal :: a -> Int
 
 -- |Given the desired DPI and image dimensions, return the factor by
--- which an image should be scaled.
+-- which an image should be scaled.  Result of Nothing means the scale
+-- is pathological.
 scaleFromDPI :: PixmapShape a => Rational -> ImageSize -> a -> Maybe Rational
 scaleFromDPI dpi sz file =
     case _dim sz of

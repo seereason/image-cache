@@ -323,8 +323,6 @@ instance (MonadIOError e m, HasFileError e, Monoid w, m' ~ ImageCacheT w s e m, 
     buildCacheValue = buildImageFile
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
--- Note that this does not insert the new 'ImageFile' into the acid
--- state.
 buildImageFile :: (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
   => ImageKey -> m (CacheValue FileError ImageFile)
 buildImageFile (ImageOriginal img) = return (Cached img)
