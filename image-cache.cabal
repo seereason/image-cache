@@ -55,7 +55,6 @@ Library
     Data.FileCache
   Other-modules:
     Data.FileCache.Image
-    Data.FileCache.FileCacheT
     Data.FileCache.FileError
     Data.FileCache.LogException
     Data.FileCache.Types
@@ -94,6 +93,7 @@ Library
       Data.FileCache.ErrorWithIO
       Data.FileCache.Exif
       Data.FileCache.FileCache
+      Data.FileCache.FileCacheT
       Data.FileCache.ImageCache
       Data.FileCache.ImageFile
     Build-Depends:

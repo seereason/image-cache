@@ -14,11 +14,13 @@
 {-# OPTIONS_GHC -Wall -Wredundant-constraints -fno-warn-orphans #-}
 
 module Data.FileCache.Types
-    ( -- * Open cache
-      CacheMap(..)
+    ( FileCacheTop(..)
+    , HasFileCacheTop(fileCacheTop)
+      -- * Open cache
+    , CacheMap(..)
     , CacheValue(..){-, _InProgress, _Cached, _Failed-}
     , Checksum
-    , FileSource(..), fileSource, fileChksum, fileMessages, fileExt
+    , FileSource(..)
     , File(..)
     , fileURI
     , filePath
@@ -27,7 +29,7 @@ module Data.FileCache.Types
     , md5'
     ) where
 
-import Control.Lens (makeLenses, over, view)
+import Control.Lens (over)
 import Control.Lens.Path (HOP(FIELDS), makePathInstances)
 import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
 #ifdef LAZYIMAGES
@@ -37,6 +39,7 @@ import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
 import Data.Digest.Pure.MD5 ( md5 )
+import Data.Generics.Product (field)
 import Data.Map.Strict as Map (Map)
 import Data.Serialize (label, Serialize(..))
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
@@ -49,6 +52,13 @@ import System.FilePath (makeRelative, (</>))
 import Test.QuickCheck ( Arbitrary(..), oneof )
 #endif
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+
+newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
+
+-- | Class of monads with a 'FilePath' value containing the top
+-- directory of a file cache.
+class Monad m => HasFileCacheTop m where
+    fileCacheTop :: m FileCacheTop
 
 data CacheValue err val
     = InProgress
@@ -128,8 +138,6 @@ data File
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
 
-$(makeLenses ''File)
-
 instance SafeCopy FileSource where version = 1
 instance SafeCopy File where version = 2
 instance Serialize FileSource where get = safeGet; put = safePut
@@ -137,13 +145,13 @@ instance Serialize File where get = safeGet; put = safePut
 
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
-fileURI file = case view fileSource file of
+fileURI file = case _fileSource file of
                  Just (TheURI uri) -> maybe (parseRelativeReference uri) Just (parseURI uri)
                  _ -> Nothing
 
 -- |Add a message to the file message list.
 addMessage :: String -> File -> File
-addMessage message file = over fileMessages (++ [message]) file
+addMessage message file = over (field @"_fileMessages") (++ [message]) file
 
 md5' :: P.ByteString -> String
 #ifdef LAZYIMAGES
@@ -153,10 +161,10 @@ md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
 
 filePath :: File -> FilePath
-filePath file = fileDir file <++> view fileChksum file <> view fileExt file
+filePath file = fileDir file <++> _fileChksum file <> _fileExt file
 
 fileDir :: File -> FilePath
-fileDir file = take 2 (view fileChksum file)
+fileDir file = take 2 (_fileChksum file)
 
 deriving instance Show FileSource
 deriving instance Read FileSource

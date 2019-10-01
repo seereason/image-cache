@@ -33,7 +33,7 @@ import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
 import Data.FileCache.LogException (Loggable(logit))
-import Data.SafeCopy (base, deriveSafeCopy, safeGet, safePut)
+import Data.SafeCopy (SafeCopy(version), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
 import Extra.Except (HasIOException(fromIOException))
@@ -87,7 +87,7 @@ logErrorCall x =
                               liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
                           _ -> return (Left e)) (return . Right)
 
-#if 1
+#if 0
 $(deriveSafeCopy 1 'base ''CommandInfo)
 $(deriveSafeCopy 1 'base ''FileError)
 #else

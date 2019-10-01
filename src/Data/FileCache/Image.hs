@@ -104,8 +104,6 @@ readRationalMaybe s =
 
 instance View Rational where type ViewType Rational = Text; _View = rationalIso . iso pack unpack
 
-$(makeValueInstance [] [t|Rational|])
-
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
 -- mapRatio f r = f (numerator r) % f (denominator r)
 
@@ -376,15 +374,6 @@ deriving instance Typeable ImageCrop
 deriving instance Typeable (SaneSize a)
 deriving instance Typeable ImageFile
 
-{-
-$(concat <$>
-  sequence
-  [ makeLenses ''ImageFile
-  , makeLenses ''ImageSize
-  , makeLenses ''SaneSize
-  ])
--}
-
 instance View (SaneSize ImageSize) where
     type ViewType (SaneSize ImageSize) = ImageSize
     _View = newtypeIso
@@ -393,13 +382,13 @@ instance View (Maybe ImageFile) where type ViewType (Maybe ImageFile) = String; 
 
 $(concat <$>
   sequence
-  [ makePathInstances [FIELDS] ''ImageFile
+  [ makeValueInstance [] [t|Rational|]
+  , makePathInstances [FIELDS] ''ImageFile
   , makePathInstances [] ''ImageType
   , makePathInstances [FIELDS] ''ImageSize
   , makePathInstances [] ''Dimension
   , makePathInstances [FIELDS] ''ImageCrop
   , makePathInstances [FIELDS] ''ImageKey
   , makePathInstances [] ''Units
+  , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
   ])
-
-$(makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|])
