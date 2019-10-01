@@ -23,6 +23,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints -fno-warn-orphans #-}
@@ -47,14 +48,13 @@ module Data.FileCache.FileCache
     , fileCacheDir
     ) where
 
-import Control.Lens (set, view)
+import Control.Lens (set)
 import Control.Monad ( unless )
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString as P
 #endif
-import Data.FileCache.FileCacheT (FileCacheTop(FileCacheTop), HasFileCacheTop(fileCacheTop))
 import Data.FileCache.Types
 import Data.Monoid ( (<>) )
 import Data.Text (pack, unpack)
@@ -63,6 +63,7 @@ import Control.Monad.Except (catchError, throwError)
 import Control.Monad.RWS (RWST)
 import Data.FileCache.ErrorWithIO (readCreateProcessWithExitCode')
 import Data.FileCache.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
+import Data.Generics.Product (field)
 import Extra.Except (liftIOError, MonadIOError)
 import Network.URI (URI(..))
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
@@ -81,7 +82,7 @@ a <++> b = a </> (makeRelative "" b)
 -- uri of the cache home directory.
 fileCacheURI :: URI -> File -> URI
 fileCacheURI cacheDirectoryURI file =
-    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> view fileChksum file}
+    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> _fileChksum file}
 
 -- | Turn the bytes in a ByteString into a File.  This is an IO
 -- operation because it saves the data into the local cache.  We
@@ -114,7 +115,7 @@ fileFromPath ::
 fileFromPath byteStringInfo toFileExt path = do
   bytes <- liftIOError $ P.readFile path
   (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
-  return (set fileSource (Just (ThePath path)) file, a)
+  return (set (field @"_fileSource") (Just (ThePath path)) file, a)
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
@@ -128,7 +129,7 @@ fileFromCmd byteStringInfo toFileExt cmd = do
   case code of
     ExitSuccess ->
         do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
-           return $ (set fileSource (Just (ThePath cmd)) file, a)
+           return $ (set (field @"_fileSource") (Just (ThePath cmd)) file, a)
     ExitFailure _ ->
         throwError $ fromFileError $ CommandFailure (FunctionName "fileFromCmd" (Command (pack (show (shell cmd))) (pack (show code))))
 
@@ -146,7 +147,7 @@ fileFromURI byteStringInfo toFileExt uri =
        case code of
          ExitSuccess ->
              do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
-                return (set fileSource (Just (TheURI uri)) file, bytes')
+                return (set (field @"_fileSource") (Just (TheURI uri)) file, bytes')
          _ -> throwError $ fromFileError $ CommandFailure (FunctionName "fileFromURI" (Command (pack (show cmd)) (pack (show code))))
 
 -- | Build a file from the output of a command.  This uses a temporary
@@ -235,10 +236,10 @@ loadBytesSafe ::
 loadBytesSafe file =
     do path <- fileCachePath file
        bytes <- readFileBytes path
-       case md5' bytes == view fileChksum file of
+       case md5' bytes == _fileChksum file of
          True -> return bytes
          False -> do
-           let msg = "Checksum mismatch: expected " ++ show (view fileChksum file) ++ ", file contains " ++ show (md5' bytes)
+           let msg = "Checksum mismatch: expected " ++ show (_fileChksum file) ++ ", file contains " ++ show (md5' bytes)
            liftIOError (logM "Appraisal.FileCache" ERROR msg)
            throwError $ fromFileError CacheDamage
 
@@ -274,7 +275,7 @@ fileCachePath :: HasFileCacheTop m => File -> m FilePath
 fileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
 
 oldFileCachePath :: HasFileCacheTop m => File -> m FilePath
-oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> view fileChksum file
+oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> _fileChksum file
 
 fileCacheDir :: HasFileCacheTop m => File -> m FilePath
 fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file

@@ -29,8 +29,10 @@ module Data.FileCache.Types
     , md5'
     ) where
 
-import Control.Lens (over)
+import Control.Lens (_2, over, view)
+import Control.Monad.Except (ExceptT)
 import Control.Lens.Path (HOP(FIELDS), makePathInstances)
+import Control.Monad.RWS (lift, RWST)
 import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -53,12 +55,18 @@ import Test.QuickCheck ( Arbitrary(..), oneof )
 #endif
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
-newtype FileCacheTop = FileCacheTop {unFileCacheTop :: FilePath} deriving Show
+newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
 
 -- | Class of monads with a 'FilePath' value containing the top
 -- directory of a file cache.
 class Monad m => HasFileCacheTop m where
     fileCacheTop :: m FileCacheTop
+
+instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m) where
+    fileCacheTop = view _2
+
+instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
+    fileCacheTop = lift fileCacheTop
 
 data CacheValue err val
     = InProgress

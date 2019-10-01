@@ -31,19 +31,11 @@ module Data.FileCache.FileCacheT
     ) where
 
 import Control.Lens (_1, _2, view)
-import Control.Monad.Except -- (ExceptT(ExceptT), liftEither, MonadError(..), runExceptT, withExceptT)
-import Control.Monad.Reader ({-mapReaderT,-} MonadReader(ask))
 import Control.Monad.RWS
 import Control.Monad.Trans (lift, MonadIO(..), MonadTrans(lift))
-import Data.FileCache.Types (FileCacheTop, HasFileCacheTop(fileCacheTop))
+import Data.FileCache.Types (FileCacheTop(..), HasFileCacheTop(fileCacheTop))
 import Data.Generics (Proxy)
 import System.Directory (createDirectoryIfMissing)
-
-instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m) where
-    fileCacheTop = view _2 <$> ask
-
-instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
-    fileCacheTop = lift fileCacheTop
 
 runFileCacheT' ::
        Proxy w
@@ -61,4 +53,4 @@ execFileCacheT :: Monad m => Proxy w -> s -> acid -> FileCacheTop -> RWST (acid,
 execFileCacheT w s0 r0 top action = view _2 <$> runFileCacheT' w s0 r0 top action
 
 ensureFileCacheTop :: (MonadIO m, Monoid w) => RWST (acid, FileCacheTop) w s m ()
-ensureFileCacheTop = fileCacheTop >>= lift . liftIO . createDirectoryIfMissing True . unFileCacheTop
+ensureFileCacheTop = fileCacheTop >>= lift . liftIO . createDirectoryIfMissing True . _unFileCacheTop
