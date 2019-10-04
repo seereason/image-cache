@@ -46,7 +46,7 @@ module Data.FileCache.Image
 
 import Control.Lens (Iso', iso, Lens', lens, _Show)
 import Control.Lens.Path
-import Control.Lens.Path.PathValue (newtypeIso)
+import Control.Lens.Path.PathValueMap (newtypeIso)
 import Control.Lens.Path.View (viewIso)
 --import Control.Monad.Except (catchError)
 import Data.Default (Default(def))
