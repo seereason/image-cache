@@ -17,8 +17,6 @@ module Data.FileCache.Types
     ( FileCacheTop(..)
     , HasFileCacheTop(fileCacheTop)
       -- * Open cache
-    , CacheMap(..)
-    , CacheValue(..){-, _InProgress, _Cached, _Failed-}
     , Checksum
     , FileSource(..)
     , File(..)
@@ -68,45 +66,6 @@ instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m
 instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
     fileCacheTop = lift fileCacheTop
 
-data CacheValue err val
-    = InProgress
-    | Cached val
-    | Failed err
-    deriving (Generic, Eq, Ord, Functor)
-
--- Later we could make FileError a type parameter, but right now its
--- tangled with the MonadError type.
-data CacheMap key val err =
-    CacheMap {_unCacheMap :: Map key (CacheValue err val)}
-    deriving (Generic, Eq, Ord)
-
-#if 1
-$(deriveSafeCopy 1 'base ''CacheValue)
-instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
-      putCopy (CacheMap a)
-        = contain
-            (do safeput <- getSafePut
-                safeput a
-                return ())
-      getCopy
-        = contain
-            ((label "Appraisal.AcidCache.CacheMap:")
-               (do safeget <- getSafeGet @(Map key (CacheValue err val))
-                   (return CacheMap <*> safeget)))
-      version = 2
-      kind = extension
-      errorTypeName _ = "Appraisal.AcidCache.CacheMap"
-#else
-instance (SafeCopy err, SafeCopy val) => SafeCopy (CacheValue err val) where version = 1
-instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
-  version = 2
-  kind = extension
-#endif
-
-instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err) where
-    type MigrateFrom (CacheMap key val err) = Map key val
-    migrate mp = CacheMap (fmap Cached mp)
-
 {-
 $(concat <$>
   sequence
@@ -114,11 +73,6 @@ $(concat <$>
   , makeLenses ''CacheMap
   ])
 -}
-
-deriving instance (Data err, Data val) => Data (CacheValue err val)
-deriving instance (Ord key, Data key, Data val, Data err) => Data (CacheMap key val err)
-deriving instance (Show err, Show val) => Show (CacheValue err val)
-deriving instance (Show key, Show val, Show err) => Show (CacheMap key val err)
 
 (<++>) :: FilePath -> FilePath -> FilePath
 a <++> b = a </> (makeRelative "" b)

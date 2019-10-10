@@ -50,10 +50,13 @@ Library
   Hs-Source-Dirs: src
   GHC-Options: -Wall -Wredundant-constraints -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
-  Extensions: CPP, DataKinds
+  Extensions: ConstraintKinds, CPP, DataKinds, DeriveDataTypeable, DeriveFunctor, DeriveGeneric
+  Extensions: FlexibleInstances, FlexibleContexts, MultiParamTypeClasses, RankNTypes
+  Extensions: ScopedTypeVariables, StandaloneDeriving, TypeApplications, TypeFamilies
   Exposed-Modules:
     Data.FileCache
   Other-modules:
+    Data.FileCache.Cache
     Data.FileCache.Image
     Data.FileCache.FileError
     Data.FileCache.LogException
@@ -87,15 +90,16 @@ Library
     th-orphans >= 0.9,
     transformers
   if !impl(ghcjs)
-    Hs-Source-Dirs: src-ghc
     Other-Modules:
-      Data.FileCache.AcidCache
+      Data.FileCache.Acid
       Data.FileCache.ErrorWithIO
       Data.FileCache.Exif
       Data.FileCache.FileCache
       Data.FileCache.FileCacheT
       Data.FileCache.ImageCache
       Data.FileCache.ImageFile
+      Data.FileCache.Monad
+      Data.FileCache.MonadImageCache
     Build-Depends:
       acid-state,
       filemanip-extra,

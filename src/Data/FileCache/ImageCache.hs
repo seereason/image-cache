@@ -59,7 +59,7 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString.UTF8 as P
 import qualified Data.ByteString as P
 #endif
-import Data.FileCache.AcidCache (HasCache(..))
+import Data.FileCache.Cache (CacheMap, CacheValue(..))
 import Data.FileCache.Exif (normalizeOrientationCode)
 import Data.FileCache.FileCache ({-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                             fileFromCmd, loadBytesSafe)
@@ -69,7 +69,8 @@ import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageK
                         fileExtension, PixmapShape(..), scaleFromDPI, approx)
 import Data.FileCache.ImageFile (getFileType)
 import Data.FileCache.LogException (logException)
-import Data.FileCache.Types (CacheMap, CacheValue(..), File(..), FileCacheTop, HasFileCacheTop)
+import Data.FileCache.Monad (MonadFileCache(..))
+import Data.FileCache.Types (File(..), FileCacheTop, HasFileCacheTop)
 import Data.Generics (Proxy)
 import Data.Generics.Product (field)
 import Data.List (intercalate)
@@ -314,11 +315,11 @@ execImageCacheT ::
     => Proxy w -> s -> acid -> top -> RWST (acid, top) w s m a -> m s
 execImageCacheT = execFileCacheT
 
--- | 'HasCache' instance for images on top of the 'RWST' monad run by
+-- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'
 instance (MonadIOError e m, HasFileError e, Show e, Monoid w,
           m' ~ RWST (acid, top) w s m, acid ~ AcidState (CacheMap ImageKey ImageFile FileError), top ~ FileCacheTop)
-  => HasCache ImageKey ImageFile FileError m' where
+  => MonadFileCache ImageKey ImageFile FileError m' where
     askCacheAcid = view _1 :: m' (AcidState (CacheMap ImageKey ImageFile FileError))
     buildCacheValue = buildImageFile
 
