@@ -43,11 +43,11 @@ deriving instance (Show key, Show val, Show err) => Show (CacheMap key val err)
 
 instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err) where
     type MigrateFrom (CacheMap key val err) = Map key val
-    migrate mp = CacheMap (fmap Cached mp)
+    migrate mp = CacheMap (fmap Value mp)
 
 data CacheValue err val
     = InProgress
-    | Cached val
+    | Value val
     | Failed err
     deriving (Generic, Eq, Ord, Functor)
 

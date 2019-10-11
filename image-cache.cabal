@@ -57,6 +57,7 @@ Library
     Data.FileCache
   Other-modules:
     Data.FileCache.Cache
+    Data.FileCache.File
     Data.FileCache.Image
     Data.FileCache.FileError
     Data.FileCache.LogException

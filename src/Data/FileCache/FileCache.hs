@@ -55,6 +55,7 @@ import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString as P
 #endif
+import Data.FileCache.File
 import Data.FileCache.Types
 import Data.Monoid ( (<>) )
 import Data.Text (pack, unpack)
