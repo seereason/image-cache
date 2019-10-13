@@ -55,13 +55,13 @@ Library
   Extensions: ScopedTypeVariables, StandaloneDeriving, TypeApplications, TypeFamilies
   Exposed-Modules:
     Data.FileCache
-  Other-modules:
+  Exposed-Modules:
     Data.FileCache.Cache
+    Data.FileCache.Except
     Data.FileCache.File
     Data.FileCache.Image
     Data.FileCache.FileError
     Data.FileCache.LogException
-    Data.FileCache.Types
   Build-Depends:
     base >= 4,
     binary,
@@ -83,7 +83,7 @@ Library
     pretty >= 1.1.2,
     pureMD5,
     safecopy >= 0.9.4.4,
-    sr-extra >= 1.58,
+    sr-extra >= 1.64,
     syb,
     template-haskell,
     text,
@@ -91,15 +91,14 @@ Library
     th-orphans >= 0.9,
     transformers
   if !impl(ghcjs)
-    Other-Modules:
+    Exposed-Modules:
       Data.FileCache.Acid
       Data.FileCache.ErrorWithIO
       Data.FileCache.Exif
-      Data.FileCache.FileCache
-      Data.FileCache.FileCacheT
-      Data.FileCache.ImageCache
+      Data.FileCache.FileIO
+      Data.FileCache.ImageIO
       Data.FileCache.ImageFile
-      Data.FileCache.Monad
+      Data.FileCache.MonadFileCache
       Data.FileCache.MonadImageCache
     Build-Depends:
       acid-state,

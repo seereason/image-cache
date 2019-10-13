@@ -28,29 +28,23 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints #-}
 
-module Data.FileCache.ImageCache
-    ( -- * Image cache monad
-      runImageCacheT
-    , execImageCacheT
-    -- * ImageFile upload
-    , imageFileFromBytes
+module Data.FileCache.ImageIO
+    ( -- * ImageFile upload
+      imageFileFromBytes
     , imageFileFromURI
     , imageFileFromPath
-    -- * ImageFile query
+      -- * ImageFile query
     , imageFilePath
-    -- * Deriving new ImageFiles
+      -- * Deriving new ImageFiles
     , uprightImage
     , scaleImage
     , editImage
     ) where
 
 import Control.Exception (IOException, throw, try)
-import Control.Lens (_1, makeLensesFor, view)
+import Control.Lens (makeLensesFor, view)
 import Control.Monad.Except (catchError, MonadError)
---import Control.Monad.Reader (MonadReader(ask))
-import Control.Monad.RWS (RWST)
-import Control.Monad.Trans (liftIO, MonadIO)
-import Data.Acid (AcidState)
+import Control.Monad.Trans (liftIO)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as P (fromStrict, toStrict)
 #ifdef LAZYIMAGES
@@ -59,27 +53,21 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString.UTF8 as P
 import qualified Data.ByteString as P
 #endif
-import Data.FileCache.Cache (CacheMap, CacheValue(..))
+import Data.FileCache.Cache (CacheValue(..), HasFileCacheTop)
+import Data.FileCache.Except
 import Data.FileCache.Exif (normalizeOrientationCode)
 import Data.FileCache.File (File(..))
-import Data.FileCache.FileCache ({-fileChksum,-} fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
-                            fileFromCmd, loadBytesSafe)
-import Data.FileCache.FileCacheT (execFileCacheT, runFileCacheT)
+import Data.FileCache.FileIO (fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
+                              fileFromCmd, loadBytesSafe)
 import Data.FileCache.FileError (FileError(..), HasFileError)
-import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), ImageKey(..),
-                        fileExtension, PixmapShape(..), scaleFromDPI, approx)
+import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), fileExtension, PixmapShape(..), approx)
 import Data.FileCache.ImageFile (getFileType)
 import Data.FileCache.LogException (logException)
-import Data.FileCache.Monad (MonadFileCache(..))
-import Data.FileCache.Types (FileCacheTop, HasFileCacheTop)
-import Data.Generics (Proxy)
 import Data.Generics.Product (field)
 import Data.List (intercalate)
-import Data.Maybe ( fromMaybe )
 import Data.Text (pack)
-import Extra.Except
 import Network.URI (URI, uriToString)
-import Numeric (fromRat, showFFloat)
+import Numeric (showFFloat)
 import System.Exit (ExitCode(..))
 import System.Log.Logger (logM, Priority(ERROR))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
@@ -94,20 +82,20 @@ imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes ::
-    forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
+    forall m. (MonadIOError FileError m, HasFileCacheTop m)
     => ByteString
     -> m (CacheValue FileError ImageFile)
 imageFileFromBytes bs = fileFromBytes (liftIOError . getFileType) fileExtension bs >>= makeImageFile
 
 imageFileFromURI ::
-    (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
+    (MonadIOError FileError m, HasFileCacheTop m)
     => URI
     -> m (CacheValue FileError ImageFile)
 imageFileFromURI uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
 imageFileFromPath ::
-    (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m)
+    (MonadIOError FileError m, HasFileCacheTop m)
     => FilePath
     -> m (CacheValue FileError ImageFile)
 imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile
@@ -117,13 +105,13 @@ imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension 
 -- Note that 'InProgress' is not a possible result here, it will only
 -- occur for derived (scaled, cropped, etc.) images.
 makeImageFile ::
-    forall e m. (MonadIOError e m, HasFileCacheTop m)
+    forall e m. (MonadIOError FileError m, HasFileCacheTop m)
     => (File, ImageType)
     -> m (CacheValue FileError ImageFile)
 makeImageFile (file, ityp) = do
     path <- fileCachePath file
-    (r :: Either IOException ImageFile) <- liftIO (try ($logException ERROR (imageFileFromType path file ityp)))
-    return $ either (Failed . fromIOException) Value r
+    (r :: Either FileError ImageFile) <- tryIOError ($logException ERROR (imageFileFromType path file ityp))
+    return $ either Failed Value r
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -166,20 +154,31 @@ imageFileFromPnmfileOutput file typ out =
 -- corrected based on the EXIF orientation flag.  If the image is
 -- already upright this will return the original ImageFile.
 uprightImage ::
-    (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
+    (MonadIOError e m, e ~ FileError, HasFileCacheTop m)
     => ImageFile
     -> m (CacheValue FileError ImageFile)
 uprightImage orig = do
-  bs <- $logException ERROR (loadBytesSafe (view (field @"_imageFile") orig))
-  bs' <- $logException ERROR (liftIOError (normalizeOrientationCode (P.fromStrict bs)))
+#if 1
+  bs <- loadBytesSafe (view (field @"_imageFile") orig)
+  bs' <- liftIOError $ $logException ERROR $ normalizeOrientationCode (P.fromStrict bs)
+  either
+    (\_ -> return (Value orig))
+    (\bs'' -> fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'') >>= makeImageFile)
+    bs'
+#else
+  bs <- liftIOError ($logException ERROR (loadBytesSafe (view (field @"_imageFile") orig)))
+  bs' <- liftIOError ($logException ERROR (normalizeOrientationCode (P.fromStrict bs)))
   either (const (return (Value orig))) (\bs'' -> (fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
+#endif
 
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
 -- of the old other than size.
-scaleImage :: forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e) => Double -> ImageFile -> m (CacheValue FileError ImageFile)
+scaleImage ::
+  forall m. (MonadIOError FileError m, HasFileCacheTop m)
+  => Double -> ImageFile -> m (CacheValue FileError ImageFile)
 scaleImage scale orig | approx (toRational scale) == 1 = return (Value orig)
-scaleImage scale orig = $logException ERROR $ do
+scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
     path <- fileCachePath (view (field @"_imageFile") orig)
     let decoder = case view (field @"_imageFileType") orig of
                     JPEG -> showCommandForUser "jpegtopnm" [path]
@@ -198,14 +197,18 @@ scaleImage scale orig = $logException ERROR $ do
     -- fileFromCmdViaTemp cmd >>= buildImage
     where
       buildImage :: (File, ImageType) -> m (CacheValue FileError ImageFile)
-      buildImage file = makeImageFile file `catchError` (\ e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)
+      buildImage file = makeImageFile file {-`catchError` (\e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)-}
+
+handleError :: MonadError e m => (e -> m a) -> m a -> m a
+handleError = flip catchError
 
 -- | Find or create a cached image which is a cropped version of
 -- another.
 editImage ::
-    forall e m. (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
+    forall e m. (MonadIOError e m, HasFileCacheTop m, e ~ FileError, HasFileError e, Show e)
     => ImageCrop -> ImageFile -> m (CacheValue FileError ImageFile)
-editImage crop file = $logException ERROR $
+editImage crop file =
+  logIOError $
     case commands of
       [] ->
           return (Value file)
@@ -303,40 +306,3 @@ pipe' :: [String] -> String
 pipe' = intercalate " | "
 
 $(makeLensesFor [("imageFile", "imageFileL")] ''ImageFile)
-
--- type ImageCacheT w s e m = RWST (AcidState (CacheMap ImageKey ImageFile FileError), FileCacheTop) w s m
-
-runImageCacheT ::
-    (top ~ FileCacheTop, Monad m)
-    => Proxy w -> s -> acid -> top -> RWST (acid, top) w s m a -> m a
-runImageCacheT = runFileCacheT
-
-execImageCacheT ::
-    (top ~ FileCacheTop, Monad m)
-    => Proxy w -> s -> acid -> top -> RWST (acid, top) w s m a -> m s
-execImageCacheT = execFileCacheT
-
--- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
--- 'runFileCacheT'
-instance (MonadIOError e m, HasFileError e, Show e, Monoid w,
-          m' ~ RWST (acid, top) w s m, acid ~ AcidState (CacheMap ImageKey ImageFile FileError), top ~ FileCacheTop)
-  => MonadFileCache ImageKey ImageFile FileError m' where
-    askCacheAcid = view _1 :: m' (AcidState (CacheMap ImageKey ImageFile FileError))
-    buildCacheValue = buildImageFile
-
--- | Build and return the 'ImageFile' described by the 'ImageKey'.
-buildImageFile :: (MonadIO m, HasFileCacheTop m, HasFileError e, MonadError e m, Show e)
-  => ImageKey -> m (CacheValue FileError ImageFile)
-buildImageFile (ImageOriginal img) = return (Value img)
-buildImageFile (ImageUpright key) =
-  buildImageFile key >>= overCached uprightImage
-buildImageFile (ImageScaled sz dpi key) = do
-  buildImageFile key >>= overCached (\img -> do
-                                        let scale = scaleFromDPI dpi sz img
-                                        $logException ERROR $ scaleImage (fromRat (fromMaybe 1 scale)) img)
-buildImageFile (ImageCropped crop key) = do
-  buildImageFile key >>= overCached (editImage crop)
-
-overCached :: Monad m => (a -> m (CacheValue e a)) -> CacheValue e a -> m (CacheValue e a)
-overCached f (Value a) = f a
-overCached _ v = pure v

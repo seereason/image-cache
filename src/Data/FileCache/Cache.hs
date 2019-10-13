@@ -5,8 +5,14 @@
 module Data.FileCache.Cache
   ( CacheMap(..)
   , CacheValue(..)
+  , FileCacheTop(..)
+  , HasFileCacheTop(fileCacheTop)
   ) where
 
+import Control.Lens (_2, view)
+import Control.Monad.Except (ExceptT, lift)
+import Control.Monad.Reader (ReaderT)
+import Control.Monad.RWS (RWST)
 import Data.Map
 import Data.SafeCopy
 import GHC.Generics
@@ -60,3 +66,19 @@ instance (SafeCopy' err, SafeCopy' val) => SafeCopy (CacheValue err val) where
   version = 1
   errorTypeName _ = "Data.FileCacheCache.CacheValue"
 #endif
+
+newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
+
+-- | Class of monads with a 'FilePath' value containing the top
+-- directory of a file cache.
+class Monad m => HasFileCacheTop m where
+    fileCacheTop :: m FileCacheTop
+
+instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m) where
+    fileCacheTop = view _2
+
+instance Monad m => HasFileCacheTop (ReaderT (acid, FileCacheTop) m) where
+    fileCacheTop = view _2
+
+instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
+    fileCacheTop = lift fileCacheTop

@@ -28,7 +28,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints -fno-warn-orphans #-}
 
-module Data.FileCache.FileCache
+module Data.FileCache.FileIO
     ( fileCacheURI
     , fileFromBytes
     , fileFromURI               -- was importFile
@@ -50,29 +50,29 @@ module Data.FileCache.FileCache
 
 import Control.Lens (set)
 import Control.Monad ( unless )
+import Control.Monad.Except (catchError, throwError)
+import Control.Monad.Reader (ReaderT)
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
 #else
 import qualified Data.ByteString as P
 #endif
 import Data.FileCache.File
-import Data.FileCache.Types
+import Data.FileCache.MonadFileCache
 import Data.Monoid ( (<>) )
 import Data.Text (pack, unpack)
-import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
-import Control.Monad.Except (catchError, throwError)
-import Control.Monad.RWS (RWST)
+import Data.FileCache.Cache
 import Data.FileCache.ErrorWithIO (readCreateProcessWithExitCode')
+import Data.FileCache.Except (liftIOError, MonadIOError)
 import Data.FileCache.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
 import Data.Generics.Product (field)
-import Extra.Except (liftIOError, MonadIOError)
 import Network.URI (URI(..))
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
 import System.Exit ( ExitCode(..) )
 import System.FilePath (makeRelative, (</>))
 import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
--- import System.Log.Logger ( logM, Priority(DEBUG, ERROR) )
+import System.Log.Logger ( logM, Priority(DEBUG, ERROR, CRITICAL) )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
 
@@ -230,18 +230,24 @@ cacheFile file bytes = do
                           then throwError $ fromFileError CacheDamage
                           else return file
 
--- | Read and return the contents of the file from the cache as a ByteString.
+-- | Read and return the contents of the file from the cache as a
+-- ByteString.  Verify that the checksum matches the checksum field of
+-- the 'File'.
 loadBytesSafe ::
-    (HasFileError e, MonadIOError e m, HasFileCacheTop m)
+    forall e m. (HasFileError e, MonadIOError e m, HasFileCacheTop m)
     => File -> m P.ByteString
 loadBytesSafe file =
     do path <- fileCachePath file
-       bytes <- readFileBytes path
+       bytes <- readFileBytes @e path
        case md5' bytes == _fileChksum file of
          True -> return bytes
+         -- If the checksum of the file we read from the cache does
+         -- not match its checksum field, we've got serious trouble.
+         -- We should probably try to read back files when we create
+         -- them
          False -> do
            let msg = "Checksum mismatch: expected " ++ show (_fileChksum file) ++ ", file contains " ++ show (md5' bytes)
-           liftIOError (logM "Appraisal.FileCache" ERROR msg)
+           liftIOError $ logM "Appraisal.FileCache" CRITICAL msg
            throwError $ fromFileError CacheDamage
 
 -- | Load an image file without verifying its checksum
@@ -249,7 +255,7 @@ loadBytesUnsafe :: (HasFileError e, MonadIOError e m, HasFileCacheTop m) => File
 loadBytesUnsafe file = fileCachePath file >>= readFileBytes
 
 readFileBytes :: (MonadIOError e m) => FilePath -> m P.ByteString
-readFileBytes path = liftIOError (P.readFile path)
+readFileBytes path = liftIOError $ P.readFile path
 
 fileCachePathIO :: (MonadIOError e m, HasFileCacheTop m) => File -> m FilePath
 fileCachePathIO file = do
@@ -264,7 +270,7 @@ listDirectory path =
 
 -- | Scan all the file cache directories for files without using
 -- the database.
-allFiles :: (MonadIOError e m, Monoid w) => RWST (st, FileCacheTop) w s m [FilePath]
+allFiles :: (MonadIOError e m) => ReaderT (st, FileCacheTop) m [FilePath]
 allFiles = do
   FileCacheTop top <- fileCacheTop
   dirs <- liftIOError $ listDirectory top

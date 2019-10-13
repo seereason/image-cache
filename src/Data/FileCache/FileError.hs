@@ -32,11 +32,11 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
+import Data.FileCache.Except -- (HasIOException(fromIOException), liftIOError)
 import Data.FileCache.LogException (Loggable(logit))
 import Data.SafeCopy (SafeCopy(version), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
-import Extra.Except (HasIOException(fromIOException))
 import Extra.Serialize ({-instance Serialize Text-})
 import GHC.Generics (Generic)
 import Language.Haskell.TH.Syntax (Loc(loc_module))
@@ -51,9 +51,11 @@ data FileError
     | CacheDamage -- ^ The contents of a cache file are wrong
     deriving (Eq, Ord, Generic)
 
+-- | This ensures that runExceptT catches IOException
+instance HasIOException FileError where fromIOException = IOException . pack . show
+
 class HasIOException e => HasFileError e where fromFileError :: FileError -> e
 instance HasFileError FileError where fromFileError = id
-instance HasIOException FileError where fromIOException = IOException . pack . show
 
 -- | Information about a shell command that failed.  This is
 -- recursive so we can include as much or as little as desired.
@@ -67,10 +69,10 @@ data CommandInfo
     deriving (Eq, Ord, Generic)
 
 instance Loggable FileError where
-  logit priority loc (IOException e) = liftIO (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
-  logit priority loc (ErrorCall e) = liftIO (logM (loc_module loc) priority (" - error call: " <> show e))
-  logit priority loc (CommandFailure info) = liftIO (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
-  logit priority loc CacheDamage = liftIO (logM (loc_module loc) priority " - file cache is damaged")
+  logit priority loc (IOException e) = (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
+  logit priority loc (ErrorCall e) = (logM (loc_module loc) priority (" - error call: " <> show e))
+  logit priority loc (CommandFailure info) = (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
+  logit priority loc CacheDamage = logM (loc_module loc) priority " - file cache is damaged"
 
 logCommandInfo :: Priority -> Loc -> CommandInfo -> IO ()
 logCommandInfo priority loc (Description s e) = logM (loc_module loc) priority (" - error description: " <> s) >> logCommandInfo priority loc e

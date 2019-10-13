@@ -42,4 +42,4 @@ logExceptionV =
                                 throwError e) |]
 
 class Loggable a where
-  logit :: MonadIO m => Priority -> Loc -> a -> m ()
+  logit :: Priority -> Loc -> a -> IO ()
