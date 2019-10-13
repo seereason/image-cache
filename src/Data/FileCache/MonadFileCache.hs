@@ -20,12 +20,12 @@ import Control.Monad.Trans (lift, MonadIO(..), MonadTrans(lift))
 import Data.Acid
 import Data.FileCache.Acid
 import Data.FileCache.Cache (CacheMap, CacheValue, FileCacheTop(..), fileCacheTop, HasFileCacheTop)
-import Data.FileCache.Except -- (MonadIOError(liftIOError))
 import Data.FileCache.FileError (FileError, HasFileError)
 import Data.Proxy (Proxy)
 import Data.SafeCopy
 import Data.Set (Set)
 import Data.Typeable
+import Extra.Except -- (MonadIOError(liftIOError))
 import System.Directory (createDirectoryIfMissing)
 
 type FileCacheT key val m = RWST (AcidState (CacheMap key val FileError), FileCacheTop) W S (ExceptT FileError m)

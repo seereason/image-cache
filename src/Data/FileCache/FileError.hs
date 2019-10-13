@@ -32,11 +32,11 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
-import Data.FileCache.Except -- (HasIOException(fromIOException), liftIOError)
 import Data.FileCache.LogException (Loggable(logit))
 import Data.SafeCopy (SafeCopy(version), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
+import Extra.Except -- (HasIOException(fromIOException), liftIOError)
 import Extra.Serialize ({-instance Serialize Text-})
 import GHC.Generics (Generic)
 import Language.Haskell.TH.Syntax (Loc(loc_module))

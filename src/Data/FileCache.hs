@@ -5,7 +5,6 @@
 
 module Data.FileCache
   ( module Data.FileCache.Cache
-  , module Data.FileCache.Except
   , module Data.FileCache.File
   , module Data.FileCache.FileError
   , module Data.FileCache.Image
@@ -23,7 +22,6 @@ module Data.FileCache
   ) where
 
 import Data.FileCache.Cache
-import Data.FileCache.Except
 import Data.FileCache.File
 import Data.FileCache.FileError
 import Data.FileCache.Image

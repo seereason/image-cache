@@ -17,7 +17,6 @@ import Control.Monad.Except
 import Control.Monad.RWS
 import Data.Acid (AcidState)
 import Data.FileCache.Cache
-import Data.FileCache.Except
 import Data.FileCache.FileError (FileError, HasFileError(fromFileError))
 import Data.FileCache.Image (ImageFile, ImageKey(..), scaleFromDPI)
 import Data.FileCache.ImageIO (uprightImage, scaleImage, editImage)
@@ -25,7 +24,7 @@ import Data.FileCache.LogException (logException)
 import Data.FileCache.MonadFileCache (FileCacheT, W, S, MonadFileCache(..)
                                      {-, evalFileCacheT, execFileCacheT, runFileCacheT, writeFileCacheT-})
 import Data.Maybe (fromMaybe)
-import Extra.Except (mapError)
+import Extra.Except (logIOError, mapError, MonadIOError)
 import Extra.Log (Priority(ERROR))
 import Numeric (fromRat)
 

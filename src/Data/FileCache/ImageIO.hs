@@ -54,7 +54,6 @@ import qualified Data.ByteString.UTF8 as P
 import qualified Data.ByteString as P
 #endif
 import Data.FileCache.Cache (CacheValue(..), HasFileCacheTop)
-import Data.FileCache.Except
 import Data.FileCache.Exif (normalizeOrientationCode)
 import Data.FileCache.File (File(..))
 import Data.FileCache.FileIO (fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
@@ -66,6 +65,7 @@ import Data.FileCache.LogException (logException)
 import Data.Generics.Product (field)
 import Data.List (intercalate)
 import Data.Text (pack)
+import Extra.Except
 import Network.URI (URI, uriToString)
 import Numeric (showFFloat)
 import System.Exit (ExitCode(..))

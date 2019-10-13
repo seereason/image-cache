@@ -57,7 +57,6 @@ Library
     Data.FileCache
   Exposed-Modules:
     Data.FileCache.Cache
-    Data.FileCache.Except
     Data.FileCache.File
     Data.FileCache.Image
     Data.FileCache.FileError
