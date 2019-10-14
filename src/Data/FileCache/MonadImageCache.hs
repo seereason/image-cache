@@ -82,8 +82,7 @@ overCached _ v = pure v
 
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'
-instance (HasFileError e, Show e, Monad m, e ~ FileError,
-          acid ~ AcidState (CacheMap ImageKey ImageFile FileError), top ~ FileCacheTop)
-  => MonadFileCache ImageKey ImageFile FileError (RWST (acid, top) W S (ExceptT e m)) where
-    askCacheAcid = view _1 :: RWST (acid, top) W S (ExceptT e m) (AcidState (CacheMap ImageKey ImageFile FileError))
+instance (MonadError FileError m, acid ~ AcidState (CacheMap ImageKey ImageFile FileError), top ~ FileCacheTop)
+  => MonadFileCache ImageKey ImageFile FileError (RWST (acid, top) W S m) where
+    askCacheAcid = view _1 :: RWST (acid, top) W S m (AcidState (CacheMap ImageKey ImageFile FileError))
     buildCacheValue = buildImageFile
