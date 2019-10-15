@@ -17,19 +17,19 @@ import Control.Monad.Except
 import Control.Monad.RWS
 import Data.Acid (AcidState)
 import Data.FileCache.Cache
-import Data.FileCache.FileError (FileError, HasFileError(fromFileError))
+import Data.FileCache.FileError (FileError)
 import Data.FileCache.Image (ImageFile, ImageKey(..), scaleFromDPI)
 import Data.FileCache.ImageIO (uprightImage, scaleImage, editImage)
-import Data.FileCache.LogException (logException)
+--import Data.FileCache.LogException (logException)
 import Data.FileCache.MonadFileCache (FileCacheT, W, S, MonadFileCache(..)
                                      {-, evalFileCacheT, execFileCacheT, runFileCacheT, writeFileCacheT-})
 import Data.Maybe (fromMaybe)
-import Extra.Except (logIOError, mapError, MonadIOError)
-import Extra.Log (Priority(ERROR))
+import Extra.Except (logIOError, MonadIOError)
+--import Extra.Log (Priority(ERROR))
 import Numeric (fromRat)
 
 type ImageCacheT m = FileCacheT ImageKey ImageFile m
-type MonadImageCache m = MonadFileCache ImageKey ImageFile FileError m
+type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 
 #if 0
 runImageCacheT ::
@@ -64,7 +64,7 @@ writeImageCacheT = writeFileCacheT
 #endif
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
-buildImageFile :: (MonadIOError FileError m, HasFileCacheTop m) => ImageKey -> m (CacheValue FileError ImageFile)
+buildImageFile :: (MonadIOError FileError m, HasFileCacheTop m) => ImageKey -> m (CacheValue ImageFile)
 buildImageFile (ImageOriginal img) = return (Value img)
 buildImageFile (ImageUpright key) =
   -- mapError (\m -> either (Left . fromFileError) Right <$> m) $
@@ -76,13 +76,13 @@ buildImageFile (ImageScaled sz dpi key) = do
 buildImageFile (ImageCropped crop key) = do
   buildImageFile key >>= overCached (editImage crop)
 
-overCached :: Monad m => (a -> m (CacheValue e a)) -> CacheValue e a -> m (CacheValue e a)
+overCached :: Monad m => (a -> m (CacheValue a)) -> CacheValue a -> m (CacheValue a)
 overCached f (Value a) = f a
 overCached _ v = pure v
 
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'
-instance (MonadError FileError m, acid ~ AcidState (CacheMap ImageKey ImageFile FileError), top ~ FileCacheTop)
-  => MonadFileCache ImageKey ImageFile FileError (RWST (acid, top) W S m) where
-    askCacheAcid = view _1 :: RWST (acid, top) W S m (AcidState (CacheMap ImageKey ImageFile FileError))
+instance (MonadError FileError m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
+  => MonadFileCache ImageKey ImageFile (RWST (acid, top) W S m) where
+    askCacheAcid = view _1 :: RWST (acid, top) W S m (AcidState (CacheMap ImageKey ImageFile))
     buildCacheValue = buildImageFile

@@ -41,9 +41,9 @@ module Data.FileCache.ImageIO
     , editImage
     ) where
 
-import Control.Exception (IOException, throw, try)
+import Control.Exception (IOException, throw)
 import Control.Lens (makeLensesFor, view)
-import Control.Monad.Except (catchError, MonadError)
+import Control.Monad.Except (catchError)
 import Control.Monad.Trans (liftIO)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as P (fromStrict, toStrict)
@@ -58,7 +58,7 @@ import Data.FileCache.Exif (normalizeOrientationCode)
 import Data.FileCache.File (File(..))
 import Data.FileCache.FileIO (fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                               fileFromCmd, loadBytesSafe)
-import Data.FileCache.FileError (FileError(..), HasFileError)
+import Data.FileCache.FileError (FileError(..))
 import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), fileExtension, PixmapShape(..), approx)
 import Data.FileCache.ImageFile (getFileType)
 import Data.FileCache.LogException (logException)
@@ -84,20 +84,20 @@ imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 imageFileFromBytes ::
     forall m. (MonadIOError FileError m, HasFileCacheTop m)
     => ByteString
-    -> m (CacheValue FileError ImageFile)
+    -> m (CacheValue ImageFile)
 imageFileFromBytes bs = fileFromBytes (liftIOError . getFileType) fileExtension bs >>= makeImageFile
 
 imageFileFromURI ::
     (MonadIOError FileError m, HasFileCacheTop m)
     => URI
-    -> m (CacheValue FileError ImageFile)
+    -> m (CacheValue ImageFile)
 imageFileFromURI uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 
 -- | Find or create a cached image file by reading from local file.
 imageFileFromPath ::
     (MonadIOError FileError m, HasFileCacheTop m)
     => FilePath
-    -> m (CacheValue FileError ImageFile)
+    -> m (CacheValue ImageFile)
 imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
@@ -105,9 +105,9 @@ imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension 
 -- Note that 'InProgress' is not a possible result here, it will only
 -- occur for derived (scaled, cropped, etc.) images.
 makeImageFile ::
-    forall e m. (MonadIOError FileError m, HasFileCacheTop m)
+    forall m. (MonadIOError FileError m, HasFileCacheTop m)
     => (File, ImageType)
-    -> m (CacheValue FileError ImageFile)
+    -> m (CacheValue ImageFile)
 makeImageFile (file, ityp) = do
     path <- fileCachePath file
     (r :: Either FileError ImageFile) <- tryIOError ($logException ERROR (imageFileFromType path file ityp))
@@ -156,7 +156,7 @@ imageFileFromPnmfileOutput file typ out =
 uprightImage ::
     (MonadIOError e m, e ~ FileError, HasFileCacheTop m)
     => ImageFile
-    -> m (CacheValue FileError ImageFile)
+    -> m (CacheValue ImageFile)
 uprightImage orig = do
 #if 1
   bs <- loadBytesSafe (view (field @"_imageFile") orig)
@@ -176,7 +176,7 @@ uprightImage orig = do
 -- of the old other than size.
 scaleImage ::
   forall m. (MonadIOError FileError m, HasFileCacheTop m)
-  => Double -> ImageFile -> m (CacheValue FileError ImageFile)
+  => Double -> ImageFile -> m (CacheValue ImageFile)
 scaleImage scale orig | approx (toRational scale) == 1 = return (Value orig)
 scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
     path <- fileCachePath (view (field @"_imageFile") orig)
@@ -196,17 +196,14 @@ scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
     fileFromCmd (liftIOError . getFileType) fileExtension cmd >>= buildImage
     -- fileFromCmdViaTemp cmd >>= buildImage
     where
-      buildImage :: (File, ImageType) -> m (CacheValue FileError ImageFile)
+      buildImage :: (File, ImageType) -> m (CacheValue ImageFile)
       buildImage file = makeImageFile file {-`catchError` (\e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)-}
-
-handleError :: MonadError e m => (e -> m a) -> m a -> m a
-handleError = flip catchError
 
 -- | Find or create a cached image which is a cropped version of
 -- another.
 editImage ::
-    forall e m. (MonadIOError e m, HasFileCacheTop m, e ~ FileError, HasFileError e, Show e)
-    => ImageCrop -> ImageFile -> m (CacheValue FileError ImageFile)
+    forall m. (MonadIOError FileError m, HasFileCacheTop m)
+    => ImageCrop -> ImageFile -> m (CacheValue ImageFile)
 editImage crop file =
   logIOError $
     case commands of
@@ -253,7 +250,7 @@ editImage crop file =
       convert GIF x = proc "giftopnm" [] : convert PPM x
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
-      err :: e -> m (CacheValue FileError ImageFile)
+      err :: FileError -> m (CacheValue ImageFile)
       err e = return $ Failed $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
 
 pipeline :: [CreateProcess] -> P.ByteString -> IO P.ByteString

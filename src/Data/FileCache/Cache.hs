@@ -13,18 +13,19 @@ import Control.Lens (_2, view)
 import Control.Monad.Except (ExceptT, lift)
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.RWS (RWST)
+import Data.FileCache.FileError (FileError)
 import Data.Map
 import Data.SafeCopy
 import GHC.Generics
 
 -- Later we could make FileError a type parameter, but right now its
 -- tangled with the MonadError type.
-data CacheMap key val err =
-    CacheMap {_unCacheMap :: Map key (CacheValue err val)}
+data CacheMap key val =
+    CacheMap {_unCacheMap :: Map key (CacheValue val)}
     deriving (Generic, Eq, Ord)
 
 #if 0
-instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val err) where
+instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val) where
       putCopy (CacheMap a)
         = contain
             (do safeput <- getSafePut
@@ -33,36 +34,36 @@ instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheM
       getCopy
         = contain
             ((label "Data.FileCache.Acid.CacheMap:")
-               (do safeget <- getSafeGet @(Map key (CacheValue err val))
+               (do safeget <- getSafeGet @(Map key (CacheValue val))
                    (return CacheMap <*> safeget)))
       version = 2
       kind = extension
       errorTypeName _ = "Data.FileCache.Types.CacheMap"
 #else
-instance (Ord key, SafeCopy' key, SafeCopy' val, SafeCopy' err) => SafeCopy (CacheMap key val err) where
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap key val) where
   version = 2
   kind = extension
   errorTypeName _ = "Data.FileCache.Types.CacheMap"
 #endif
 
-deriving instance (Show key, Show val, Show err) => Show (CacheMap key val err)
+deriving instance (Show key, Show val) => Show (CacheMap key val)
 
-instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val err) where
-    type MigrateFrom (CacheMap key val err) = Map key val
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val) where
+    type MigrateFrom (CacheMap key val) = Map key val
     migrate mp = CacheMap (fmap Value mp)
 
-data CacheValue err val
+data CacheValue val
     = InProgress
     | Value val
-    | Failed err
+    | Failed FileError
     deriving (Generic, Eq, Ord, Functor)
 
-deriving instance (Show err, Show val) => Show (CacheValue err val)
+deriving instance Show val => Show (CacheValue val)
 
 #if 1
 $(deriveSafeCopy 1 'base ''CacheValue)
 #else
-instance (SafeCopy' err, SafeCopy' val) => SafeCopy (CacheValue err val) where
+instance (SafeCopy' err, SafeCopy' val) => SafeCopy (CacheValue val) where
   version = 1
   errorTypeName _ = "Data.FileCacheCache.CacheValue"
 #endif
