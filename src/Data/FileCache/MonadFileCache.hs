@@ -5,8 +5,6 @@ module Data.FileCache.MonadFileCache
     FileCacheT, W(W), S(S)
   , ensureFileCacheTop
   , runFileCacheT, evalFileCacheT, execFileCacheT, writeFileCacheT
-  , runFileCacheIOT, evalFileCacheIOT, execFileCacheIOT, writeFileCacheIOT
-  , runFileCacheIOErrorT, evalFileCacheIOErrorT, execFileCacheIOErrorT, writeFileCacheIOErrorT
     -- * Monad class
   , MonadFileCache(askCacheAcid, buildCacheValue)
   , cacheInsert, cacheLook, cacheMap, cacheDelete, cacheMiss
@@ -45,30 +43,6 @@ runFileCacheT r0 top action = runRWST action (r0, top) S
 evalFileCacheT r0 top action = view _1 <$> runFileCacheT r0 top action
 execFileCacheT r0 top action = view _2 <$> runFileCacheT r0 top action
 writeFileCacheT r0 top action = view _3 <$> runFileCacheT r0 top action
-
--- | runFileCacheT with a MonadIO constraint.
-runFileCacheIOT ::
-  (HasFileError e, MonadError e m, MonadIO m)
-  => acid
-  -> FileCacheTop
-  -> RWST (acid, FileCacheTop) W S m a
-  -> m (a, S, W)
-runFileCacheIOT r0 top action = runRWST action (r0, top) S
-evalFileCacheIOT r0 top action = view _1 <$> runFileCacheIOT r0 top action
-execFileCacheIOT r0 top action = view _2 <$> runFileCacheIOT r0 top action
-writeFileCacheIOT r0 top action = view _3 <$> runFileCacheIOT r0 top action
-
--- | runFileCacheT with a MonadIOError constraint.
-runFileCacheIOErrorT ::
-  (HasFileError e, MonadIOError e m)
-  => acid
-  -> FileCacheTop
-  -> RWST (acid, FileCacheTop) W S m a
-  -> m (a, S, W)
-runFileCacheIOErrorT r0 top action = runRWST action (r0, top) S
-evalFileCacheIOErrorT r0 top action = view _1 <$> runFileCacheIOErrorT r0 top action
-execFileCacheIOErrorT r0 top action = view _2 <$> runFileCacheIOErrorT r0 top action
-writeFileCacheIOErrorT r0 top action = view _3 <$> runFileCacheIOErrorT r0 top action
 
 --instance MonadIOError FileError (ExceptT FileError m) where
 --  liftIOError io = try 
