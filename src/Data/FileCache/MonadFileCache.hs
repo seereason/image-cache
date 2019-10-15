@@ -2,7 +2,7 @@
 
 module Data.FileCache.MonadFileCache
   ( -- * Monad transformer
-    FileCacheT, W(W), S(S)
+    FileCacheT, W(W)
   , ensureFileCacheTop
   , runFileCacheT, evalFileCacheT, execFileCacheT, writeFileCacheT
     -- * Monad class
@@ -26,34 +26,35 @@ import Data.Typeable
 import Extra.Except -- (MonadIOError(liftIOError))
 import System.Directory (createDirectoryIfMissing)
 
-type FileCacheT key val m = RWST (AcidState (CacheMap key val), FileCacheTop) W S (ExceptT FileError m)
+type FileCacheT key val s m = RWST (AcidState (CacheMap key val), FileCacheTop) W s (ExceptT FileError m)
 
 data W = W
 instance Semigroup W where W <> W = W
 instance Monoid W where mempty = W; mappend = (<>)
-data S = S
 
 runFileCacheT ::
      acid
   -> FileCacheTop
-  -> RWST (acid, FileCacheTop) W S m a
-  -> m (a, S, W)
-runFileCacheT r0 top action = runRWST action (r0, top) S
+  -> s
+  -> RWST (acid, FileCacheTop) W s m a
+  -> m (a, s, W)
+runFileCacheT r0 top s0 action = runRWST action (r0, top) s0
 
 evalFileCacheT ::
   Functor m
   => acid
   -> FileCacheTop
-  -> RWST (acid, FileCacheTop) W S m a
+  -> s
+  -> RWST (acid, FileCacheTop) W s m a
   -> m a
-evalFileCacheT r0 top action = view _1 <$> runFileCacheT r0 top action
-execFileCacheT r0 top action = view _2 <$> runFileCacheT r0 top action
-writeFileCacheT r0 top action = view _3 <$> runFileCacheT r0 top action
+evalFileCacheT r0 top s0 action = view _1 <$> runFileCacheT r0 top s0 action
+execFileCacheT r0 top s0 action = view _2 <$> runFileCacheT r0 top s0 action
+writeFileCacheT r0 top s0 action = view _3 <$> runFileCacheT r0 top s0 action
 
 --instance MonadIOError FileError (ExceptT FileError m) where
 --  liftIOError io = try 
 
-ensureFileCacheTop :: MonadIOError e m => FileCacheT key val m ()
+ensureFileCacheTop :: MonadIOError e m => FileCacheT key val s m ()
 ensureFileCacheTop = do
   fileCacheTop >>= lift . lift . liftIOError . createDirectoryIfMissing True . _unFileCacheTop
 

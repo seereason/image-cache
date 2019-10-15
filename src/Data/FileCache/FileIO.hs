@@ -251,7 +251,7 @@ loadBytesSafe file =
            throwError $ fromFileError CacheDamage
 
 -- | Load an image file without verifying its checksum
-loadBytesUnsafe :: (HasFileError e, MonadIOError e m, HasFileCacheTop m) => File -> m P.ByteString
+loadBytesUnsafe :: ({-HasFileError e,-} MonadIOError e m, HasFileCacheTop m) => File -> m P.ByteString
 loadBytesUnsafe file = fileCachePath file >>= readFileBytes
 
 readFileBytes :: (MonadIOError e m) => FilePath -> m P.ByteString
