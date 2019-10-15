@@ -40,6 +40,12 @@ runFileCacheT ::
   -> m (a, S, W)
 runFileCacheT r0 top action = runRWST action (r0, top) S
 
+evalFileCacheT ::
+  Functor m
+  => acid
+  -> FileCacheTop
+  -> RWST (acid, FileCacheTop) W S m a
+  -> m a
 evalFileCacheT r0 top action = view _1 <$> runFileCacheT r0 top action
 execFileCacheT r0 top action = view _2 <$> runFileCacheT r0 top action
 writeFileCacheT r0 top action = view _3 <$> runFileCacheT r0 top action
