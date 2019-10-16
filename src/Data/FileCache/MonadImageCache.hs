@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, UndecidableInstances #-}
 {-# OPTIONS -Wall #-}
 
 module Data.FileCache.MonadImageCache
@@ -11,6 +11,7 @@ module Data.FileCache.MonadImageCache
   , writeImageCacheT
 #endif
   , fromImageCacheT
+  , fromImageCacheT'
   ) where
 
 import Control.Lens (_1, _Left, over, view)
@@ -18,7 +19,7 @@ import Control.Monad.Except
 import Control.Monad.RWS
 import Data.Acid (AcidState)
 import Data.FileCache.Cache
-import Data.FileCache.FileError (FileError, HasFileError(fromFileError))
+import Data.FileCache.FileError (FileError, HasFileError, fromFileError)
 import Data.FileCache.Image (ImageFile, ImageKey(..), scaleFromDPI)
 import Data.FileCache.ImageIO (uprightImage, scaleImage, editImage)
 --import Data.FileCache.LogException (logException)
@@ -65,7 +66,7 @@ writeImageCacheT = writeFileCacheT
 #endif
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
-buildImageFile :: (MonadIOError FileError m, HasFileCacheTop m) => ImageKey -> m (CacheValue ImageFile)
+buildImageFile :: (MonadIOError e m, HasFileError e, HasFileCacheTop m) => ImageKey -> m (CacheValue ImageFile)
 buildImageFile (ImageOriginal img) = return (Value img)
 buildImageFile (ImageUpright key) =
   -- mapError (\m -> either (Left . fromFileError) Right <$> m) $
@@ -83,7 +84,7 @@ overCached _ v = pure v
 
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'
-instance (MonadError FileError m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
+instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
   => MonadFileCache ImageKey ImageFile (RWST (acid, top) W s m) where
     askCacheAcid = view _1 :: RWST (acid, top) W s m (AcidState (CacheMap ImageKey ImageFile))
     buildCacheValue = buildImageFile
@@ -93,11 +94,11 @@ instance (MonadError FileError m, acid ~ AcidState (CacheMap ImageKey ImageFile)
 -- runExceptT :: ExceptT e m a -> m (Either e a)
 
 -- Crazy function to turn FileError into e.
-fromImageCacheT ::
+fromImageCacheT' ::
   forall e m a n. (HasFileError e, MonadIOError e m, MonadImageCache m, n ~ ImageCacheT () IO)
   => n (Either FileError a)
   -> m (Either e a)
-fromImageCacheT action1 = do
+fromImageCacheT' action1 = do
   acid <- askCacheAcid @ImageKey @ImageFile
   top <- fileCacheTop
   flattenExcept1 (evalFileCacheT acid top () action1)
@@ -111,19 +112,17 @@ fromImageCacheT action1 = do
     flattenEither = either Left id
 
 -- Crazy function to turn FileError into e.
-fromImageCacheT' ::
+fromImageCacheT ::
   forall e m a n. (HasFileError e, MonadIOError e m, MonadImageCache m, n ~ ImageCacheT () IO)
-  => n (Either FileError a)
+  => n a
   -> m a
-fromImageCacheT' action1 = do
+fromImageCacheT action = do
   acid <- askCacheAcid @ImageKey @ImageFile
   top <- fileCacheTop
-  flattenExcept1 (evalFileCacheT acid top () action1)
+  flattenExcept (evalFileCacheT acid top () action)
   where
-    flattenExcept1 :: ExceptT FileError IO (Either FileError a) -> m a
-    flattenExcept1 action = liftFileError (flattenEither <$> (runExceptT action))
-
-    flattenEither = either Left id
+    flattenExcept :: ExceptT FileError IO a -> m a
+    flattenExcept = liftFileError . runExceptT
 
     liftFileError :: IO (Either FileError a) -> m a
-    liftFileError action = liftIOError action >>= either (throwError . fromFileError) return
+    liftFileError action' = liftIOError action' >>= either (throwError . fromFileError) return

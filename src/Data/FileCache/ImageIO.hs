@@ -43,6 +43,7 @@ module Data.FileCache.ImageIO
 
 import Control.Exception (IOException, throw)
 import Control.Lens (makeLensesFor, view)
+import Control.Monad.Catch (try)
 import Control.Monad.Except (catchError)
 import Control.Monad.Trans (liftIO)
 import Data.ByteString (ByteString)
@@ -58,13 +59,13 @@ import Data.FileCache.Exif (normalizeOrientationCode)
 import Data.FileCache.File (File(..))
 import Data.FileCache.FileIO (fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                               fileFromCmd, loadBytesSafe)
-import Data.FileCache.FileError (FileError(..))
+import Data.FileCache.FileError (FileError(..), HasFileError, withFileError)
 import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), fileExtension, PixmapShape(..), approx)
 import Data.FileCache.ImageFile (getFileType)
 import Data.FileCache.LogException (logException)
 import Data.Generics.Product (field)
 import Data.List (intercalate)
-import Data.Text (pack)
+--import Data.Text (pack)
 import Extra.Except
 import Network.URI (URI, uriToString)
 import Numeric (showFFloat)
@@ -82,36 +83,43 @@ imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 
 -- | Find or create a cached image matching this ByteString.
 imageFileFromBytes ::
-    forall m. (MonadIOError FileError m, HasFileCacheTop m)
+    forall e m. (MonadIOError e m, HasFileCacheTop m)
     => ByteString
     -> m (CacheValue ImageFile)
-imageFileFromBytes bs = fileFromBytes (liftIOError . getFileType) fileExtension bs >>= makeImageFile
+imageFileFromBytes bs = fileFromBytes (liftIOError . liftIO . getFileType) fileExtension bs >>= makeImageFile'
 
 imageFileFromURI ::
-    (MonadIOError FileError m, HasFileCacheTop m)
+    (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => URI
     -> m (CacheValue ImageFile)
-imageFileFromURI uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
+imageFileFromURI uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile'
 
 -- | Find or create a cached image file by reading from local file.
 imageFileFromPath ::
-    (MonadIOError FileError m, HasFileCacheTop m)
+    (MonadIOError e m, HasFileCacheTop m)
     => FilePath
     -> m (CacheValue ImageFile)
-imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile
+imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile'
+
+makeImageFile' ::
+  (MonadIOError e m, HasFileCacheTop m)
+  => (File, ImageType)
+  -> m (CacheValue ImageFile)
+makeImageFile' (file, ityp) = do
+  path <- fileCachePath file
+  liftIOError (liftIO (makeImageFile path (file, ityp)))
 
 -- | Create an image file from a 'File'.  An ImageFile value implies
 -- that the image has been found in or added to the acid-state cache.
 -- Note that 'InProgress' is not a possible result here, it will only
 -- occur for derived (scaled, cropped, etc.) images.
 makeImageFile ::
-    forall m. (MonadIOError FileError m, HasFileCacheTop m)
-    => (File, ImageType)
-    -> m (CacheValue ImageFile)
-makeImageFile (file, ityp) = do
-    path <- fileCachePath file
-    (r :: Either FileError ImageFile) <- tryIOError ($logException ERROR (imageFileFromType path file ityp))
-    return $ either Failed Value r
+     FilePath
+  -> (File, ImageType)
+  -> IO (CacheValue ImageFile)
+makeImageFile path (file, ityp) = do
+  (r :: Either FileError ImageFile) <- try ($logException ERROR (liftIO $ imageFileFromType path file ityp))
+  return $ either Failed Value r
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -126,7 +134,7 @@ imageFileFromType path file typ = do
   -- err may contain "Output file write error --- out of disk space?"
   -- because pnmfile closes the output descriptor of the decoder
   -- process early.  This can be ignored.
-  (code, out, _err) <- liftIO $ readCreateProcessWithExitCode cmd P.empty
+  (code, out, _err) <- readCreateProcessWithExitCode cmd P.empty
   case code of
     ExitSuccess -> imageFileFromPnmfileOutput file typ out
     ExitFailure _ -> error $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
@@ -154,7 +162,7 @@ imageFileFromPnmfileOutput file typ out =
 -- corrected based on the EXIF orientation flag.  If the image is
 -- already upright this will return the original ImageFile.
 uprightImage ::
-    (MonadIOError e m, e ~ FileError, HasFileCacheTop m)
+    (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => ImageFile
     -> m (CacheValue ImageFile)
 uprightImage orig = do
@@ -163,7 +171,7 @@ uprightImage orig = do
   bs' <- liftIOError $ $logException ERROR $ normalizeOrientationCode (P.fromStrict bs)
   either
     (\_ -> return (Value orig))
-    (\bs'' -> fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'') >>= makeImageFile)
+    (\bs'' -> fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'') >>= makeImageFile')
     bs'
 #else
   bs <- liftIOError ($logException ERROR (loadBytesSafe (view (field @"_imageFile") orig)))
@@ -175,7 +183,7 @@ uprightImage orig = do
 -- pnmscale, and then re-encoding.  The new image inherits attributes
 -- of the old other than size.
 scaleImage ::
-  forall m. (MonadIOError FileError m, HasFileCacheTop m)
+  forall e m. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
   => Double -> ImageFile -> m (CacheValue ImageFile)
 scaleImage scale orig | approx (toRational scale) == 1 = return (Value orig)
 scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
@@ -193,16 +201,12 @@ scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
         cmd = pipe' [decoder, scaler, encoder]
-    fileFromCmd (liftIOError . getFileType) fileExtension cmd >>= buildImage
-    -- fileFromCmdViaTemp cmd >>= buildImage
-    where
-      buildImage :: (File, ImageType) -> m (CacheValue ImageFile)
-      buildImage file = makeImageFile file {-`catchError` (\e -> fail $ "scaleImage - makeImageFile failed: " ++ show e)-}
+    fileFromCmd (liftIOError . getFileType) fileExtension cmd >>= makeImageFile'
 
 -- | Find or create a cached image which is a cropped version of
 -- another.
 editImage ::
-    forall m. (MonadIOError FileError m, HasFileCacheTop m)
+    forall e m. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => ImageCrop -> ImageFile -> m (CacheValue ImageFile)
 editImage crop file =
   logIOError $
@@ -213,7 +217,7 @@ editImage crop file =
           (loadBytesSafe (view (field @"_imageFile") file) >>=
            liftIOError . pipeline commands >>=
            fileFromBytes (liftIOError . getFileType) fileExtension >>=
-           makeImageFile) `catchError` err
+           makeImageFile') `catchError` err
     where
       commands = buildPipeline (view (field @"_imageFileType") file) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") file))
       -- We can only embed JPEG and PNG images in a LaTeX
@@ -250,8 +254,12 @@ editImage crop file =
       convert GIF x = proc "giftopnm" [] : convert PPM x
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
-      err :: FileError -> m (CacheValue ImageFile)
-      err e = return $ Failed $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
+      err :: e -> m (CacheValue ImageFile)
+      err e = withFileError err' e
+        where err' :: Maybe FileError -> m (CacheValue ImageFile)
+              err' (Just e') = return $ Failed $ e'
+              -- err' (Just e') = return $ Failed $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
+              err' Nothing = throwError e
 
 pipeline :: [CreateProcess] -> P.ByteString -> IO P.ByteString
 pipeline [] bytes = return bytes

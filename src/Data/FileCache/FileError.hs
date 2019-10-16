@@ -18,13 +18,12 @@
 module Data.FileCache.FileError
     ( FileError(..)
     , CommandInfo(..)
-    , HasFileError(fromFileError)
+    , HasFileError(fileErrorPrism), fromFileError, withFileError
     , logErrorCall
     ) where
 
-import Control.Exception as E (ErrorCall(ErrorCallWithLocation), fromException, SomeException)
---import Control.Monad.Catch (try)
---import Control.Monad.Except (MonadError, throwError)
+import Control.Exception as E (ErrorCall(ErrorCallWithLocation), Exception, fromException, SomeException)
+import Control.Lens (preview, Prism', review)
 import Control.Monad.Trans (MonadIO(liftIO))
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -51,11 +50,19 @@ data FileError
     | CacheDamage -- ^ The contents of a cache file are wrong
     deriving (Eq, Ord, Generic)
 
+instance Exception FileError
+
 -- | This ensures that runExceptT catches IOException
 instance HasIOException FileError where fromIOException = IOException . pack . show
 
-class HasIOException e => HasFileError e where fromFileError :: FileError -> e
-instance HasFileError FileError where fromFileError = id
+class HasIOException e => HasFileError e where fileErrorPrism :: Prism' e FileError
+instance HasFileError FileError where fileErrorPrism = id
+
+fromFileError :: HasFileError e => FileError -> e
+fromFileError = review fileErrorPrism
+
+withFileError :: HasFileError e => (Maybe FileError -> r) -> e -> r
+withFileError f = f . preview fileErrorPrism
 
 -- | Information about a shell command that failed.  This is
 -- recursive so we can include as much or as little as desired.

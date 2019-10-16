@@ -18,7 +18,7 @@ import Control.Monad.Trans (lift, MonadTrans(lift))
 import Data.Acid
 import Data.FileCache.Acid
 import Data.FileCache.Cache (CacheMap, CacheValue, FileCacheTop(..), fileCacheTop, HasFileCacheTop)
-import Data.FileCache.FileError (FileError)
+import Data.FileCache.FileError (FileError, HasFileError)
 import Data.Proxy (Proxy)
 import Data.SafeCopy
 import Data.Set (Set)
@@ -64,18 +64,18 @@ class (HasFileCacheTop m,
        Ord key, SafeCopy key, Typeable key, Show key,
        SafeCopy val, Typeable val) => MonadFileCache key val m where
     askCacheAcid :: m (AcidState (CacheMap key val))
-    buildCacheValue :: MonadIOError FileError m => key -> m (CacheValue val)
+    buildCacheValue :: (MonadIOError e m, HasFileError e) => key -> m (CacheValue val)
 
 -- | Call the build function on cache miss to build the value.
 cacheInsert ::
-  forall key val m. (MonadFileCache key val m, MonadIOError FileError m)
+  forall key val e m. (MonadFileCache key val m, MonadIOError e m, HasFileError e)
   => key -> m (Cached (CacheValue val))
 cacheInsert key = do
   st <- askCacheAcid
   liftIOError (query st (LookValue key)) >>= maybe (cacheMiss key) return
 
 cacheMiss ::
-  forall key val m. (MonadFileCache key val m, MonadIOError FileError m)
+  forall key val e m. (MonadFileCache key val m, MonadIOError e m, HasFileError e)
   => key -> m (Cached (CacheValue val))
 cacheMiss key = do
   st <- askCacheAcid :: m (AcidState (CacheMap key val))
@@ -84,21 +84,21 @@ cacheMiss key = do
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
-  (MonadFileCache key val m, MonadIOError FileError m)
+  (MonadFileCache key val m, MonadIOError e m)
   => key -> m (Maybe (Cached (CacheValue val)))
 cacheLook key = do
   st <- askCacheAcid
   liftIOError $ query st (LookValue key)
 
 cacheMap ::
-  (MonadFileCache key val m, MonadIOError FileError m)
+  (MonadFileCache key val m, MonadIOError e m)
   => m (Cached (CacheMap key val))
 cacheMap = do
   st <- askCacheAcid
   liftIOError $ query st LookMap
 
 cacheDelete ::
-  forall key val m. (MonadFileCache key val m, MonadIOError FileError m)
+  forall key val e m. (MonadFileCache key val m, MonadIOError e m)
   => Proxy (val, FileError) -> Set key -> m ()
 cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val)) <- askCacheAcid

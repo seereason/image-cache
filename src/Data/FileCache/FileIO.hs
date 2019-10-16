@@ -63,7 +63,7 @@ import Data.Monoid ( (<>) )
 import Data.Text (pack, unpack)
 import Data.FileCache.Cache
 import Data.FileCache.ErrorWithIO (readCreateProcessWithExitCode')
-import Data.FileCache.FileError (CommandInfo(..), FileError(..), HasFileError(fromFileError))
+import Data.FileCache.FileError (CommandInfo(..), FileError(..), HasFileError, fromFileError)
 import Data.Generics.Product (field)
 import Extra.Except (liftIOError, MonadIOError)
 import Network.URI (URI(..))
@@ -120,7 +120,7 @@ fileFromPath byteStringInfo toFileExt path = do
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
-    forall e m a. (MonadIOError e m, HasFileCacheTop m, HasFileError e)
+    forall e m a. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> String
@@ -132,11 +132,11 @@ fileFromCmd byteStringInfo toFileExt cmd = do
         do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
            return $ (set (field @"_fileSource") (Just (ThePath cmd)) file, a)
     ExitFailure _ ->
-        throwError $ fromFileError $ CommandFailure (FunctionName "fileFromCmd" (Command (pack (show (shell cmd))) (pack (show code))))
+        throwError $ (fromFileError :: FileError -> e) $ CommandFailure (FunctionName "fileFromCmd" (Command (pack (show (shell cmd))) (pack (show code))))
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
-    forall e m a. (MonadIOError e m, HasFileCacheTop m, HasFileError e)
+    forall e m a. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => (P.ByteString -> m a)
     -> (a -> String)
     -> String
