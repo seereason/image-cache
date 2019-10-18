@@ -21,6 +21,7 @@ module Data.FileCache.Image
     , ImageType(..)
     , fileExtension
     , ImageKey(..)
+    , CacheImage
     , ImageCacheMap
     , scaleFromDPI
     , widthInInches
@@ -40,6 +41,7 @@ import Control.Lens.Path.PathValueMap (newtypeIso)
 import Control.Lens.Path.View (viewIso)
 --import Control.Monad.Except (catchError)
 import Data.Default (Default(def))
+import Data.FileCache.Cache (CacheValue)
 import Data.FileCache.File (File(..))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
@@ -300,6 +302,7 @@ instance Pretty ImageKey where
 
 instance Ppr ImageKey where ppr = ptext . show
 
+type CacheImage = CacheValue ImageFile
 type ImageCacheMap = Map ImageKey ImageFile
 
 -- | Remove null crops

@@ -20,7 +20,7 @@ import Control.Monad.RWS
 import Data.Acid (AcidState)
 import Data.FileCache.Cache
 import Data.FileCache.FileError (FileError, HasFileError, fromFileError)
-import Data.FileCache.Image (ImageFile, ImageKey(..), scaleFromDPI)
+import Data.FileCache.Image (CacheImage, ImageFile, ImageKey(..), scaleFromDPI)
 import Data.FileCache.ImageIO (uprightImage, scaleImage, editImage)
 --import Data.FileCache.LogException (logException)
 import Data.FileCache.MonadFileCache (evalFileCacheT, FileCacheT, W, MonadFileCache(..)
@@ -66,7 +66,7 @@ writeImageCacheT = writeFileCacheT
 #endif
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
-buildImageFile :: (MonadIOError e m, HasFileError e, HasFileCacheTop m) => ImageKey -> m (CacheValue ImageFile)
+buildImageFile :: (MonadIOError e m, HasFileError e, HasFileCacheTop m) => ImageKey -> m CacheImage
 buildImageFile (ImageOriginal img) = return (Value img)
 buildImageFile (ImageUpright key) =
   -- mapError (\m -> either (Left . fromFileError) Right <$> m) $

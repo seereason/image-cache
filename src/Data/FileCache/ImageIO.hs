@@ -60,7 +60,7 @@ import Data.FileCache.File (File(..))
 import Data.FileCache.FileIO (fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                               fileFromCmd, loadBytesSafe)
 import Data.FileCache.FileError (FileError(..), HasFileError, withFileError)
-import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), fileExtension, PixmapShape(..), approx)
+import Data.FileCache.Image (CacheImage, ImageCrop(..), ImageFile(..), ImageType(..), fileExtension, PixmapShape(..), approx)
 import Data.FileCache.ImageFile (getFileType)
 import Data.FileCache.LogException (logException)
 import Data.Generics.Product (field)
@@ -85,26 +85,26 @@ imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 imageFileFromBytes ::
     forall e m. (MonadIOError e m, HasFileCacheTop m)
     => ByteString
-    -> m (CacheValue ImageFile)
+    -> m CacheImage
 imageFileFromBytes bs = fileFromBytes (liftIOError . liftIO . getFileType) fileExtension bs >>= makeImageFile'
 
 imageFileFromURI ::
     (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => URI
-    -> m (CacheValue ImageFile)
+    -> m CacheImage
 imageFileFromURI uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile'
 
 -- | Find or create a cached image file by reading from local file.
 imageFileFromPath ::
     (MonadIOError e m, HasFileCacheTop m)
     => FilePath
-    -> m (CacheValue ImageFile)
+    -> m CacheImage
 imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile'
 
 makeImageFile' ::
   (MonadIOError e m, HasFileCacheTop m)
   => (File, ImageType)
-  -> m (CacheValue ImageFile)
+  -> m CacheImage
 makeImageFile' (file, ityp) = do
   path <- fileCachePath file
   liftIOError (liftIO (makeImageFile path (file, ityp)))
@@ -116,7 +116,7 @@ makeImageFile' (file, ityp) = do
 makeImageFile ::
      FilePath
   -> (File, ImageType)
-  -> IO (CacheValue ImageFile)
+  -> IO CacheImage
 makeImageFile path (file, ityp) = do
   (r :: Either FileError ImageFile) <- try ($logException ERROR (liftIO $ imageFileFromType path file ityp))
   return $ either Failed Value r
@@ -164,7 +164,7 @@ imageFileFromPnmfileOutput file typ out =
 uprightImage ::
     (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => ImageFile
-    -> m (CacheValue ImageFile)
+    -> m CacheImage
 uprightImage orig = do
 #if 1
   bs <- loadBytesSafe (view (field @"_imageFile") orig)
@@ -184,7 +184,7 @@ uprightImage orig = do
 -- of the old other than size.
 scaleImage ::
   forall e m. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
-  => Double -> ImageFile -> m (CacheValue ImageFile)
+  => Double -> ImageFile -> m CacheImage
 scaleImage scale orig | approx (toRational scale) == 1 = return (Value orig)
 scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
     path <- fileCachePath (view (field @"_imageFile") orig)
@@ -207,7 +207,7 @@ scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
 -- another.
 editImage ::
     forall e m. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
-    => ImageCrop -> ImageFile -> m (CacheValue ImageFile)
+    => ImageCrop -> ImageFile -> m CacheImage
 editImage crop file =
   logIOError $
     case commands of
@@ -254,9 +254,9 @@ editImage crop file =
       convert GIF x = proc "giftopnm" [] : convert PPM x
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
-      err :: e -> m (CacheValue ImageFile)
+      err :: e -> m CacheImage
       err e = withFileError err' e
-        where err' :: Maybe FileError -> m (CacheValue ImageFile)
+        where err' :: Maybe FileError -> m CacheImage
               err' (Just e') = return $ Failed $ e'
               -- err' (Just e') = return $ Failed $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
               err' Nothing = throwError e
