@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, UndecidableInstances #-}
+{-# LANGUAGE OverloadedStrings, TemplateHaskell, UndecidableInstances #-}
 {-# OPTIONS -Wall #-}
 
 module Data.FileCache.MonadImageCache
@@ -18,14 +18,16 @@ import Control.Lens (_1, _Left, over, view)
 import Control.Monad.Except
 import Control.Monad.RWS
 import Data.Acid (AcidState)
+import Data.FileCache.Acid (Cached(_unCached))
 import Data.FileCache.Cache
-import Data.FileCache.FileError (FileError, HasFileError, fromFileError)
-import Data.FileCache.Image (CacheImage, ImageFile, ImageKey(..), scaleFromDPI)
+import Data.FileCache.FileError (FileError(CacheDamage), HasFileError, fromFileError)
+import Data.FileCache.Image (ImageFile, ImageKey(..), scaleFromDPI)
 import Data.FileCache.ImageIO (uprightImage, scaleImage, editImage)
 --import Data.FileCache.LogException (logException)
-import Data.FileCache.MonadFileCache (evalFileCacheT, FileCacheT, W, MonadFileCache(..)
+import Data.FileCache.MonadFileCache (cacheLook, evalFileCacheT, FileCacheT, W, MonadFileCache(..)
                                      {-, evalFileCacheT, execFileCacheT, runFileCacheT, writeFileCacheT-})
 import Data.Maybe (fromMaybe)
+import Data.Text (pack)
 import Extra.Except (liftIOError, logIOError, MonadIOError)
 --import Extra.Log (Priority(ERROR))
 import Numeric (fromRat)
@@ -66,8 +68,19 @@ writeImageCacheT = writeFileCacheT
 #endif
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
-buildImageFile :: (MonadIOError e m, HasFileError e, HasFileCacheTop m) => ImageKey -> m CacheImage
-buildImageFile (ImageOriginal img) = return (Value img)
+buildImageFile ::
+  forall e m. (MonadImageCache m, MonadIOError e m, HasFileError e)
+  => ImageKey
+  -> m (CacheValue ImageFile)
+buildImageFile key@(ImageOriginal _) = do
+  -- This should already be in the cache
+  (r :: Maybe (Cached (CacheValue ImageFile))) <- cacheLook key
+  case r of
+    -- Should we write this into the cache?  Probably not, if we leave
+    -- it as it is the software could later corrected.
+    Nothing -> return (Failed (CacheDamage ("Missing original: " <> pack (show key))))
+    Just c -> return (_unCached c)
+  -- maybe (throwError (fromFileError (CacheDamage ("Missing original: " <> pack (show key))) :: e)) (return . _unCached) r
 buildImageFile (ImageUpright key) =
   -- mapError (\m -> either (Left . fromFileError) Right <$> m) $
     buildImageFile key >>= overCached uprightImage

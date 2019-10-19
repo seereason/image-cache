@@ -37,7 +37,6 @@ module Data.FileCache.FileIO
     , fileFromPathViaCopy
     , fileFromCmd
     , fileFromCmdViaTemp
-    , cacheFile
     -- * Query Files
     , loadBytesSafe
     , loadBytesUnsafe
@@ -214,22 +213,6 @@ fileFromPathViaCopy ext path = do
   liftIOError $ copyFile path dest
   return file
 
--- | Given a file and a ByteString containing the expected contents,
--- verify the contents.  If it isn't installed or isn't correct,
--- (re)install it.
-cacheFile ::
-    (MonadIOError e m, HasFileError e, HasFileCacheTop m)
-    => File -> P.ByteString -> m File
-cacheFile file bytes = do
-  path <- fileCachePath file
-  (loadBytesUnsafe file >>= checkBytes) `catchError`
-    (\_e -> liftIOError (writeFileReadable path bytes) >> return file)
-    where
-      checkBytes loaded = if loaded == bytes
-                          -- then throwError (fromFileError (FunctionName "cacheFile" (SomeFileError "Checksum error")))
-                          then throwError $ fromFileError CacheDamage
-                          else return file
-
 -- | Read and return the contents of the file from the cache as a
 -- ByteString.  Verify that the checksum matches the checksum field of
 -- the 'File'.
@@ -248,7 +231,7 @@ loadBytesSafe file =
          False -> do
            let msg = "Checksum mismatch: expected " ++ show (_fileChksum file) ++ ", file contains " ++ show (md5' bytes)
            liftIOError $ logM "Appraisal.FileCache" CRITICAL msg
-           throwError $ fromFileError CacheDamage
+           throwError $ fromFileError (CacheDamage ("Checksum problem in " <> pack (show file)))
 
 -- | Load an image file without verifying its checksum
 loadBytesUnsafe :: ({-HasFileError e,-} MonadIOError e m, HasFileCacheTop m) => File -> m P.ByteString

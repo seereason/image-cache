@@ -1,17 +1,11 @@
 -- | Error type for cached file manipulation.
 
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE DeriveAnyClass, DeriveDataTypeable, DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS -Wall #-}
 
@@ -32,7 +26,7 @@ import qualified Data.ByteString as P
 #endif
 import Data.Data (Data)
 import Data.FileCache.LogException (Loggable(logit))
-import Data.SafeCopy (SafeCopy(version), safeGet, safePut)
+import Data.SafeCopy (extension, Migrate(..), SafeCopy(..), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
 import Extra.Except -- (HasIOException(fromIOException), liftIOError)
@@ -47,7 +41,21 @@ data FileError
     = IOException {-IOException-} Text -- ^ Caught an IOException
     | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
     | CommandFailure CommandInfo -- ^ A shell command failed
-    | CacheDamage -- ^ The contents of a cache file are wrong
+    | CacheDamage Text -- ^ The contents of the cache is wrong
+    deriving (Eq, Ord, Generic)
+
+instance Migrate FileError where
+  type MigrateFrom FileError = FileError_1
+  migrate (IOException_1 t) = IOException t
+  migrate (ErrorCall_1 t) = ErrorCall t
+  migrate (CommandFailure_1 info) = CommandFailure info
+  migrate CacheDamage_1 = CacheDamage ""
+
+data FileError_1
+    = IOException_1 Text
+    | ErrorCall_1 Text
+    | CommandFailure_1 CommandInfo
+    | CacheDamage_1
     deriving (Eq, Ord, Generic)
 
 instance Exception FileError
@@ -79,7 +87,7 @@ instance Loggable FileError where
   logit priority loc (IOException e) = (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
   logit priority loc (ErrorCall e) = (logM (loc_module loc) priority (" - error call: " <> show e))
   logit priority loc (CommandFailure info) = (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
-  logit priority loc CacheDamage = logM (loc_module loc) priority " - file cache is damaged"
+  logit priority loc (CacheDamage t) = logM (loc_module loc) priority (" - file cache is damaged: " <> unpack t)
 
 logCommandInfo :: Priority -> Loc -> CommandInfo -> IO ()
 logCommandInfo priority loc (Description s e) = logM (loc_module loc) priority (" - error description: " <> s) >> logCommandInfo priority loc e
@@ -96,13 +104,9 @@ logErrorCall x =
                               liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
                           _ -> return (Left e)) (return . Right)
 
-#if 0
-$(deriveSafeCopy 1 'base ''CommandInfo)
-$(deriveSafeCopy 1 'base ''FileError)
-#else
 instance SafeCopy CommandInfo where version = 1
-instance SafeCopy FileError where version = 1
-#endif
+instance SafeCopy FileError_1 where version = 1
+instance SafeCopy FileError where version = 2; kind = extension
 
 instance Serialize CommandInfo where get = safeGet; put = safePut
 instance Serialize FileError where get = safeGet; put = safePut

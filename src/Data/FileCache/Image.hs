@@ -46,8 +46,8 @@ import Data.FileCache.File (Checksum, Extension, File(..))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
 import Data.Monoid ((<>))
-import Data.Ratio ((%), approxRational)
-import Data.SafeCopy (SafeCopy(..), safeGet, safePut)
+import Data.Ratio ((%), approxRational, denominator, numerator)
+import Data.SafeCopy (extension, Migrate(..), SafeCopy(..), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
 import GHC.Generics (Generic)
@@ -55,8 +55,9 @@ import Language.Haskell.TH (Ppr(ppr))
 import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
-
 import Text.Read (readMaybe)
+import Web.Routes (PathInfo(..))
+import Web.Routes.TH (derivePathInfo)
 
 -- | Simplify the ratio to avoid a long representation:
 --
@@ -284,14 +285,28 @@ fileExtension PNG = ".png"
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
 data ImageKey
-    = ImageOriginal ImageFile
-    -- ^ An unmodified upload
+    = ImageOriginal (Checksum, Extension)
+    -- ^ An unmodified upload, the info lets us construct an URL
     | ImageCropped ImageCrop ImageKey
     -- ^ A cropped version of another image
     | ImageScaled ImageSize Rational ImageKey
     -- ^ A resized version of another image
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
+    deriving (Generic, Eq, Ord)
+
+instance Migrate ImageKey where
+  type MigrateFrom ImageKey = ImageKey_2
+  migrate (ImageOriginal_2 i) = ImageOriginal (_fileChksum f, _fileExt f) where f = _imageFile i
+  migrate (ImageCropped_2 crop key) = ImageCropped crop key
+  migrate (ImageScaled_2 size dpi key) = ImageScaled size dpi key
+  migrate (ImageUpright_2 key) = ImageUpright key
+
+data ImageKey_2
+    = ImageOriginal_2 ImageFile
+    | ImageCropped_2 ImageCrop ImageKey
+    | ImageScaled_2 ImageSize Rational ImageKey
+    | ImageUpright_2 ImageKey
     deriving (Generic, Eq, Ord)
 
 instance Pretty ImageKey where
@@ -318,7 +333,8 @@ instance (SafeCopy a, Typeable a) => SafeCopy (SaneSize a) where version = 1
 instance SafeCopy Dimension where version = 1
 instance SafeCopy Units where version = 0
 instance SafeCopy ImageCrop where version = 0
-instance SafeCopy ImageKey where version = 2
+instance SafeCopy ImageKey_2 where version = 2
+instance SafeCopy ImageKey where version = 3; kind = extension
 instance SafeCopy ImageType where version = 0
 instance SafeCopy ImageFile where version = 1
 
@@ -373,6 +389,17 @@ instance View (SaneSize ImageSize) where
 
 instance View (Maybe ImageFile) where type ViewType (Maybe ImageFile) = String; _View = iso (maybe "" show) readMaybe
 
+instance PathInfo (Checksum, Extension) where
+  toPathSegments (csum, ext) = [csum, ext]
+  fromPathSegments = (,) <$> fromPathSegments <*> fromPathSegments
+instance PathInfo Rational where
+  toPathSegments r =
+    toPathSegments (numerator r') <> toPathSegments (denominator r')
+    -- This means that toPathSegments might not be the exact inverse
+    -- of fromPathSegments - is there any danger from this?
+    where r' = approx r
+  fromPathSegments = (%) <$> fromPathSegments <*> fromPathSegments
+
 $(concat <$>
   sequence
   [ makeValueInstance [] [t|Rational|]
@@ -384,4 +411,9 @@ $(concat <$>
   , makePathInstances [FIELDS] ''ImageKey
   , makePathInstances [] ''Units
   , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
+  , derivePathInfo ''ImageKey
+  , derivePathInfo ''ImageCrop
+  , derivePathInfo ''ImageSize
+  , derivePathInfo ''Dimension
+  , derivePathInfo ''Units
   ])
