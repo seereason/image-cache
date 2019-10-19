@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveLift #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -27,6 +28,7 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics.Product (field)
 import Data.Serialize (Serialize(..))
 import Data.SafeCopy -- (deriveSafeCopy, extension, Migrate(..), SafeCopy)
+import Data.Text as T (pack, Text, unpack)
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 import Language.Haskell.TH.Lift as TH (Lift)
@@ -42,16 +44,30 @@ data File
     = File { _fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
            , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
-           , _fileExt :: String                  -- ^ Name is formed by appending this to checksum
+           , _fileExt :: Extension               -- ^ Name is formed by appending this to checksum
            } deriving (Generic, Eq, Ord)
 
+instance Migrate File where
+  type MigrateFrom File = File_2
+  migrate (File_2 src cksum msgs ext) =
+    File {_fileSource = src, _fileChksum = pack cksum, _fileMessages = msgs, _fileExt = pack ext}
+
+-- |A local cache of a file obtained from a 'FileSource'.
+data File_2
+    = File_2 { _fileSource_2 :: Maybe FileSource
+             , _fileChksum_2 :: String
+             , _fileMessages_2 :: [String]
+             , _fileExt_2 :: String
+             } deriving (Generic, Eq, Ord)
+
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
-type Checksum = String
-type Extension = String
+type Checksum = Text
+type Extension = Text
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
-instance SafeCopy File where version = 2
+instance SafeCopy File_2 where version = 2
+instance SafeCopy File where version = 3; kind = extension
 instance Serialize File where get = safeGet; put = safePut
 deriving instance Show File
 deriving instance Read File
@@ -94,13 +110,13 @@ md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
 
 filePath :: File -> FilePath
-filePath file = fileDir file <++> _fileChksum file <> _fileExt file
+filePath file = fileDir file <++> unpack (_fileChksum file) <> unpack (_fileExt file)
 
 (<++>) :: FilePath -> FilePath -> FilePath
 a <++> b = a </> (makeRelative "" b)
 
 fileDir :: File -> FilePath
-fileDir file = take 2 (_fileChksum file)
+fileDir file = take 2 (unpack (_fileChksum file))
 
 $(concat <$>
   sequence

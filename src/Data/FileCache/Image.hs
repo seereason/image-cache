@@ -19,7 +19,6 @@ module Data.FileCache.Image
     , imageFileArea
     , PixmapShape(..)
     , ImageType(..)
-    , Extension
     , fileExtension
     , ImageKey(..)
     , CacheImage

@@ -59,12 +59,12 @@ import qualified Data.ByteString as P
 #endif
 import Data.FileCache.File
 import Data.FileCache.MonadFileCache
-import Data.Monoid ( (<>) )
-import Data.Text (pack, unpack)
 import Data.FileCache.Cache
 import Data.FileCache.ErrorWithIO (readCreateProcessWithExitCode')
 import Data.FileCache.FileError (CommandInfo(..), FileError(..), HasFileError, fromFileError)
 import Data.Generics.Product (field)
+import Data.Monoid ( (<>) )
+import Data.Text as T (pack, take, Text, unpack)
 import Extra.Except (liftIOError, MonadIOError)
 import Network.URI (URI(..))
 import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
@@ -83,7 +83,7 @@ a <++> b = a </> (makeRelative "" b)
 -- uri of the cache home directory.
 fileCacheURI :: URI -> File -> URI
 fileCacheURI cacheDirectoryURI file =
-    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> _fileChksum file}
+    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> unpack (_fileChksum file)}
 
 -- | Turn the bytes in a ByteString into a File.  This is an IO
 -- operation because it saves the data into the local cache.  We
@@ -92,13 +92,13 @@ fileCacheURI cacheDirectoryURI file =
 fileFromBytes ::
     forall e m a. (MonadIOError e m, HasFileCacheTop m)
     => (P.ByteString -> m a)
-    -> (a -> String)
+    -> (a -> Extension)
     -> P.ByteString
     -> m (File, a)
 fileFromBytes byteStringInfo toFileExt bytes =
       do a <- byteStringInfo bytes
          let file = File { _fileSource = Nothing
-                         , _fileChksum = md5' bytes
+                         , _fileChksum = pack (md5' bytes)
                          , _fileMessages = []
                          , _fileExt = toFileExt a }
          path <- fileCachePathIO file
@@ -110,7 +110,7 @@ fileFromBytes byteStringInfo toFileExt bytes =
 fileFromPath ::
     forall e m a. (MonadIOError e m, HasFileCacheTop m)
     => (P.ByteString -> m a)
-    -> (a -> String)
+    -> (a -> Extension)
     -> FilePath
     -> m (File, a)
 fileFromPath byteStringInfo toFileExt path = do
@@ -122,7 +122,7 @@ fileFromPath byteStringInfo toFileExt path = do
 fileFromCmd ::
     forall e m a. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => (P.ByteString -> m a)
-    -> (a -> String)
+    -> (a -> Extension)
     -> String
     -> m (File, a)
 fileFromCmd byteStringInfo toFileExt cmd = do
@@ -138,7 +138,7 @@ fileFromCmd byteStringInfo toFileExt cmd = do
 fileFromURI ::
     forall e m a. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
     => (P.ByteString -> m a)
-    -> (a -> String)
+    -> (a -> Extension)
     -> String
     -> m (File, a)
 fileFromURI byteStringInfo toFileExt uri =
@@ -157,7 +157,7 @@ fileFromURI byteStringInfo toFileExt uri =
 -- may be slower than using a unix pipeline.  Though it shouldn't be.
 fileFromCmdViaTemp ::
     forall e m. (MonadIOError e m, HasFileCacheTop m, HasFileError e)
-    => String
+    => Text
     -> String
     -> m File
 fileFromCmdViaTemp ext exe = do
@@ -178,7 +178,7 @@ fileFromCmdViaTemp ext exe = do
 fileFromPathViaRename ::
     forall e m. (HasFileError e, MonadIOError e m, HasFileCacheTop m)
     => (CommandInfo -> FileError) -- ^ Use this to customize exception thrown here
-    -> String
+    -> Extension
     -> FilePath
     -> m File
 fileFromPathViaRename err ext path = do
@@ -187,7 +187,7 @@ fileFromPathViaRename err ext path = do
   case result of
     (ExitSuccess, out, _err) -> do
       let file = File { _fileSource = Just (ThePath path)
-                      , _fileChksum = take 32 (unpack out)
+                      , _fileChksum = T.take 32 out
                       , _fileMessages = []
                       , _fileExt = ext }
       dest <- fileCachePathIO file
@@ -200,11 +200,11 @@ fileFromPathViaRename err ext path = do
 -- | Move a file into the file cache and incorporate it into a File.
 fileFromPathViaCopy ::
     forall e m. (MonadIOError e m, HasFileCacheTop m)
-    => String
+    => Extension
     -> FilePath
     -> m File
 fileFromPathViaCopy ext path = do
-  cksum <- (\(_, out, _) -> take 32 out) <$> liftIOError (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
+  cksum <- (\(_, out, _) -> T.take 32 out) <$> liftIOError (readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
   let file = File { _fileSource = Just (ThePath path)
                   , _fileChksum = cksum
                   , _fileMessages = []
@@ -239,7 +239,7 @@ loadBytesSafe ::
 loadBytesSafe file =
     do path <- fileCachePath file
        bytes <- readFileBytes @e path
-       case md5' bytes == _fileChksum file of
+       case pack (md5' bytes) == _fileChksum file of
          True -> return bytes
          -- If the checksum of the file we read from the cache does
          -- not match its checksum field, we've got serious trouble.
@@ -282,7 +282,7 @@ fileCachePath :: HasFileCacheTop m => File -> m FilePath
 fileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
 
 oldFileCachePath :: HasFileCacheTop m => File -> m FilePath
-oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> _fileChksum file
+oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> unpack (_fileChksum file)
 
 fileCacheDir :: HasFileCacheTop m => File -> m FilePath
 fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
