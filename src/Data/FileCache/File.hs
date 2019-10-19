@@ -6,6 +6,7 @@ module Data.FileCache.File
   ( File(..)
   , FileSource(..)
   , Checksum
+  , Extension
   , fileURI
   , filePath
   , fileDir
@@ -46,6 +47,7 @@ data File
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = String
+type Extension = String
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")

@@ -19,6 +19,7 @@ module Data.FileCache.Image
     , imageFileArea
     , PixmapShape(..)
     , ImageType(..)
+    , Extension
     , fileExtension
     , ImageKey(..)
     , CacheImage
@@ -42,7 +43,7 @@ import Control.Lens.Path.View (viewIso)
 --import Control.Monad.Except (catchError)
 import Data.Default (Default(def))
 import Data.FileCache.Cache (CacheValue)
-import Data.FileCache.File (File(..))
+import Data.FileCache.File (Checksum, Extension, File(..))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
 import Data.Monoid ((<>))
@@ -275,7 +276,7 @@ instance Pretty ImageFile where
 imageFileArea :: ImageFile -> Int
 imageFileArea image = _imageFileWidth image * _imageFileHeight image
 
-fileExtension :: ImageType -> String
+fileExtension :: ImageType -> Extension
 fileExtension JPEG = ".jpg"
 fileExtension PPM = ".ppm"
 fileExtension GIF = ".gif"
