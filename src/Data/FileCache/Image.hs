@@ -56,8 +56,10 @@ import Language.Haskell.TH.PprLib (ptext)
 import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 import Text.Read (readMaybe)
+#if IMAGEKEY_PATHINFO
 import Web.Routes (PathInfo(..))
 import Web.Routes.TH (derivePathInfo)
+#endif
 
 -- | Simplify the ratio to avoid a long representation:
 --
@@ -389,6 +391,7 @@ instance View (SaneSize ImageSize) where
 
 instance View (Maybe ImageFile) where type ViewType (Maybe ImageFile) = String; _View = iso (maybe "" show) readMaybe
 
+#if IMAGEKEY_PATHINFO
 instance PathInfo (Checksum, Extension) where
   toPathSegments (csum, ext) = [csum, ext]
   fromPathSegments = (,) <$> fromPathSegments <*> fromPathSegments
@@ -399,6 +402,7 @@ instance PathInfo Rational where
     -- of fromPathSegments - is there any danger from this?
     where r' = approx r
   fromPathSegments = (%) <$> fromPathSegments <*> fromPathSegments
+#endif
 
 $(concat <$>
   sequence
@@ -411,9 +415,11 @@ $(concat <$>
   , makePathInstances [FIELDS] ''ImageKey
   , makePathInstances [] ''Units
   , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
+#if IMAGEKEY_PATHINFO
   , derivePathInfo ''ImageKey
   , derivePathInfo ''ImageCrop
   , derivePathInfo ''ImageSize
   , derivePathInfo ''Dimension
   , derivePathInfo ''Units
+#endif
   ])
