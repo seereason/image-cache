@@ -287,7 +287,7 @@ fileExtension PNG = ".png"
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
 data ImageKey
-    = ImageOriginal (Checksum, Extension)
+    = ImageOriginal Checksum
     -- ^ An unmodified upload, the info lets us construct an URL
     | ImageCropped ImageCrop ImageKey
     -- ^ A cropped version of another image
@@ -299,7 +299,7 @@ data ImageKey
 
 instance Migrate ImageKey where
   type MigrateFrom ImageKey = ImageKey_2
-  migrate (ImageOriginal_2 i) = ImageOriginal (_fileChksum f, _fileExt f) where f = _imageFile i
+  migrate (ImageOriginal_2 i) = ImageOriginal (_fileChksum f) where f = _imageFile i
   migrate (ImageCropped_2 crop key) = ImageCropped crop key
   migrate (ImageScaled_2 size dpi key) = ImageScaled size dpi key
   migrate (ImageUpright_2 key) = ImageUpright key
