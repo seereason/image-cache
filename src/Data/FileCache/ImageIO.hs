@@ -29,15 +29,8 @@
 {-# OPTIONS -Wall -Wredundant-constraints #-}
 
 module Data.FileCache.ImageIO
-    ( -- * ImageFile upload
-      MakeImageFile(makeImageFile)
-      -- * ImageFile query
-    , imageFilePath
-      -- * Deriving new ImageFiles
-    , uprightImage
-    , scaleImage
-    , editImage
-    ) where
+  ( imageFileFromType
+  ) where
 
 import Control.Exception (IOException, throw)
 import Control.Lens (makeLensesFor, view)
@@ -58,9 +51,8 @@ import Data.FileCache.File (File(..))
 import Data.FileCache.FileIO (fileCachePath, fileFromBytes, fileFromPath, fileFromURI,
                               fileFromCmd, loadBytesSafe)
 import Data.FileCache.FileError (FileError(..), HasFileError, withFileError)
-import Data.FileCache.Image (CacheImage, ImageCrop(..), ImageFile(..), ImageType(..), fileExtension, PixmapShape(..), approx)
+import Data.FileCache.Image (ImageCrop(..), ImageFile(..), ImageType(..), fileExtension, PixmapShape(..), approx)
 import Data.FileCache.ImageFile (getFileType)
-import Data.FileCache.LogException (logException)
 import Data.Generics.Product (field)
 import Data.List (intercalate)
 --import Data.Text (pack)
@@ -72,32 +64,6 @@ import System.Log.Logger (logM, Priority(ERROR))
 import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode, showCreateProcessForUser)
 import "regex-compat-tdfa" Text.Regex (mkRegex, matchRegex)
-
-class MakeImageFile a where
-  makeImageFile :: (MonadIOError e m, HasFileError e, HasFileCacheTop m) => a -> m CacheImage
-
-instance MakeImageFile ByteString where
-  makeImageFile bs = fileFromBytes (liftIOError . liftIO . getFileType) fileExtension bs >>= makeImageFile
-instance MakeImageFile URI where
-  makeImageFile uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
-instance MakeImageFile FilePath where
-  makeImageFile path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile
--- | Create an image file from a 'File'.  The existance of a 'File'
--- value implies that the image has been found in or added to the
--- acid-state cache.  Note that 'InProgress' is not a possible result
--- here, it will only occur for derived (scaled, cropped, etc.)
--- images.
-instance MakeImageFile (File, ImageType) where
-  makeImageFile (file, ityp) = do
-    path <- fileCachePath file
-    liftIOError $ liftIO $
-      (either Failed Value <$> try ($logException ERROR (liftIO $ imageFileFromType path file ityp)))
-
--- | Return the local pathname of an image file.  The path will have a
--- suitable extension (e.g. .jpg) for the benefit of software that
--- depends on this, so the result might point to a symbolic link.
-imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
-imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -136,114 +102,6 @@ imageFileFromPnmfileOutput file typ out =
 -- ensureExtensionLink :: MonadFileCacheIO st IOException m => File -> String -> m ()
 -- ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksum file) (path ++ ext)
 
--- | Find or create a version of some image with its orientation
--- corrected based on the EXIF orientation flag.  If the image is
--- already upright this will return the original ImageFile.
-uprightImage ::
-    (MonadIOError e m, HasFileError e, HasFileCacheTop m)
-    => ImageFile
-    -> m CacheImage
-uprightImage orig = do
-  bs <- loadBytesSafe (view (field @"_imageFile") orig)
-  bs' <- liftIOError $ $logException ERROR $ normalizeOrientationCode (P.fromStrict bs)
-  either
-    (\_ -> return (Value orig))
-    (\bs'' -> fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'') >>= makeImageFile)
-    bs'
-
--- | Find or create a cached image resized by decoding, applying
--- pnmscale, and then re-encoding.  The new image inherits attributes
--- of the old other than size.
-scaleImage ::
-  forall e m. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
-  => Double -> ImageFile -> m CacheImage
-scaleImage scale orig | approx (toRational scale) == 1 = return (Value orig)
-scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
-    path <- fileCachePath (view (field @"_imageFile") orig)
-    let decoder = case view (field @"_imageFileType") orig of
-                    JPEG -> showCommandForUser "jpegtopnm" [path]
-                    PPM -> showCommandForUser "cat" [path]
-                    GIF -> showCommandForUser "giftopnm" [path]
-                    PNG -> showCommandForUser "pngtopnm" [path]
-        scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
-        -- To save space, build a jpeg here rather than the original file type.
-        encoder = case view (field @"_imageFileType") orig of
-                    JPEG -> showCommandForUser "cjpeg" []
-                    PPM -> showCommandForUser {-"cat"-} "cjpeg" []
-                    GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
-                    PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
-        cmd = pipe' [decoder, scaler, encoder]
-    fileFromCmd (liftIOError . getFileType) fileExtension cmd >>= makeImageFile
-
--- | Find or create a cached image which is a cropped version of
--- another.
-editImage ::
-    forall e m. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
-    => ImageCrop -> ImageFile -> m CacheImage
-editImage crop file =
-  logIOError $
-    case commands of
-      [] ->
-          return (Value file)
-      _ ->
-          (loadBytesSafe (view (field @"_imageFile") file) >>=
-           liftIOError . pipeline commands >>=
-           fileFromBytes (liftIOError . getFileType) fileExtension >>=
-           makeImageFile) `catchError` err
-    where
-      commands = buildPipeline (view (field @"_imageFileType") file) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") file))
-      -- We can only embed JPEG and PNG images in a LaTeX
-      -- includegraphics command, so here we choose which one to use.
-      latexImageFileType GIF = JPEG
-      latexImageFileType PPM = JPEG
-      latexImageFileType JPEG = JPEG
-      latexImageFileType PNG = JPEG
-      cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
-              (0, 0, 0, 0) -> Nothing
-              (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
-                                                        "-right", show (w - r - 1),
-                                                        "-top", show t,
-                                                        "-bottom", show (h - b - 1)], PPM)
-      rotate = case rotation crop of
-                 90 -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
-                 180 -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
-                 270 -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
-                 _ -> Nothing
-      w = pixmapWidth file
-      h = pixmapHeight file
-      buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
-      buildPipeline start [] end = convert start end
-      buildPipeline start (Nothing : ops) end = buildPipeline start ops end
-      buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
-      buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
-      convert JPEG PPM = [proc "jpegtopnm" []]
-      convert GIF PPM = [proc "giftpnm" []]
-      convert PNG PPM = [proc "pngtopnm" []]
-      convert PPM JPEG = [proc "cjpeg" []]
-      convert PPM GIF = [proc "ppmtogif" []]
-      convert PPM PNG = [proc "pnmtopng" []]
-      convert PNG x = proc "pngtopnm" [] : convert PPM x
-      convert GIF x = proc "giftopnm" [] : convert PPM x
-      convert a b | a == b = []
-      convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
-      err :: e -> m CacheImage
-      err e = withFileError err' e
-        where err' :: Maybe FileError -> m CacheImage
-              err' (Just e') = return $ Failed $ e'
-              -- err' (Just e') = return $ Failed $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
-              err' Nothing = throwError e
-
-pipeline :: [CreateProcess] -> P.ByteString -> IO P.ByteString
-pipeline [] bytes = return bytes
-pipeline (p : ps) bytes =
-    (readCreateProcessWithExitCode p bytes >>= doResult)
-      `catchError` (\ (e :: IOException) -> doException (showCreateProcessForUser p ++ " -> " ++ show e) e)
-    where
-      doResult (ExitSuccess, out, _) = pipeline ps out
-      doResult (code, _, err) = let message = (showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in doException message (userError message)
-      -- Is there any exception we should ignore here?
-      doException message e = logM "Appraisal.ImageFile" ERROR message >> throw e
-
 {-
 pipelineWithExitCode :: [(String, [String])] -> B.ByteString -> IO (ExitCode, B.ByteString, [B.ByteString])
 pipelineWithExitCode cmds inp =
@@ -278,8 +136,5 @@ pipe2 a b =
        create_group a == create_group b
     then a {cmdspec = ShellCommand (showCmdSpec (cmdspec a) ++ " | " ++ showCmdSpec (cmdspec b))}
     else error $ "Pipeline of incompatible commands: " ++ showCreateProcessForUser a ++ " | " ++ showCreateProcessForUser b
-
-pipe' :: [String] -> String
-pipe' = intercalate " | "
 
 $(makeLensesFor [("imageFile", "imageFileL")] ''ImageFile)

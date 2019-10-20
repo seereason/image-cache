@@ -1,4 +1,5 @@
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveAnyClass, TemplateHaskell #-}
+{-# OPTIONS -ddump-minimal-imports #-}
 
 module Data.FileCache.MonadFileCache
   ( -- * Monad transformer
@@ -11,20 +12,22 @@ module Data.FileCache.MonadFileCache
   , FileCacheTop(..)
   ) where
 
-import Control.Lens (_1, _2, _3, view)
-import Control.Monad.Except
-import Control.Monad.RWS
-import Control.Monad.Trans (lift, MonadTrans(lift))
-import Data.Acid
-import Data.FileCache.Acid
-import Data.FileCache.Cache (CacheMap, CacheValue, FileCacheTop(..), fileCacheTop, HasFileCacheTop)
-import Data.FileCache.FileError (FileError, HasFileError)
-import Data.Proxy (Proxy)
-import Data.SafeCopy
-import Data.Set (Set)
-import Data.Typeable
-import Extra.Except -- (MonadIOError(liftIOError))
-import System.Directory (createDirectoryIfMissing)
+import Control.Lens ( _1, _2, _3, view )
+import Control.Monad.Except ( ExceptT )
+import Control.Monad.RWS ( RWST(runRWST) )
+import Control.Monad.Trans ( MonadTrans(lift) )
+import Data.Acid ( query, update, AcidState )
+import Data.FileCache.Acid ( Cached, DeleteValues(DeleteValues), LookMap(LookMap), LookValue(LookValue), PutValue(PutValue) )
+import Data.FileCache.Cache ( CacheMap, CacheValue, FileCacheTop(..), fileCacheTop, HasFileCacheTop )
+import Data.FileCache.FileError ( FileError, HasFileError )
+import Data.Proxy ( Proxy )
+import Data.SafeCopy ( SafeCopy )
+import Data.Set ( Set )
+import Data.Typeable ( Typeable )
+import Extra.Except ( MonadIOError(..) )
+import System.Directory ( createDirectoryIfMissing )
+import qualified Data.ByteString.Lazy as P ()
+import qualified Data.ByteString.UTF8 as P ()
 
 type FileCacheT key val s m = RWST (AcidState (CacheMap key val), FileCacheTop) W s (ExceptT FileError m)
 
@@ -50,9 +53,6 @@ evalFileCacheT ::
 evalFileCacheT r0 top s0 action = view _1 <$> runFileCacheT r0 top s0 action
 execFileCacheT r0 top s0 action = view _2 <$> runFileCacheT r0 top s0 action
 writeFileCacheT r0 top s0 action = view _3 <$> runFileCacheT r0 top s0 action
-
---instance MonadIOError FileError (ExceptT FileError m) where
---  liftIOError io = try 
 
 ensureFileCacheTop :: MonadIOError e m => FileCacheT key val s m ()
 ensureFileCacheTop = do

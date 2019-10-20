@@ -49,7 +49,7 @@ module Data.FileCache.FileIO
 
 import Control.Lens (set)
 import Control.Monad ( unless )
-import Control.Monad.Except (catchError, throwError)
+import Control.Monad.Except (throwError)
 import Control.Monad.Reader (ReaderT)
 #ifdef LAZYIMAGES
 import qualified Data.ByteString.Lazy as P
@@ -57,7 +57,6 @@ import qualified Data.ByteString.Lazy as P
 import qualified Data.ByteString as P
 #endif
 import Data.FileCache.File
-import Data.FileCache.MonadFileCache
 import Data.FileCache.Cache
 import Data.FileCache.ErrorWithIO (readCreateProcessWithExitCode')
 import Data.FileCache.FileError (CommandInfo(..), FileError(..), HasFileError, fromFileError)
@@ -71,7 +70,7 @@ import System.Exit ( ExitCode(..) )
 import System.FilePath (makeRelative, (</>))
 import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
-import System.Log.Logger ( logM, Priority(DEBUG, ERROR, CRITICAL) )
+import System.Log.Logger ( logM, Priority(DEBUG, CRITICAL) )
 import System.Process (proc, shell, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode)
 

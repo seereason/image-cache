@@ -56,7 +56,7 @@ import Data.FileCache.File (Checksum, Extension, File(..))
 import Data.Generics (Data, Typeable)
 import Data.Map (Map)
 import Data.Monoid ((<>))
-import Data.Ratio ((%), approxRational, denominator, numerator)
+import Data.Ratio ((%), approxRational)
 import Data.SafeCopy (extension, Migrate(..), SafeCopy(..), safeGet, safePut)
 import Data.Serialize (Serialize(..))
 import Data.Text (pack, Text, unpack)
@@ -121,6 +121,12 @@ data ImageSize
 
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
+instance SafeCopy ImageSize where version = 2
+instance Serialize ImageSize where get = safeGet; put = safePut
+deriving instance Data ImageSize
+deriving instance Read ImageSize
+deriving instance Show ImageSize
+deriving instance Typeable ImageSize
 
 data Dimension
     = TheHeight
@@ -129,6 +135,12 @@ data Dimension
     deriving (Generic, Eq, Ord, Enum, Bounded)
 
 instance View Dimension where type ViewType Dimension = Text; _View = viewIso _Show TheHeight . iso pack unpack
+instance SafeCopy Dimension where version = 1
+instance Serialize Dimension where get = safeGet; put = safePut
+deriving instance Data Dimension
+deriving instance Read Dimension
+deriving instance Show Dimension
+deriving instance Typeable Dimension
 
 data Units
     = Inches
@@ -137,6 +149,12 @@ data Units
     deriving (Generic, Eq, Ord, Enum, Bounded)
 
 instance View Units where type ViewType Units = Text; _View = viewIso _Show Inches . iso pack unpack
+instance SafeCopy Units where version = 0
+instance Serialize Units where get = safeGet; put = safePut
+deriving instance Data Units
+deriving instance Read Units
+deriving instance Show Units
+deriving instance Typeable Units
 
 -- |This describes the cropping and rotation of an image.
 data ImageCrop
@@ -148,8 +166,13 @@ data ImageCrop
       , rotation :: Int         -- 0, 90, 180, 270
       } deriving (Generic, Eq, Ord)
 
-instance Default ImageCrop where
-    def = ImageCrop 0 0 0 0 0
+instance Default ImageCrop where def = ImageCrop 0 0 0 0 0
+instance SafeCopy ImageCrop where version = 0
+instance Serialize ImageCrop where get = safeGet; put = safePut
+deriving instance Data ImageCrop
+deriving instance Read ImageCrop
+deriving instance Show ImageCrop
+deriving instance Typeable ImageCrop
 
 -- | A class whose primary (only?) instance is ImageFile.  Access to
 -- the original dimensions of the image, so we can compute the aspect
@@ -211,6 +234,21 @@ heightInInches p s =
 widthInInches' :: PixmapShape a => a -> ImageSize -> ImageSize
 widthInInches' p s = s {_units = Inches, _size = approx (widthInInches p s), _dim = TheWidth}
 
+-- | A wrapper type to suggest that lens_saneSize has been applied to
+-- the ImageSize within.
+newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Generic, Eq, Ord)
+
+instance (SafeCopy a, Typeable a) => SafeCopy (SaneSize a) where version = 1
+instance (SafeCopy a, Typeable a) => Serialize (SaneSize a) where get = safeGet; put = safePut
+deriving instance Data a => Data (SaneSize a)
+deriving instance Read a => Read (SaneSize a)
+deriving instance Show a => Show (SaneSize a)
+deriving instance Typeable (SaneSize a)
+
+instance View (SaneSize ImageSize) where
+    type ViewType (SaneSize ImageSize) = ImageSize
+    _View = newtypeIso
+
 saneSize :: ImageSize -> SaneSize ImageSize
 saneSize sz = SaneSize $
     case (_dim sz, inches sz) of
@@ -230,10 +268,6 @@ saneSize sz = SaneSize $
 -- other than ImageSize.  But for the moment it is what it is.
 instance Default (SaneSize ImageSize) where
     def = saneSize def
-
--- | A wrapper type to suggest that lens_saneSize has been applied to
--- the ImageSize within.
-newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Generic, Eq, Ord)
 
 defaultSize :: ImageSize
 defaultSize = ImageSize {_dim = TheArea, _units = Inches, _size = 6.0}
@@ -274,7 +308,15 @@ data ImageFile
       , _imageFileMaxVal :: Int
       } deriving (Generic, Eq, Ord)
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Generic, Eq, Ord)
+deriving instance Data ImageFile
+deriving instance Read ImageFile
+deriving instance Show ImageFile
+deriving instance Typeable ImageFile
+instance Serialize ImageFile where get = safeGet; put = safePut
+instance SafeCopy ImageFile where version = 1
+instance View (Maybe ImageFile) where
+  type ViewType (Maybe ImageFile) = String
+  _View = iso (maybe "" show) readMaybe
 
 instance PixmapShape ImageFile where
     pixmapHeight = _imageFileHeight
@@ -283,6 +325,15 @@ instance PixmapShape ImageFile where
 
 instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
+
+data ImageType = PPM | JPEG | GIF | PNG deriving (Generic, Eq, Ord)
+
+deriving instance Data ImageType
+deriving instance Read ImageType
+deriving instance Show ImageType
+deriving instance Typeable ImageType
+instance Serialize ImageType where get = safeGet; put = safePut
+instance SafeCopy ImageType where version = 0
 
 -- |Return the area of an image in square pixels.
 imageFileArea :: ImageFile -> Int
@@ -321,6 +372,14 @@ data ImageKey_2
     | ImageUpright_2 ImageKey
     deriving (Generic, Eq, Ord)
 
+deriving instance Data ImageKey
+deriving instance Read ImageKey
+deriving instance Show ImageKey
+deriving instance Typeable ImageKey
+instance Serialize ImageKey where get = safeGet; put = safePut
+instance SafeCopy ImageKey_2 where version = 2
+instance SafeCopy ImageKey where version = 3; kind = extension
+
 instance Pretty ImageKey where
     pPrint (ImageOriginal _) = text "ImageOriginal"
     pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
@@ -339,67 +398,6 @@ fixKey (ImageCropped crop key) | crop == def = fixKey key
 fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
 fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
 fixKey (ImageUpright key) = ImageUpright (fixKey key)
-
-instance SafeCopy ImageSize where version = 2
-instance (SafeCopy a, Typeable a) => SafeCopy (SaneSize a) where version = 1
-instance SafeCopy Dimension where version = 1
-instance SafeCopy Units where version = 0
-instance SafeCopy ImageCrop where version = 0
-instance SafeCopy ImageKey_2 where version = 2
-instance SafeCopy ImageKey where version = 3; kind = extension
-instance SafeCopy ImageType where version = 0
-instance SafeCopy ImageFile where version = 1
-
-instance Serialize ImageSize where get = safeGet; put = safePut
-instance Serialize Dimension where get = safeGet; put = safePut
-instance Serialize Units where get = safeGet; put = safePut
-instance Serialize ImageCrop where get = safeGet; put = safePut
-instance (SafeCopy a, Typeable a) => Serialize (SaneSize a) where get = safeGet; put = safePut
-instance Serialize ImageFile where get = safeGet; put = safePut
-instance Serialize ImageType where get = safeGet; put = safePut
-instance Serialize ImageKey where get = safeGet; put = safePut
-
-deriving instance Data ImageSize
-deriving instance Data Dimension
-deriving instance Data Units
-deriving instance Data ImageCrop
-deriving instance Data a => Data (SaneSize a)
-deriving instance Data ImageFile
-deriving instance Data ImageType
-deriving instance Data ImageKey
-
-deriving instance Read ImageSize
-deriving instance Read Dimension
-deriving instance Read Units
-deriving instance Read ImageCrop
-deriving instance Read a => Read (SaneSize a)
-deriving instance Read ImageFile
-deriving instance Read ImageType
-deriving instance Read ImageKey
-
-deriving instance Show ImageSize
-deriving instance Show Dimension
-deriving instance Show Units
-deriving instance Show ImageCrop
-deriving instance Show a => Show (SaneSize a)
-deriving instance Show ImageFile
-deriving instance Show ImageType
-deriving instance Show ImageKey
-
-deriving instance Typeable ImageKey
-deriving instance Typeable ImageType
-deriving instance Typeable ImageSize
-deriving instance Typeable Dimension
-deriving instance Typeable Units
-deriving instance Typeable ImageCrop
-deriving instance Typeable (SaneSize a)
-deriving instance Typeable ImageFile
-
-instance View (SaneSize ImageSize) where
-    type ViewType (SaneSize ImageSize) = ImageSize
-    _View = newtypeIso
-
-instance View (Maybe ImageFile) where type ViewType (Maybe ImageFile) = String; _View = iso (maybe "" show) readMaybe
 
 #if IMAGEKEY_PATHINFO
 instance PathInfo (Checksum, Extension) where
