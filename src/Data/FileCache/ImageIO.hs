@@ -30,9 +30,7 @@
 
 module Data.FileCache.ImageIO
     ( -- * ImageFile upload
-      imageFileFromBytes
-    , imageFileFromURI
-    , imageFileFromPath
+      MakeImageFile(makeImageFile)
       -- * ImageFile query
     , imageFilePath
       -- * Deriving new ImageFiles
@@ -75,51 +73,31 @@ import System.Process (CreateProcess(..), CmdSpec(..), proc, showCommandForUser)
 import System.Process.ListLike (readCreateProcessWithExitCode, showCreateProcessForUser)
 import "regex-compat-tdfa" Text.Regex (mkRegex, matchRegex)
 
+class MakeImageFile a where
+  makeImageFile :: (MonadIOError e m, HasFileError e, HasFileCacheTop m) => a -> m CacheImage
+
+instance MakeImageFile ByteString where
+  makeImageFile bs = fileFromBytes (liftIOError . liftIO . getFileType) fileExtension bs >>= makeImageFile
+instance MakeImageFile URI where
+  makeImageFile uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
+instance MakeImageFile FilePath where
+  makeImageFile path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile
+-- | Create an image file from a 'File'.  The existance of a 'File'
+-- value implies that the image has been found in or added to the
+-- acid-state cache.  Note that 'InProgress' is not a possible result
+-- here, it will only occur for derived (scaled, cropped, etc.)
+-- images.
+instance MakeImageFile (File, ImageType) where
+  makeImageFile (file, ityp) = do
+    path <- fileCachePath file
+    liftIOError $ liftIO $
+      (either Failed Value <$> try ($logException ERROR (liftIO $ imageFileFromType path file ityp)))
+
 -- | Return the local pathname of an image file.  The path will have a
 -- suitable extension (e.g. .jpg) for the benefit of software that
 -- depends on this, so the result might point to a symbolic link.
 imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
 imageFilePath img = fileCachePath (view (field @"_imageFile") img)
-
--- | Find or create a cached image matching this ByteString.
-imageFileFromBytes ::
-    forall e m. (MonadIOError e m, HasFileCacheTop m)
-    => ByteString
-    -> m CacheImage
-imageFileFromBytes bs = fileFromBytes (liftIOError . liftIO . getFileType) fileExtension bs >>= makeImageFile'
-
-imageFileFromURI ::
-    (MonadIOError e m, HasFileError e, HasFileCacheTop m)
-    => URI
-    -> m CacheImage
-imageFileFromURI uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile'
-
--- | Find or create a cached image file by reading from local file.
-imageFileFromPath ::
-    (MonadIOError e m, HasFileCacheTop m)
-    => FilePath
-    -> m CacheImage
-imageFileFromPath path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile'
-
-makeImageFile' ::
-  (MonadIOError e m, HasFileCacheTop m)
-  => (File, ImageType)
-  -> m CacheImage
-makeImageFile' (file, ityp) = do
-  path <- fileCachePath file
-  liftIOError (liftIO (makeImageFile path (file, ityp)))
-
--- | Create an image file from a 'File'.  An ImageFile value implies
--- that the image has been found in or added to the acid-state cache.
--- Note that 'InProgress' is not a possible result here, it will only
--- occur for derived (scaled, cropped, etc.) images.
-makeImageFile ::
-     FilePath
-  -> (File, ImageType)
-  -> IO CacheImage
-makeImageFile path (file, ityp) = do
-  (r :: Either FileError ImageFile) <- try ($logException ERROR (liftIO $ imageFileFromType path file ityp))
-  return $ either Failed Value r
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -166,18 +144,12 @@ uprightImage ::
     => ImageFile
     -> m CacheImage
 uprightImage orig = do
-#if 1
   bs <- loadBytesSafe (view (field @"_imageFile") orig)
   bs' <- liftIOError $ $logException ERROR $ normalizeOrientationCode (P.fromStrict bs)
   either
     (\_ -> return (Value orig))
-    (\bs'' -> fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'') >>= makeImageFile')
+    (\bs'' -> fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'') >>= makeImageFile)
     bs'
-#else
-  bs <- liftIOError ($logException ERROR (loadBytesSafe (view (field @"_imageFile") orig)))
-  bs' <- liftIOError ($logException ERROR (normalizeOrientationCode (P.fromStrict bs)))
-  either (const (return (Value orig))) (\bs'' -> (fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'')) >>= makeImageFile) bs'
-#endif
 
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
@@ -201,7 +173,7 @@ scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
         cmd = pipe' [decoder, scaler, encoder]
-    fileFromCmd (liftIOError . getFileType) fileExtension cmd >>= makeImageFile'
+    fileFromCmd (liftIOError . getFileType) fileExtension cmd >>= makeImageFile
 
 -- | Find or create a cached image which is a cropped version of
 -- another.
@@ -217,7 +189,7 @@ editImage crop file =
           (loadBytesSafe (view (field @"_imageFile") file) >>=
            liftIOError . pipeline commands >>=
            fileFromBytes (liftIOError . getFileType) fileExtension >>=
-           makeImageFile') `catchError` err
+           makeImageFile) `catchError` err
     where
       commands = buildPipeline (view (field @"_imageFileType") file) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") file))
       -- We can only embed JPEG and PNG images in a LaTeX
