@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, TemplateHaskell, UndecidableInstances #-}
+{-# LANGUAGE OverloadedStrings, TemplateHaskell, TupleSections, UndecidableInstances #-}
 {-# OPTIONS -Wall -ddump-minimal-imports #-}
 
 module Data.FileCache.MonadImageCache
@@ -45,18 +45,18 @@ import Data.FileCache.Image ( PixmapShape(pixmapHeight, pixmapWidth), approx, fi
 import Data.FileCache.ImageFile ( getFileType )
 import Data.FileCache.ImageIO ( imageFileFromType )
 import Data.FileCache.LogException ( logException )
-import Data.FileCache.MonadFileCache ( cacheInsert, cacheLook, evalFileCacheT, FileCacheT, W, MonadFileCache(..) )
+import Data.FileCache.MonadFileCache ( cacheInsert, cacheLook, cachePut, evalFileCacheT, FileCacheT, W, MonadFileCache(..) )
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
 import Data.Map ( fromList, Map )
 import Data.Maybe ( fromMaybe )
 import Data.Text ( pack )
 import Extra.Except ( liftIOError, logIOError, MonadIOError )
+import Extra.Log (alog, Priority(DEBUG, ERROR))
 import Network.URI ( URI, uriToString )
 import Numeric ( fromRat )
 import Numeric ( showFFloat )
 import System.Exit ( ExitCode(..) )
-import System.Log.Logger ( logM, Priority(ERROR) )
 import System.Process ( proc, showCommandForUser, CreateProcess )
 import System.Process.ListLike ( readCreateProcessWithExitCode, showCreateProcessForUser )
 
@@ -109,9 +109,9 @@ buildImageFile key@(ImageOriginal _) = do
     Nothing -> return (Failed (CacheDamage ("Missing original: " <> pack (show key))))
     Just c -> return (_unCached c)
   -- maybe (throwError (fromFileError (CacheDamage ("Missing original: " <> pack (show key))) :: e)) (return . _unCached) r
-buildImageFile (ImageUpright key) =
+buildImageFile (ImageUpright key) = do
   -- mapError (\m -> either (Left . fromFileError) Right <$> m) $
-    buildImageFile key >>= overCached uprightImage
+  buildImageFile key >>= overCached uprightImage
 buildImageFile (ImageScaled sz dpi key) = do
   buildImageFile key >>= overCached (\img ->
                                         let scale = scaleFromDPI dpi sz img in
@@ -174,11 +174,14 @@ class MakeImageFile a where
   makeImageFile :: (MonadIOError e m, HasFileError e, HasFileCacheTop m) => a -> m CacheImage
 
 instance MakeImageFile ByteString where
-  makeImageFile bs = fileFromBytes (liftIOError . liftIO . getFileType) fileExtension bs >>= makeImageFile
+  makeImageFile bs =
+    fileFromBytes (liftIOError . getFileType) fileExtension bs >>= makeImageFile
 instance MakeImageFile URI where
-  makeImageFile uri = fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
+  makeImageFile uri =
+    fileFromURI (liftIOError . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
 instance MakeImageFile FilePath where
-  makeImageFile path = fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile
+  makeImageFile path =
+    fileFromPath (liftIOError . getFileType) fileExtension path >>= makeImageFile
 -- | Create an image file from a 'File'.  The existance of a 'File'
 -- value implies that the image has been found in or added to the
 -- acid-state cache.  Note that 'InProgress' is not a possible result
@@ -244,7 +247,7 @@ pipeline (p : ps) bytes =
       doResult (ExitSuccess, out, _) = pipeline ps out
       doResult (code, _, err) = let message = (showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in doException message (userError message)
       -- Is there any exception we should ignore here?
-      doException message e = logM "Appraisal.ImageFile" ERROR message >> throw e
+      doException message e = alog "Appraisal.ImageFile" ERROR message >> throw e
 
 pipe' :: [String] -> String
 pipe' = intercalate " | "
@@ -311,7 +314,8 @@ editImage crop file =
 -- ByteString, insert it into the cache, and return it.
 cacheImageOriginal ::
     forall f e m. (MakeImageFile f, MonadIOError e m, HasFileError e, MonadImageCache m)
-    => f -> m (ImageKey, Cached CacheImage)
+    => f
+    -> m (ImageKey, Cached CacheImage)
 cacheImageOriginal src = do
   (img' :: CacheImage) <- makeImageFile src
   case img' of
@@ -322,8 +326,7 @@ cacheImageOriginal src = do
     Failed e -> throwError (fromFileError e)
     Value img -> do
       let key = originalKey img
-      r <- cacheInsert key
-      return (key, r)
+      (key,) <$> cachePut key img
 
 -- | Scan for ReportImage objects and ensure that one version of that
 -- image has been added to the cache, adding it if necessary.

@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveAnyClass, TemplateHaskell #-}
+{-# LANGUAGE DeriveAnyClass, TemplateHaskell, TupleSections #-}
 {-# OPTIONS -ddump-minimal-imports #-}
 
 module Data.FileCache.MonadFileCache
@@ -8,7 +8,7 @@ module Data.FileCache.MonadFileCache
   , runFileCacheT, evalFileCacheT, execFileCacheT, writeFileCacheT
     -- * Monad class
   , MonadFileCache(askCacheAcid, buildCacheValue)
-  , cacheInsert, cacheLook, cacheMap, cacheDelete, cacheMiss
+  , cacheInsert, cacheLook, cacheMap, cacheDelete, cacheMiss, cachePut
   , FileCacheTop(..)
   ) where
 
@@ -18,7 +18,7 @@ import Control.Monad.RWS ( RWST(runRWST) )
 import Control.Monad.Trans ( MonadTrans(lift) )
 import Data.Acid ( query, update, AcidState )
 import Data.FileCache.Acid ( Cached, DeleteValues(DeleteValues), LookMap(LookMap), LookValue(LookValue), PutValue(PutValue) )
-import Data.FileCache.Cache ( CacheMap, CacheValue, FileCacheTop(..), fileCacheTop, HasFileCacheTop )
+import Data.FileCache.Cache ( CacheMap, CacheValue(Value), FileCacheTop(..), fileCacheTop, HasFileCacheTop )
 import Data.FileCache.FileError ( FileError, HasFileError )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( SafeCopy )
@@ -81,6 +81,13 @@ cacheMiss key = do
   st <- askCacheAcid :: m (AcidState (CacheMap key val))
   val <- buildCacheValue key
   liftIOError $ update st (PutValue key val)
+
+cachePut ::
+  forall key val e m. (MonadFileCache key val m, MonadIOError e m{-, HasFileError e, Show val-})
+  => key -> val -> m (Cached (CacheValue val))
+cachePut key val = do
+  st <- askCacheAcid :: m (AcidState (CacheMap key val))
+  liftIOError $ update st (PutValue key (Value val))
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
