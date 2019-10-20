@@ -8,21 +8,32 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Data.FileCache.Image
-    ( ImageSize(..) -- , dim, size, units
+    ( ImageKey(..)
+    -- * Meta data
+    , ImageFile(..)
+    , CacheImage
+    , ImageCacheMap
+    , ImageType(..)
+    , fileExtension
+
+    -- * Transforms
+    -- , fixKey
+    , OriginalKey(originalKey)
+    , UprightKey(uprightKey)
+    -- * Crop
+    , EditedKey(editedKey)
+    , ImageCrop(..)
+    -- * Size
+    , ScaledKey(scaledKey)
+    , HasImageSize(imageSize)
+    , ImageSize(..) -- , dim, size, units
+    , Dimension(..)
+    , Units(..)
+    , PixmapShape(..)
     , approx
     , rationalIso
     , rationalLens
-    , ImageCrop(..)
-    , Dimension(..)
-    , Units(..)
-    , ImageFile(..) -- , imageFile, imageFileType, imageFileWidth, imageFileHeight, imageFileMaxVal
     , imageFileArea
-    , PixmapShape(..)
-    , ImageType(..)
-    , fileExtension
-    , ImageKey(..)
-    , CacheImage
-    , ImageCacheMap
     , scaleFromDPI
     , widthInInches
     , widthInInches'
@@ -30,7 +41,6 @@ module Data.FileCache.Image
     , saneSize
     , SaneSize(..) -- , unSaneSize
     , defaultSize
-    , fixKey
     , readRationalMaybe
     , showRational
     ) where
@@ -403,6 +413,32 @@ instance PathInfo Rational where
     where r' = approx r
   fromPathSegments = (%) <$> fromPathSegments <*> fromPathSegments
 #endif
+
+-- | This describes how the keys we use are constructed
+class OriginalKey a where
+  originalKey :: a -> ImageKey
+instance OriginalKey ImageFile where
+  originalKey = originalKey . _imageFile
+instance OriginalKey File where
+  originalKey f = ImageOriginal (_fileChksum f)
+
+class UprightKey a where
+  uprightKey :: a -> ImageKey
+instance UprightKey ImageFile where
+  uprightKey img = ImageUpright (originalKey img)
+
+class EditedKey a where
+  editedKey :: a -> ImageKey
+instance EditedKey ImageFile where
+  editedKey img = uprightKey img
+
+class HasImageSize size => ScaledKey size a where
+  scaledKey :: size -> Rational -> a -> ImageKey
+instance ScaledKey ImageSize ImageFile where
+  scaledKey size dpi x = ImageScaled (imageSize size) dpi (editedKey x)
+
+class HasImageSize a where imageSize :: a -> ImageSize
+instance HasImageSize ImageSize where imageSize = id
 
 $(concat <$>
   sequence
