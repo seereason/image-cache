@@ -114,7 +114,7 @@ buildImageFile (ImageUpright key) = do
   buildImageFile key >>= overCached uprightImage
 buildImageFile (ImageScaled sz dpi key) = do
   buildImageFile key >>= overCached (\img ->
-                                        let scale = scaleFromDPI dpi sz img in
+                                        let scale = scaleFromDPI sz dpi img in
                                         logIOError $ scaleImage (fromRat (fromMaybe 1 scale)) img)
 buildImageFile (ImageCropped crop key) = do
   buildImageFile key >>= overCached (editImage crop)

@@ -182,11 +182,16 @@ class PixmapShape a where
     pixmapWidth :: a -> Int
     pixmapMaxVal :: a -> Int
 
+instance PixmapShape (Int, Int) where
+  pixmapWidth (w, _) = w
+  pixmapHeight (_, h) = h
+  pixmapMaxVal _ = 255 -- whatever
+
 -- |Given the desired DPI and image dimensions, return the factor by
 -- which an image should be scaled.  Result of Nothing means the scale
 -- is pathological.
-scaleFromDPI :: PixmapShape a => Rational -> ImageSize -> a -> Maybe Rational
-scaleFromDPI dpi sz file =
+scaleFromDPI :: PixmapShape a => ImageSize -> Rational -> a -> Maybe Rational
+scaleFromDPI sz dpi file =
     case _dim sz of
       _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
       TheHeight -> Just $ inches sz * dpi / h
