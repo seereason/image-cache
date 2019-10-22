@@ -18,7 +18,7 @@ import Control.Monad.RWS ( RWST(runRWST) )
 import Control.Monad.Trans ( MonadTrans(lift) )
 import Data.Acid ( query, update, AcidState )
 import Data.FileCache.Acid ( Cached, DeleteValues(DeleteValues), LookMap(LookMap), LookValue(LookValue), PutValue(PutValue) )
-import Data.FileCache.Cache ( CacheMap, CacheValue(Value), FileCacheTop(..), fileCacheTop, HasFileCacheTop )
+import Data.FileCache.Cache ( CacheMap, CacheValue, FileCacheTop(..), fileCacheTop, HasFileCacheTop )
 import Data.FileCache.FileError ( FileError, HasFileError )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( SafeCopy )
@@ -87,7 +87,7 @@ cachePut ::
   => key -> val -> m (Cached (CacheValue val))
 cachePut key val = do
   st <- askCacheAcid :: m (AcidState (CacheMap key val))
-  liftIOError $ update st (PutValue key (Value val))
+  liftIOError $ update st (PutValue key (Right val))
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::

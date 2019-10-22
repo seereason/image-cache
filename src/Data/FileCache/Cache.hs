@@ -1,10 +1,10 @@
 -- | The cache of files.
 
-{-# LANGUAGE DeriveFunctor, DeriveGeneric, StandaloneDeriving, TemplateHaskell, TypeFamilies #-}
+{-# LANGUAGE DeriveFunctor, DeriveGeneric, LambdaCase, StandaloneDeriving, TemplateHaskell, TypeFamilies #-}
 
 module Data.FileCache.Cache
   ( CacheMap(..)
-  , CacheValue(..)
+  , CacheValue
   , FileCacheTop(..)
   , HasFileCacheTop(fileCacheTop)
   ) where
@@ -24,49 +24,42 @@ data CacheMap key val =
     CacheMap {_unCacheMap :: Map key (CacheValue val)}
     deriving (Generic, Eq, Ord)
 
-#if 0
-instance (Ord key, SafeCopy key, SafeCopy val, SafeCopy err) => SafeCopy (CacheMap key val) where
-      putCopy (CacheMap a)
-        = contain
-            (do safeput <- getSafePut
-                safeput a
-                return ())
-      getCopy
-        = contain
-            ((label "Data.FileCache.Acid.CacheMap:")
-               (do safeget <- getSafeGet @(Map key (CacheValue val))
-                   (return CacheMap <*> safeget)))
-      version = 2
-      kind = extension
-      errorTypeName _ = "Data.FileCache.Types.CacheMap"
-#else
+type CacheValue val = Either FileError val
+
 instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap key val) where
-  version = 2
+  version = 3
   kind = extension
   errorTypeName _ = "Data.FileCache.Types.CacheMap"
-#endif
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => Migrate (CacheMap key val) where
+  type MigrateFrom (CacheMap key val) = CacheMap_2 key val
+  migrate (CacheMap_2 mp) =
+    CacheMap (fmap (\case Value_1 a -> Right a; Failed_1 e -> Left e; _ -> error "Migrate CacheMap") mp)
+
+data CacheMap_2 key val =
+    CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
+    deriving (Generic, Eq, Ord)
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
+  version = 2
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
 
 deriving instance (Show key, Show val) => Show (CacheMap key val)
 
-instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap key val) where
-    type MigrateFrom (CacheMap key val) = Map key val
-    migrate mp = CacheMap (fmap Value mp)
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
+    type MigrateFrom (CacheMap_2 key val) = Map key val
+    migrate mp = CacheMap_2 (fmap Value_1 mp)
 
-data CacheValue val
-    = InProgress
-    | Value val
-    | Failed FileError
+data CacheValue_1 val
+    = InProgress_1
+    | Value_1 val
+    | Failed_1 FileError
     deriving (Generic, Eq, Ord, Functor)
 
-deriving instance Show val => Show (CacheValue val)
+deriving instance Show val => Show (CacheValue_1 val)
 
-#if 1
-$(deriveSafeCopy 1 'base ''CacheValue)
-#else
-instance (SafeCopy' err, SafeCopy' val) => SafeCopy (CacheValue val) where
-  version = 1
-  errorTypeName _ = "Data.FileCacheCache.CacheValue"
-#endif
+$(deriveSafeCopy 1 'base ''CacheValue_1)
 
 newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
 

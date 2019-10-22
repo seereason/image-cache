@@ -32,7 +32,7 @@ import qualified Data.ByteString.Lazy as P ( fromStrict, toStrict )
 import qualified Data.ByteString.UTF8 as P ( ByteString )
 import Data.FileCache.Acid ( Cached(_unCached) )
 import Data.FileCache.Cache ( CacheMap, CacheValue(..), FileCacheTop(..), fileCacheTop, HasFileCacheTop )
-import Data.FileCache.Cache ( CacheValue(Value, Failed) )
+import Data.FileCache.Cache ( CacheValue )
 import Data.FileCache.Exif ( normalizeOrientationCode )
 import Data.FileCache.File ( File )
 import Data.FileCache.FileError ( FileError(CacheDamage), HasFileError, fromFileError )
@@ -106,7 +106,7 @@ buildImageFile key@(ImageOriginal _) = do
   case r of
     -- Should we write this into the cache?  Probably not, if we leave
     -- it as it is the software could later corrected.
-    Nothing -> return (Failed (CacheDamage ("Missing original: " <> pack (show key))))
+    Nothing -> return (Left (CacheDamage ("Missing original: " <> pack (show key))))
     Just c -> return (_unCached c)
   -- maybe (throwError (fromFileError (CacheDamage ("Missing original: " <> pack (show key))) :: e)) (return . _unCached) r
 buildImageFile (ImageUpright key) = do
@@ -120,7 +120,7 @@ buildImageFile (ImageCropped crop key) = do
   buildImageFile key >>= overCached (editImage crop)
 
 overCached :: Monad m => (a -> m (CacheValue a)) -> CacheValue a -> m (CacheValue a)
-overCached f (Value a) = f a
+overCached f (Right a) = f a
 overCached _ v = pure v
 
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
@@ -191,7 +191,7 @@ instance MakeImageFile (File, ImageType) where
   makeImageFile (file, ityp) = do
     path <- fileCachePath file
     liftIOError $ liftIO $
-      (either Failed Value <$> try ($logException ERROR (liftIO $ imageFileFromType path file ityp)))
+      (try ($logException ERROR (liftIO $ imageFileFromType path file ityp)))
 
 -- | Return the local pathname of an image file.  The path will have a
 -- suitable extension (e.g. .jpg) for the benefit of software that
@@ -210,7 +210,7 @@ uprightImage orig = do
   bs <- loadBytesSafe (view (field @"_imageFile") orig)
   bs' <- liftIOError $ $logException ERROR $ normalizeOrientationCode (P.fromStrict bs)
   either
-    (\_ -> return (Value orig))
+    (\_ -> return (Right orig))
     (\bs'' -> fileFromBytes (liftIOError . $logException ERROR . getFileType) fileExtension (P.toStrict bs'') >>= makeImageFile)
     bs'
 
@@ -220,7 +220,7 @@ uprightImage orig = do
 scaleImage ::
   forall e m. (MonadIOError e m, HasFileError e, HasFileCacheTop m)
   => Double -> ImageFile -> m CacheImage
-scaleImage scale orig | approx (toRational scale) == 1 = return (Value orig)
+scaleImage scale orig | approx (toRational scale) == 1 = return (Right orig)
 scaleImage scale orig = {- liftIOError $ $logException ERROR $ -} do
     path <- fileCachePath (view (field @"_imageFile") orig)
     let decoder = case view (field @"_imageFileType") orig of
@@ -261,7 +261,7 @@ editImage crop file =
   logIOError $
     case commands of
       [] ->
-          return (Value file)
+          return (Right file)
       _ ->
           (loadBytesSafe (view (field @"_imageFile") file) >>=
            liftIOError . pipeline commands >>=
@@ -306,7 +306,7 @@ editImage crop file =
       err :: e -> m CacheImage
       err e = withFileError err' e
         where err' :: Maybe FileError -> m CacheImage
-              err' (Just e') = return $ Failed $ e'
+              err' (Just e') = return $ Left $ e'
               -- err' (Just e') = return $ Failed $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
               err' Nothing = throwError e
 
@@ -319,12 +319,8 @@ cacheImageOriginal ::
 cacheImageOriginal src = do
   (img' :: CacheImage) <- makeImageFile src
   case img' of
-    InProgress -> error "The InProgress status must not occur for a non-derived image"
-    -- We build the key from the original ImageFile, if that
-    -- fails there's no point inserting anything.  Also we
-    -- don't have a return value, so throw an error.
-    Failed e -> throwError (fromFileError e)
-    Value img -> do
+    Left e -> throwError (fromFileError e)
+    Right img -> do
       let key = originalKey img
       (key,) <$> cachePut key img
 
