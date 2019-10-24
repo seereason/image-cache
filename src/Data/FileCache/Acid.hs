@@ -32,7 +32,7 @@ import Data.FileCache.Cache (CacheMap(..), CacheValue(..))
 import Data.Generics.Product (field)
 import Data.Map.Strict as Map (delete, difference, fromSet, insert, intersection, union)
 import Data.Set as Set (Set)
-import Extra.Except (liftIOError, MonadIOError)
+import Extra.Except -- (liftIOError, MonadIOError)
 import GHC.Generics (Generic)
 
 newtype Cached a = Cached {_unCached :: a} deriving (Generic, Eq, Ord, Read, Show, Functor)
@@ -81,9 +81,9 @@ openCache path = openLocalStateFrom path initCacheMap
 
 -- | In theory the MonadError type e1 might differ from the error type
 -- stored in the map e2.  But I'm not sure if it would work in practice.
-withCache :: (MonadIOError e m, MonadMask m,
+withCache :: (MonadIO m, MonadMask m,
               SafeCopy val, Typeable val,
               Ord key, Typeable key, SafeCopy key) => FilePath -> (AcidState (CacheMap key val) -> m b) -> m b
-withCache path f = bracket (liftIOError (openCache path)) (liftIOError . createCheckpointAndClose) $ f
+withCache path f = bracket (liftIO (openCache path)) (liftIO . createCheckpointAndClose) $ f
 
 $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
