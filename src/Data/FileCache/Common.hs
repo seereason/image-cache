@@ -1,74 +1,367 @@
--- | Pure functions to deal with image data.
+{-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, TemplateHaskell, UndecidableInstances #-}
 
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveLift #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PackageImports #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE UndecidableInstances #-}
+module Data.FileCache.Common
+  ( -- * LogException
+    logException
+  , logExceptionV
+  , logAndThrow
+  , Loggable(logit)
 
-module Data.FileCache.Image
-    ( ImageKey(..)
-    -- * Meta data
-    , ImageFile(..)
-    , CacheImage
-    , ImageCacheMap
-    , ImageType(..)
-    , fileExtension
+    -- * FileError
+  , FileError(..)
+  , CommandInfo(..)
+  , HasFileError(fileErrorPrism), fromFileError, withFileError
+  , logErrorCall
 
-    -- * Transforms
-    -- , fixKey
-    , OriginalKey(originalKey)
-    , UprightKey(uprightKey)
-    -- * Crop
-    , EditedKey(editedKey)
-    , ImageCrop(..)
-    -- * Size
-    , ScaledKey(scaledKey)
-    , HasImageSize(imageSize)
-    , ImageSize(..) -- , dim, size, units
-    , Dimension(..)
-    , Units(..)
-    , PixmapShape(..)
-    , approx
-    , rationalIso
-    , rationalLens
-    , imageFileArea
-    , scaleFromDPI
-    , widthInInches
-    , widthInInches'
-    , heightInInches
-    , saneSize
-    , SaneSize(..) -- , unSaneSize
-    , defaultSize
-    , readRationalMaybe
-    , showRational
-    ) where
+    -- * Cache
+  , CacheMap(..)
+  , CacheValue
+  , FileCacheTop(..)
+  , HasFileCacheTop(fileCacheTop)
 
-import Control.Lens (Iso', iso, Lens', lens, _Show)
-import Control.Lens.Path
-import Control.Lens.Path.PathValueMap (newtypeIso)
-import Control.Lens.Path.View (viewIso)
---import Control.Monad.Except (catchError)
-import Data.Default (Default(def))
-import Data.FileCache.Cache (CacheValue)
-import Data.FileCache.File (Checksum, Extension, File(..))
-import Data.Generics (Data, Typeable)
-import Data.Map (Map)
-import Data.Monoid ((<>))
-import Data.Ratio ((%), approxRational)
-import Data.SafeCopy (extension, Migrate(..), SafeCopy(..), safeGet, safePut)
-import Data.Serialize (Serialize(..))
-import Data.Text (pack, Text, unpack)
-import GHC.Generics (Generic)
-import Language.Haskell.TH (Ppr(ppr))
-import Language.Haskell.TH.PprLib (ptext)
-import Numeric (fromRat, readSigned, readFloat, showSigned, showFFloat)
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
-import Text.Read (readMaybe)
-#if IMAGEKEY_PATHINFO
-import Web.Routes (PathInfo(..))
-import Web.Routes.TH (derivePathInfo)
+    -- * File
+  , File(..)
+  , FileSource(..)
+  , Checksum
+  , Extension
+  , fileURI
+  , filePath
+  , fileDir
+  , addMessage
+  , md5'
+
+    -- * Image
+  , ImageKey(..)
+  , ImageFile(..)
+  , CacheImage
+  , ImageCacheMap
+  , ImageType(..)
+  , fileExtension
+
+  , OriginalKey(originalKey)
+  , UprightKey(uprightKey)
+  , EditedKey(editedKey)
+  , ImageCrop(..)
+  , ScaledKey(scaledKey)
+  , HasImageSize(imageSize)
+  , ImageSize(..) -- , dim, size, units
+  , Dimension(..)
+  , Units(..)
+  , PixmapShape(..)
+  , approx
+  , rationalIso
+  , rationalLens
+  , imageFileArea
+  , scaleFromDPI
+  , widthInInches
+  , widthInInches'
+  , heightInInches
+  , saneSize
+  , SaneSize(..) -- , unSaneSize
+  , defaultSize
+  , readRationalMaybe
+  , showRational
+  ) where
+
+import Control.Exception as E ( ErrorCall(ErrorCallWithLocation), Exception, fromException, SomeException )
+import Control.Lens ( Iso', iso, Lens', lens, _Show, _2, view, over, preview, Prism', review )
+import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
+import Control.Lens.Path.View ( viewIso )
+import Control.Monad.Except ( ExceptT, lift, MonadError(catchError, throwError) )
+import Control.Monad.RWS ( RWST )
+import Control.Monad.Reader ( ReaderT )
+import Control.Monad.Trans ( MonadIO(liftIO) )
+import qualified Data.ByteString as P ( ByteString, take )
+import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
+import Data.Data ( Data )
+import Data.Default ( Default(def) )
+import Data.Digest.Pure.MD5 ( md5 )
+import Data.Generics.Product ( field )
+import Data.Map ( Map )
+import Data.Monoid ( (<>) )
+import Data.Ratio ( (%), approxRational, denominator, numerator )
+import Data.SafeCopy ( deriveSafeCopy, base, SafeCopy', extension, Migrate(..), SafeCopy(..), safeGet, safePut )
+import Data.Serialize ( Serialize(..) )
+import Data.Text ( pack, Text, unpack )
+import Data.Typeable ( Typeable )
+import Extra.Except ( HasIOException(..) )
+import GHC.Generics ( Generic, M1(M1) )
+import Language.Haskell.TH ( ExpQ, Exp, Loc(..), location, pprint, Q, Ppr(ppr) )
+import Language.Haskell.TH.Instances ()
+import Language.Haskell.TH.Lift as TH ( Lift )
+import Language.Haskell.TH.PprLib ( ptext )
+import Language.Haskell.TH.Syntax ( Loc(loc_module) )
+import qualified Language.Haskell.TH.Lift as TH ( Lift(lift) )
+import Network.URI ( URI(..), parseRelativeReference, parseURI )
+import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
+import System.FilePath ( makeRelative, (</>) )
+import System.Log.Logger ( Priority(ERROR), logM )
+import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+import Text.PrettyPrint.HughesPJClass ()
+import Text.Read ( readMaybe )
+import Web.Routes ( PathInfo(..) )
+import Web.Routes.TH ( derivePathInfo )
+
+__LOC__ :: Q Exp
+__LOC__ = TH.lift =<< location
+
+logAndThrow :: (MonadError e m, MonadIO m, Show e) => String -> Priority -> e -> m b
+logAndThrow m p e = liftIO (logM m p ("logAndThrow - " ++ show e)) >> throwError e
+
+-- | Create an expression of type (MonadIO m => Priority -> m a -> m a) that we can
+-- apply to an expression so that it catches, logs, and rethrows any
+-- exception.
+logException :: ExpQ
+logException =
+    [| \priority action ->
+         action `catchError` (\e -> do
+                                liftIO (logM (loc_module $__LOC__)
+                                             priority
+                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show e))
+                                throwError e) |]
+
+logExceptionV :: ExpQ
+logExceptionV =
+    [| \priority action ->
+         action `catchError` (\e -> do
+                                liftIO (logM (loc_module $__LOC__)
+                                             priority
+                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show (V e)))
+                                throwError e) |]
+
+class Loggable a where
+  logit :: Priority -> Loc -> a -> IO ()
+
+-- | It would be nice to store the actual IOException and E.ErrorCall,
+-- but then the FileError type wouldn't be serializable.
+data FileError
+    = IOException {-IOException-} Text -- ^ Caught an IOException
+    | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
+    | CommandFailure CommandInfo -- ^ A shell command failed
+    | CacheDamage Text -- ^ The contents of the cache is wrong
+    deriving (Eq, Ord, Generic)
+
+instance Migrate FileError where
+  type MigrateFrom FileError = FileError_1
+  migrate (IOException_1 t) = IOException t
+  migrate (ErrorCall_1 t) = ErrorCall t
+  migrate (CommandFailure_1 info) = CommandFailure info
+  migrate CacheDamage_1 = CacheDamage ""
+
+data FileError_1
+    = IOException_1 Text
+    | ErrorCall_1 Text
+    | CommandFailure_1 CommandInfo
+    | CacheDamage_1
+    deriving (Eq, Ord, Generic)
+
+instance Exception FileError
+
+-- | This ensures that runExceptT catches IOException
+instance HasIOException FileError where fromIOException = IOException . pack . show
+
+class HasIOException e => HasFileError e where fileErrorPrism :: Prism' e FileError
+instance HasFileError FileError where fileErrorPrism = id
+
+fromFileError :: HasFileError e => FileError -> e
+fromFileError = review fileErrorPrism
+
+withFileError :: HasFileError e => (Maybe FileError -> r) -> e -> r
+withFileError f = f . preview fileErrorPrism
+
+-- | Information about a shell command that failed.  This is
+-- recursive so we can include as much or as little as desired.
+data CommandInfo
+    = Command Text Text -- ^ CreateProcess and ExitCode
+    | CommandInput P.ByteString CommandInfo -- ^ command input
+    | CommandOut P.ByteString CommandInfo -- ^ stdout
+    | CommandErr P.ByteString CommandInfo -- ^ stderr
+    | FunctionName String CommandInfo -- ^ The function that ran the command
+    | Description String CommandInfo -- ^ free form description of what happened
+    deriving (Eq, Ord, Generic)
+
+instance Loggable FileError where
+  logit priority loc (IOException e) = (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
+  logit priority loc (ErrorCall e) = (logM (loc_module loc) priority (" - error call: " <> show e))
+  logit priority loc (CommandFailure info) = (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
+  logit priority loc (CacheDamage t) = logM (loc_module loc) priority (" - file cache is damaged: " <> unpack t)
+
+logCommandInfo :: Priority -> Loc -> CommandInfo -> IO ()
+logCommandInfo priority loc (Description s e) = logM (loc_module loc) priority (" - error description: " <> s) >> logCommandInfo priority loc e
+logCommandInfo priority loc (FunctionName n e) = logM (loc_module loc) priority (" - error function " <> n) >> logCommandInfo priority loc e
+logCommandInfo priority loc (Command cmd code) = logM (loc_module loc) priority (" - command: " <> show cmd <> ", exit code: " <> show code)
+logCommandInfo priority loc (CommandInput bs e) = logM (loc_module loc) priority (" - command input: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+logCommandInfo priority loc (CommandOut bs e) = logM (loc_module loc) priority (" - command stdout: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+logCommandInfo priority loc (CommandErr bs e) = logM (loc_module loc) priority (" - command stderr: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+
+logErrorCall :: MonadIO m => m (Either SomeException a) -> m (Either SomeException a)
+logErrorCall x =
+    x >>= either (\e -> case fromException e :: Maybe E.ErrorCall of
+                          Just (ErrorCallWithLocation msg loc) ->
+                              liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
+                          _ -> return (Left e)) (return . Right)
+
+instance SafeCopy CommandInfo where version = 1
+instance SafeCopy FileError_1 where version = 1
+instance SafeCopy FileError where version = 2; kind = extension
+
+instance Serialize CommandInfo where get = safeGet; put = safePut
+instance Serialize FileError where get = safeGet; put = safePut
+
+deriving instance Data FileError
+deriving instance Data CommandInfo
+deriving instance Show FileError
+deriving instance Show CommandInfo
+
+-- Later we could make FileError a type parameter, but right now its
+-- tangled with the MonadError type.
+data CacheMap key val =
+    CacheMap {_unCacheMap :: Map key (CacheValue val)}
+    deriving (Generic, Eq, Ord)
+
+type CacheValue val = Either FileError val
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap key val) where
+  version = 3
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap"
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => Migrate (CacheMap key val) where
+  type MigrateFrom (CacheMap key val) = CacheMap_2 key val
+  migrate (CacheMap_2 mp) =
+    CacheMap (fmap (\case Value_1 a -> Right a; Failed_1 e -> Left e; _ -> error "Migrate CacheMap") mp)
+
+data CacheMap_2 key val =
+    CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
+    deriving (Generic, Eq, Ord)
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
+  version = 2
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
+
+deriving instance (Show key, Show val) => Show (CacheMap key val)
+
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
+    type MigrateFrom (CacheMap_2 key val) = Map key val
+    migrate mp = CacheMap_2 (fmap Value_1 mp)
+
+data CacheValue_1 val
+    = InProgress_1
+    | Value_1 val
+    | Failed_1 FileError
+    deriving (Generic, Eq, Ord, Functor)
+
+deriving instance Show val => Show (CacheValue_1 val)
+
+$(deriveSafeCopy 1 'base ''CacheValue_1)
+
+newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
+
+-- | Class of monads with a 'FilePath' value containing the top
+-- directory of a file cache.
+class Monad m => HasFileCacheTop m where
+    fileCacheTop :: m FileCacheTop
+
+instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m) where
+    fileCacheTop = view _2
+
+instance Monad m => HasFileCacheTop (ReaderT (acid, FileCacheTop) m) where
+    fileCacheTop = view _2
+
+instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
+    fileCacheTop = lift fileCacheTop
+
+-- |A local cache of a file obtained from a 'FileSource'.
+data File
+    = File { _fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
+           , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
+           , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
+           , _fileExt :: Extension               -- ^ Name is formed by appending this to checksum
+           } deriving (Generic, Eq, Ord)
+
+instance Migrate File where
+  type MigrateFrom File = File_2
+  migrate (File_2 src cksum msgs ext) =
+    File {_fileSource = src, _fileChksum = pack cksum, _fileMessages = msgs, _fileExt = pack ext}
+
+-- |A local cache of a file obtained from a 'FileSource'.
+data File_2
+    = File_2 { _fileSource_2 :: Maybe FileSource
+             , _fileChksum_2 :: String
+             , _fileMessages_2 :: [String]
+             , _fileExt_2 :: String
+             } deriving (Generic, Eq, Ord)
+
+-- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
+type Checksum = Text
+type Extension = Text
+
+instance Pretty File where
+    pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
+instance SafeCopy File_2 where version = 2
+instance SafeCopy File where version = 3; kind = extension
+instance Serialize File where get = safeGet; put = safePut
+deriving instance Show File
+deriving instance Read File
+deriving instance Data File
+deriving instance Typeable File
+deriving instance Lift File
+
+-- |The original source if the file is saved, in case
+-- the cache needs to be reconstructed.  However, we don't
+-- store the original ByteString if that is all we began
+-- with, that would be redundant and wasteful.
+data FileSource
+    = TheURI String
+    | ThePath FilePath
+    deriving (Generic, Eq, Ord)
+
+instance SafeCopy FileSource where version = 1
+instance Serialize FileSource where get = safeGet; put = safePut
+deriving instance Show FileSource
+deriving instance Read FileSource
+deriving instance Data FileSource
+deriving instance Typeable FileSource
+deriving instance Lift FileSource
+
+-- |Return the remote URI if the file resulted from downloading a URI.
+fileURI :: File -> Maybe URI
+fileURI file = case _fileSource file of
+                 Just (TheURI uri) -> maybe (parseRelativeReference uri) Just (parseURI uri)
+                 _ -> Nothing
+
+-- |Add a message to the file message list.
+addMessage :: String -> File -> File
+addMessage message file = over (field @"_fileMessages") (++ [message]) file
+
+md5' :: P.ByteString -> String
+#ifdef LAZYIMAGES
+md5' = show . md5
+#else
+md5' = show . md5 . Lazy.fromChunks . (: [])
+#endif
+
+filePath :: File -> FilePath
+filePath file = fileDir file <++> unpack (_fileChksum file) <> unpack (_fileExt file)
+
+(<++>) :: FilePath -> FilePath -> FilePath
+a <++> b = a </> (makeRelative "" b)
+
+fileDir :: File -> FilePath
+fileDir file = take 2 (unpack (_fileChksum file))
+
+$(concat <$>
+  sequence
+  [ makePathInstances [FIELDS] ''File
+  , makePathInstances [FIELDS] ''FileSource ])
+
+#if ARBITRARY
+instance Arbitrary File where
+    arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
+
+instance Arbitrary FileSource where
+    arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
 #endif
 
 -- | Simplify the ratio to avoid a long representation:
@@ -404,10 +697,6 @@ fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
 fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
 fixKey (ImageUpright key) = ImageUpright (fixKey key)
 
-#if IMAGEKEY_PATHINFO
-instance PathInfo (Checksum, Extension) where
-  toPathSegments (csum, ext) = [csum, ext]
-  fromPathSegments = (,) <$> fromPathSegments <*> fromPathSegments
 instance PathInfo Rational where
   toPathSegments r =
     toPathSegments (numerator r') <> toPathSegments (denominator r')
@@ -415,7 +704,6 @@ instance PathInfo Rational where
     -- of fromPathSegments - is there any danger from this?
     where r' = approx r
   fromPathSegments = (%) <$> fromPathSegments <*> fromPathSegments
-#endif
 
 -- | This describes how the keys we use are constructed
 class OriginalKey a where
@@ -454,11 +742,9 @@ $(concat <$>
   , makePathInstances [FIELDS] ''ImageKey
   , makePathInstances [] ''Units
   , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
-#if IMAGEKEY_PATHINFO
   , derivePathInfo ''ImageKey
   , derivePathInfo ''ImageCrop
   , derivePathInfo ''ImageSize
   , derivePathInfo ''Dimension
   , derivePathInfo ''Units
-#endif
   ])

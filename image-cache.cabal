@@ -55,12 +55,7 @@ Library
   Extensions: ScopedTypeVariables, StandaloneDeriving, TypeApplications, TypeFamilies
   Exposed-Modules:
     Data.FileCache
-  Exposed-Modules:
-    Data.FileCache.Cache
-    Data.FileCache.File
-    Data.FileCache.Image
-    Data.FileCache.FileError
-    Data.FileCache.LogException
+    Data.FileCache.Common
   Build-Depends:
     base >= 4,
     binary,
@@ -93,14 +88,7 @@ Library
     web-routes-th
   if !impl(ghcjs)
     Exposed-Modules:
-      Data.FileCache.Acid
-      Data.FileCache.ErrorWithIO
-      Data.FileCache.Exif
-      Data.FileCache.FileIO
-      Data.FileCache.ImageIO
-      Data.FileCache.ImageFile
-      Data.FileCache.MonadFileCache
-      Data.FileCache.MonadImageCache
+      Data.FileCache.Server
     Build-Depends:
       acid-state,
       filemanip-extra,
