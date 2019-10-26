@@ -680,7 +680,106 @@ cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)
 
--- * ImageFile
+-- * Image File IO
+
+-- | Find or create a version of some image with its orientation
+-- corrected based on the EXIF orientation flag.  If the image is
+-- already upright this will return the original ImageFile.
+uprightImage ::
+    forall m. (MonadIO m, HasFileCacheTop m)
+    => ImageFile -> ExceptT FileError m ImageFile
+uprightImage orig = do
+  loadBytesSafe (view (field @"_imageFile") orig) >>= uprightImage'
+  where
+    uprightImage' :: BS.ByteString -> ExceptT FileError m ImageFile
+    uprightImage' bs = do
+      (bs' :: Either String LBS.ByteString) <- liftIO $ $logException ERROR $ normalizeOrientationCode (fromStrict bs)
+      case bs' of
+        Left _ -> return orig
+        Right bs'' -> do
+          let bs''' = toStrict bs''
+          a <- liftIO ($logException ERROR (getFileType bs'''))
+          file <- fileFromBytes (fileExtension a) (toStrict bs'')
+          makeImageFile (file, a)
+
+-- | Find or create a cached image resized by decoding, applying
+-- pnmscale, and then re-encoding.  The new image inherits attributes
+-- of the old other than size.
+scaleImage ::
+  forall e m. (MonadIO m, HasFileCacheTop m)
+  => Double -> ImageFile -> ExceptT FileError m ImageFile
+scaleImage scale orig | approx (toRational scale) == 1 = return orig
+scaleImage scale orig = {- liftIO $ $logException ERROR $ -} do
+    path <- fileCachePath (view (field @"_imageFile") orig)
+    let decoder = case view (field @"_imageFileType") orig of
+                    JPEG -> showCommandForUser "jpegtopnm" [path]
+                    PPM -> showCommandForUser "cat" [path]
+                    GIF -> showCommandForUser "giftopnm" [path]
+                    PNG -> showCommandForUser "pngtopnm" [path]
+        scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
+        -- To save space, build a jpeg here rather than the original file type.
+        encoder = case view (field @"_imageFileType") orig of
+                    JPEG -> showCommandForUser "cjpeg" []
+                    PPM -> showCommandForUser {-"cat"-} "cjpeg" []
+                    GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
+                    PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
+        cmd = pipe' [decoder, scaler, encoder]
+    makeByteString (shell cmd) >>= makeImageFile
+
+-- | Find or create a cached image which is a cropped version of
+-- another.
+editImage ::
+    forall e m. (MonadIO m, HasFileCacheTop m)
+    => ImageCrop -> ImageFile -> ExceptT FileError m ImageFile
+editImage crop ifile =
+  logIOError $
+    case commands of
+      [] ->
+          return ifile
+      _ ->
+          (do bs <- loadBytesSafe (view (field @"_imageFile") ifile)
+              bs' <- liftIO $ pipeline commands bs
+              a <- liftIO $ getFileType bs'
+              file <- fileFromBytes (fileExtension a) bs'
+              makeImageFile (file, a))
+    where
+      commands = buildPipeline (view (field @"_imageFileType") ifile) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") ifile))
+      -- We can only embed JPEG and PNG images in a LaTeX
+      -- includegraphics command, so here we choose which one to use.
+      latexImageFileType GIF = JPEG
+      latexImageFileType PPM = JPEG
+      latexImageFileType JPEG = JPEG
+      latexImageFileType PNG = JPEG
+      cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
+              (0, 0, 0, 0) -> Nothing
+              (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
+                                                        "-right", show (w - r - 1),
+                                                        "-top", show t,
+                                                        "-bottom", show (h - b - 1)], PPM)
+      rotate = case rotation crop of
+                 90 -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
+                 180 -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
+                 270 -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
+                 _ -> Nothing
+      w = pixmapWidth ifile
+      h = pixmapHeight ifile
+      buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
+      buildPipeline start [] end = convert start end
+      buildPipeline start (Nothing : ops) end = buildPipeline start ops end
+      buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
+      buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
+      convert JPEG PPM = [proc "jpegtopnm" []]
+      convert GIF PPM = [proc "giftpnm" []]
+      convert PNG PPM = [proc "pngtopnm" []]
+      convert PPM JPEG = [proc "cjpeg" []]
+      convert PPM GIF = [proc "ppmtogif" []]
+      convert PPM PNG = [proc "pnmtopng" []]
+      convert PNG x = proc "pngtopnm" [] : convert PPM x
+      convert GIF x = proc "giftopnm" [] : convert PPM x
+      convert a b | a == b = []
+      convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
+
+-- * ImageCache
 
 type ImageCacheT s m = FileCacheT ImageKey ImageFile s m
 type MonadImageCache m = MonadFileCache ImageKey ImageFile m
@@ -777,112 +876,6 @@ instance MakeImageFile (File, ImageType) where
 imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
 imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 
--- | Find or create a version of some image with its orientation
--- corrected based on the EXIF orientation flag.  If the image is
--- already upright this will return the original ImageFile.
-uprightImage ::
-    forall m. (MonadIO m, HasFileCacheTop m)
-    => ImageFile
-    -> ExceptT FileError m ImageFile
-uprightImage orig = do
-  loadBytesSafe (view (field @"_imageFile") orig) >>= uprightImage'
-  where
-    uprightImage' :: BS.ByteString -> ExceptT FileError m ImageFile
-    uprightImage' bs = do
-      (bs' :: Either String LBS.ByteString) <- liftIO $ $logException ERROR $ normalizeOrientationCode (fromStrict bs)
-      case bs' of
-        Left _ -> return orig
-        Right bs'' -> do
-          let bs''' = toStrict bs''
-          a <- liftIO ($logException ERROR (getFileType bs'''))
-          file <- fileFromBytes (fileExtension a) (toStrict bs'')
-          makeImageFile (file, a)
-
--- | Find or create a cached image resized by decoding, applying
--- pnmscale, and then re-encoding.  The new image inherits attributes
--- of the old other than size.
-scaleImage ::
-  forall e m. (MonadIO m, HasFileCacheTop m)
-  => Double -> ImageFile -> ExceptT FileError m ImageFile
-scaleImage scale orig | approx (toRational scale) == 1 = return orig
-scaleImage scale orig = {- liftIO $ $logException ERROR $ -} do
-    path <- fileCachePath (view (field @"_imageFile") orig)
-    let decoder = case view (field @"_imageFileType") orig of
-                    JPEG -> showCommandForUser "jpegtopnm" [path]
-                    PPM -> showCommandForUser "cat" [path]
-                    GIF -> showCommandForUser "giftopnm" [path]
-                    PNG -> showCommandForUser "pngtopnm" [path]
-        scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
-        -- To save space, build a jpeg here rather than the original file type.
-        encoder = case view (field @"_imageFileType") orig of
-                    JPEG -> showCommandForUser "cjpeg" []
-                    PPM -> showCommandForUser {-"cat"-} "cjpeg" []
-                    GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
-                    PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
-        cmd = pipe' [decoder, scaler, encoder]
-    makeByteString (shell cmd) >>= makeImageFile
-
--- | Find or create a cached image which is a cropped version of
--- another.
-editImage ::
-    forall e m. (MonadIO m, HasFileCacheTop m)
-    => ImageCrop -> ImageFile -> ExceptT FileError m ImageFile
-editImage crop ifile =
-  logIOError $
-    case commands of
-      [] ->
-          return ifile
-      _ ->
-          (do bs <- loadBytesSafe (view (field @"_imageFile") ifile)
-              bs' <- liftIO $ pipeline commands bs
-              a <- liftIO $ getFileType bs'
-              file <- fileFromBytes (fileExtension a) bs'
-              makeImageFile (file, a))
-    where
-      commands = buildPipeline (view (field @"_imageFileType") ifile) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") ifile))
-      -- We can only embed JPEG and PNG images in a LaTeX
-      -- includegraphics command, so here we choose which one to use.
-      latexImageFileType GIF = JPEG
-      latexImageFileType PPM = JPEG
-      latexImageFileType JPEG = JPEG
-      latexImageFileType PNG = JPEG
-      cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
-              (0, 0, 0, 0) -> Nothing
-              (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
-                                                        "-right", show (w - r - 1),
-                                                        "-top", show t,
-                                                        "-bottom", show (h - b - 1)], PPM)
-      rotate = case rotation crop of
-                 90 -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
-                 180 -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
-                 270 -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
-                 _ -> Nothing
-      w = pixmapWidth ifile
-      h = pixmapHeight ifile
-      buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
-      buildPipeline start [] end = convert start end
-      buildPipeline start (Nothing : ops) end = buildPipeline start ops end
-      buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
-      buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
-      convert JPEG PPM = [proc "jpegtopnm" []]
-      convert GIF PPM = [proc "giftpnm" []]
-      convert PNG PPM = [proc "pngtopnm" []]
-      convert PPM JPEG = [proc "cjpeg" []]
-      convert PPM GIF = [proc "ppmtogif" []]
-      convert PPM PNG = [proc "pnmtopng" []]
-      convert PNG x = proc "pngtopnm" [] : convert PPM x
-      convert GIF x = proc "giftopnm" [] : convert PPM x
-      convert a b | a == b = []
-      convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
-#if 0
-      err :: e -> ExceptT FileError m ImageFile
-      err e = withFileError err' e
-        where err' :: Maybe FileError -> ExceptT FileError m ImageFile
-              err' (Just e') = return $ Left $ e'
-              -- err' (Just e') = return $ Failed $ ErrorCall $ "editImage Failure: file=" <> pack (show file) <> ", error=" <> pack (show e)
-              err' Nothing = throwError e
-#endif
-
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
 cacheImageOriginal ::
@@ -897,7 +890,7 @@ cacheImageOriginal src = do
 -- | Scan for ReportImage objects and ensure that one version of that
 -- image has been added to the cache, adding it if necessary.
 cacheImagesByKey ::
-  forall a e m. (Ord a, MonadImageCache m, MonadIO m, MonadError e m, HasFileError e)
+  forall a e m. (Ord a, MonadImageCache m, MonadIO m)
   => (a -> ImageKey)
   -> [a]
   -> m (Map a (Either FileError ImageFile))
@@ -928,16 +921,16 @@ storeImageFile fp = do
 
 -- This should be in FileCacheT, not IO
 storeByteStrings ::
-    HasFileError e
+    MonadIO m
     => FileCacheTop
     -> AcidState (CacheMap ImageKey ImageFile)
     -> [(ImageFile, BS.ByteString)]
-    -> ExceptT e IO [Either FileError ImageFile]
+    -> ExceptT e m [Either FileError ImageFile]
 storeByteStrings top acid pairs = do
   evalFileCacheT acid top () (mapM storeByteString (fmap snd pairs))
 
 storeByteString ::
-    (HasFileError e, MonadIO m, MonadError e m, MonadImageCache m)
+    (MonadIO m, MonadImageCache m)
     => BS.ByteString -> m (Either FileError ImageFile)
 storeByteString bytes = runExceptT $ do
   typ <- liftIO (getFileType bytes)
