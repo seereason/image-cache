@@ -5,12 +5,6 @@
 
 module Data.FileCache
   ( module Data.FileCache.Common
-#if !__GHCJS__
-  , module Data.FileCache.Server
-#endif
   ) where
 
 import Data.FileCache.Common
-#if !__GHCJS__
-import Data.FileCache.Server
-#endif

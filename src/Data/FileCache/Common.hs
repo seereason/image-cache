@@ -1,66 +1,82 @@
 {-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, TemplateHaskell, UndecidableInstances #-}
 
 module Data.FileCache.Common
-  ( -- * LogException
-    logException
-  , logExceptionV
-  , logAndThrow
-  , Loggable(logit)
+  ( -- * Rational
+    approx
+  -- , rationalIso
+  , rationalLens
+  , readRationalMaybe
+  , showRational
 
-    -- * FileError
-  , FileError(..)
-  , CommandInfo(..)
-  , HasFileError(fileErrorPrism), fromFileError, withFileError
-  , logErrorCall
+    -- * ImageSize
+  , HasImageSize(imageSize)
+  , ImageSize(..) -- , dim, size, units
+  , Dimension(..)
+  , Units(..)
+  , saneSize
+  , SaneSize(..) -- , unSaneSize
+  , defaultSize
+    -- * PixmapShape
+  , PixmapShape(..)
+  , scaleFromDPI
+  , widthInInches
+--  , widthInInches'
+--  , heightInInches
 
-    -- * Cache
-  , CacheMap(..)
-  , CacheValue
-  , FileCacheTop(..)
-  , HasFileCacheTop(fileCacheTop)
+    -- * ImageCrop
+  , ImageCrop(..)
+
+    -- * ImageType
+  , ImageType(..)
+  , Extension
+  , fileExtension
 
     -- * File
   , File(..)
   , FileSource(..)
   , Checksum
-  , Extension
-  , fileURI
+--  , fileURI
   , filePath
   , fileDir
-  , addMessage
+--  , addMessage
   , md5'
 
-    -- * Image
-  , ImageKey(..)
+    -- * ImageFile
   , ImageFile(..)
-  , CacheImage
-  , ImageCacheMap
-  , ImageType(..)
-  , fileExtension
 
+    -- * ImageKey
+  , ImageKey(..)
   , OriginalKey(originalKey)
   , UprightKey(uprightKey)
   , EditedKey(editedKey)
-  , ImageCrop(..)
   , ScaledKey(scaledKey)
-  , HasImageSize(imageSize)
-  , ImageSize(..) -- , dim, size, units
-  , Dimension(..)
-  , Units(..)
-  , PixmapShape(..)
-  , approx
-  , rationalIso
-  , rationalLens
-  , imageFileArea
-  , scaleFromDPI
-  , widthInInches
-  , widthInInches'
-  , heightInInches
-  , saneSize
-  , SaneSize(..) -- , unSaneSize
-  , defaultSize
-  , readRationalMaybe
-  , showRational
+
+--    -- * FileError
+  , FileError(..)
+  , CommandInfo(..)
+  , HasFileError(fileErrorPrism), fromFileError, withFileError
+--  , logErrorCall
+
+    -- * FileCacheTop
+  , FileCacheTop(..)
+  , HasFileCacheTop(fileCacheTop)
+  , CacheMap(..)
+#if 0
+    -- * LogException
+  , logException
+--  , logExceptionV
+--  , logAndThrow
+--  , Loggable(logit)
+--
+--    -- * Cache
+  , CacheValue
+--
+--    -- * Image
+--  , imageFileArea
+  , CacheImage
+--  , ImageCacheMap
+--
+#endif
   ) where
 
 import Control.Exception as E ( ErrorCall(ErrorCallWithLocation), Exception, fromException, SomeException )
@@ -101,176 +117,279 @@ import Text.PrettyPrint.HughesPJClass ()
 import Text.Read ( readMaybe )
 import Web.Routes ( PathInfo(..) )
 import Web.Routes.TH ( derivePathInfo )
+
+-- * Rational
 
-__LOC__ :: Q Exp
-__LOC__ = TH.lift =<< location
+-- | Simplify the ratio to avoid a long representation:
+--
+-- > λ> toRational 0.123456
+-- > 8895942329546431 % 72057594037927936
+-- > λ> approxRational (toRational 0.123456) (1 % 10000)
+-- > 10 % 81
+-- > λ> 10 / 81
+-- > 0.12345679012345678   (wow, that's wierd)
+--
+-- This is important for values that might become part of a path,
+-- we don't want them to be too long or subject to rounding errors.
+approx :: Rational -> Rational
+approx x = approxRational x (1 % 10000)
 
-logAndThrow :: (MonadError e m, MonadIO m, Show e) => String -> Priority -> e -> m b
-logAndThrow m p e = liftIO (logM m p ("logAndThrow - " ++ show e)) >> throwError e
+-- | readShowLens is not a good choice for rational numbers,  because
+-- it only understands strings like "15 % 4", not "15" or "3.5".
+-- If an invalid string is input this returns 0.
+rationalLens :: Lens' Rational String
+rationalLens = lens showRational (\r s -> either (const r) id (readRationalMaybe s))
 
--- | Create an expression of type (MonadIO m => Priority -> m a -> m a) that we can
--- apply to an expression so that it catches, logs, and rethrows any
--- exception.
-logException :: ExpQ
-logException =
-    [| \priority action ->
-         action `catchError` (\e -> do
-                                liftIO (logM (loc_module $__LOC__)
-                                             priority
-                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show e))
-                                throwError e) |]
+rationalIso :: Iso' Rational String
+rationalIso = iso showRational (readRational 0)
+    where
+      readRational :: Rational -> String -> Rational
+      readRational d = either (const d) id . readRationalMaybe
 
-logExceptionV :: ExpQ
-logExceptionV =
-    [| \priority action ->
-         action `catchError` (\e -> do
-                                liftIO (logM (loc_module $__LOC__)
-                                             priority
-                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show (V e)))
-                                throwError e) |]
+showRational :: Rational -> String
+showRational x = showSigned (showFFloat Nothing) 0 (fromRat x :: Double) ""
 
-class Loggable a where
-  logit :: Priority -> Loc -> a -> IO ()
+readRationalMaybe :: Monad m => String -> m Rational
+readRationalMaybe s =
+    case (map fst $ filter (null . snd) $ readSigned readFloat s) of
+      [r] -> return r
+      [] -> fail $ "readRationalMaybe " ++ s
+      _rs -> fail $ "readRationalMaybe " ++ s
 
--- | It would be nice to store the actual IOException and E.ErrorCall,
--- but then the FileError type wouldn't be serializable.
-data FileError
-    = IOException {-IOException-} Text -- ^ Caught an IOException
-    | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
-    | CommandFailure CommandInfo -- ^ A shell command failed
-    | CacheDamage Text -- ^ The contents of the cache is wrong
-    deriving (Eq, Ord, Generic)
+rsqrt :: Rational -> Rational
+rsqrt = toRational . (sqrt :: Double -> Double) . fromRat
 
-instance Migrate FileError where
-  type MigrateFrom FileError = FileError_1
-  migrate (IOException_1 t) = IOException t
-  migrate (ErrorCall_1 t) = ErrorCall t
-  migrate (CommandFailure_1 info) = CommandFailure info
-  migrate CacheDamage_1 = CacheDamage ""
+instance View Rational where type ViewType Rational = Text; _View = rationalIso . iso pack unpack
 
-data FileError_1
-    = IOException_1 Text
-    | ErrorCall_1 Text
-    | CommandFailure_1 CommandInfo
-    | CacheDamage_1
-    deriving (Eq, Ord, Generic)
+instance PathInfo Rational where
+  toPathSegments r =
+    toPathSegments (numerator r') <> toPathSegments (denominator r')
+    -- This means that toPathSegments might not be the exact inverse
+    -- of fromPathSegments - is there any danger from this?
+    where r' = approx r
+  fromPathSegments = (%) <$> fromPathSegments <*> fromPathSegments
 
-instance Exception FileError
+-- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
+-- mapRatio f r = f (numerator r) % f (denominator r)
 
--- | This ensures that runExceptT catches IOException
-instance HasIOException FileError where fromIOException = IOException . pack . show
+
+-- * ImageSize, Dimension, Units, SaneSize
 
-class HasIOException e => HasFileError e where fileErrorPrism :: Prism' e FileError
-instance HasFileError FileError where fileErrorPrism = id
+data ImageSize
+    = ImageSize
+      { _dim :: Dimension
+      , _size :: Rational
+      , _units :: Units
+      } deriving (Generic, Eq, Ord)
 
-fromFileError :: HasFileError e => FileError -> e
-fromFileError = review fileErrorPrism
+instance Default ImageSize where
+    def = ImageSize TheArea 15.0 Inches
+instance SafeCopy ImageSize where version = 2
+instance Serialize ImageSize where get = safeGet; put = safePut
+deriving instance Data ImageSize
+deriving instance Read ImageSize
+deriving instance Show ImageSize
+deriving instance Typeable ImageSize
 
-withFileError :: HasFileError e => (Maybe FileError -> r) -> e -> r
-withFileError f = f . preview fileErrorPrism
+data Dimension
+    = TheHeight
+    | TheWidth
+    | TheArea
+    deriving (Generic, Eq, Ord, Enum, Bounded)
 
--- | Information about a shell command that failed.  This is
--- recursive so we can include as much or as little as desired.
-data CommandInfo
-    = Command Text Text -- ^ CreateProcess and ExitCode
-    | CommandInput P.ByteString CommandInfo -- ^ command input
-    | CommandOut P.ByteString CommandInfo -- ^ stdout
-    | CommandErr P.ByteString CommandInfo -- ^ stderr
-    | FunctionName String CommandInfo -- ^ The function that ran the command
-    | Description String CommandInfo -- ^ free form description of what happened
-    deriving (Eq, Ord, Generic)
+instance View Dimension where type ViewType Dimension = Text; _View = viewIso _Show TheHeight . iso pack unpack
+instance SafeCopy Dimension where version = 1
+instance Serialize Dimension where get = safeGet; put = safePut
+deriving instance Data Dimension
+deriving instance Read Dimension
+deriving instance Show Dimension
+deriving instance Typeable Dimension
 
-instance Loggable FileError where
-  logit priority loc (IOException e) = (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
-  logit priority loc (ErrorCall e) = (logM (loc_module loc) priority (" - error call: " <> show e))
-  logit priority loc (CommandFailure info) = (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
-  logit priority loc (CacheDamage t) = logM (loc_module loc) priority (" - file cache is damaged: " <> unpack t)
+data Units
+    = Inches
+    | Cm
+    | Points
+    deriving (Generic, Eq, Ord, Enum, Bounded)
 
-logCommandInfo :: Priority -> Loc -> CommandInfo -> IO ()
-logCommandInfo priority loc (Description s e) = logM (loc_module loc) priority (" - error description: " <> s) >> logCommandInfo priority loc e
-logCommandInfo priority loc (FunctionName n e) = logM (loc_module loc) priority (" - error function " <> n) >> logCommandInfo priority loc e
-logCommandInfo priority loc (Command cmd code) = logM (loc_module loc) priority (" - command: " <> show cmd <> ", exit code: " <> show code)
-logCommandInfo priority loc (CommandInput bs e) = logM (loc_module loc) priority (" - command input: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
-logCommandInfo priority loc (CommandOut bs e) = logM (loc_module loc) priority (" - command stdout: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
-logCommandInfo priority loc (CommandErr bs e) = logM (loc_module loc) priority (" - command stderr: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+instance View Units where type ViewType Units = Text; _View = viewIso _Show Inches . iso pack unpack
+instance SafeCopy Units where version = 0
+instance Serialize Units where get = safeGet; put = safePut
+deriving instance Data Units
+deriving instance Read Units
+deriving instance Show Units
+deriving instance Typeable Units
 
-logErrorCall :: MonadIO m => m (Either SomeException a) -> m (Either SomeException a)
-logErrorCall x =
-    x >>= either (\e -> case fromException e :: Maybe E.ErrorCall of
-                          Just (ErrorCallWithLocation msg loc) ->
-                              liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
-                          _ -> return (Left e)) (return . Right)
+class HasImageSize a where imageSize :: a -> ImageSize
+instance HasImageSize ImageSize where imageSize = id
 
-instance SafeCopy CommandInfo where version = 1
-instance SafeCopy FileError_1 where version = 1
-instance SafeCopy FileError where version = 2; kind = extension
+-- | A wrapper type to suggest that lens_saneSize has been applied to
+-- the ImageSize within.
+newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Generic, Eq, Ord)
 
-instance Serialize CommandInfo where get = safeGet; put = safePut
-instance Serialize FileError where get = safeGet; put = safePut
+instance (SafeCopy a, Typeable a) => SafeCopy (SaneSize a) where version = 1
+instance (SafeCopy a, Typeable a) => Serialize (SaneSize a) where get = safeGet; put = safePut
+deriving instance Data a => Data (SaneSize a)
+deriving instance Read a => Read (SaneSize a)
+deriving instance Show a => Show (SaneSize a)
+deriving instance Typeable (SaneSize a)
 
-deriving instance Data FileError
-deriving instance Data CommandInfo
-deriving instance Show FileError
-deriving instance Show CommandInfo
+instance View (SaneSize ImageSize) where
+    type ViewType (SaneSize ImageSize) = ImageSize
+    _View = newtypeIso
 
--- Later we could make FileError a type parameter, but right now its
--- tangled with the MonadError type.
-data CacheMap key val =
-    CacheMap {_unCacheMap :: Map key (CacheValue val)}
-    deriving (Generic, Eq, Ord)
+saneSize :: ImageSize -> SaneSize ImageSize
+saneSize sz = SaneSize $
+    case (_dim sz, inches sz) of
+      (TheArea, n) | n < minArea -> sz {_units = Inches, _size = minArea}
+      (TheArea, n) | n > maxArea -> sz {_units = Inches, _size = maxArea}
+      (_, n) | n < minDist -> sz {_units = Inches, _size = toRational minDist}
+      (_, n) | n > maxDist -> sz {_units = Inches, _size = maxDist}
+      _ -> sz
+    where
+      -- inches and square inches
+      minDist = 25 % 100
+      maxDist = 25
+      minArea = 625 % 10000
+      maxArea = 625
 
-type CacheValue val = Either FileError val
+-- Surely, SaneSize should be a class so we could apply it to things
+-- other than ImageSize.  But for the moment it is what it is.
+instance Default (SaneSize ImageSize) where
+    def = saneSize def
 
-instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap key val) where
-  version = 3
-  kind = extension
-  errorTypeName _ = "Data.FileCache.Types.CacheMap"
+defaultSize :: ImageSize
+defaultSize = ImageSize {_dim = TheArea, _units = Inches, _size = 6.0}
 
-instance (Ord key, SafeCopy' key, SafeCopy' val) => Migrate (CacheMap key val) where
-  type MigrateFrom (CacheMap key val) = CacheMap_2 key val
-  migrate (CacheMap_2 mp) =
-    CacheMap (fmap (\case Value_1 a -> Right a; Failed_1 e -> Left e; _ -> error "Migrate CacheMap") mp)
+-- | Return the value of size in inches
+inches :: ImageSize -> Rational
+inches sz =
+    _size sz / case (_dim sz, _units sz) of
+                (_, Inches) -> 1
+                (TheArea, Cm) -> (254 % 100) * (254 % 100)
+                (TheArea, Points) -> (7227 % 100) * (7227 % 100)
+                (_, Cm) -> 254 % 100
+                (_, Points) -> 7227 % 100
 
-data CacheMap_2 key val =
-    CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
-    deriving (Generic, Eq, Ord)
+instance Pretty Dimension where
+    pPrint TheHeight = text "height"
+    pPrint TheWidth = text "width"
+    pPrint TheArea = text "area"
 
-instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
-  version = 2
-  kind = extension
-  errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
+instance Pretty Units where
+    pPrint Inches = text "in"
+    pPrint Cm = text "cm"
+    pPrint Points = text "pt"
 
-deriving instance (Show key, Show val) => Show (CacheMap key val)
+instance Pretty ImageSize where
+    pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> showRational sz <> " ") <> pPrint u
+
+-- * PixmapShape
 
-instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
-    type MigrateFrom (CacheMap_2 key val) = Map key val
-    migrate mp = CacheMap_2 (fmap Value_1 mp)
+-- | A class whose primary (only?) instance is ImageFile.  Access to
+-- the original dimensions of the image, so we can compute the aspect
+-- ratio.
+class PixmapShape a where
+    pixmapHeight :: a -> Int
+    pixmapWidth :: a -> Int
+    pixmapMaxVal :: a -> Int
 
-data CacheValue_1 val
-    = InProgress_1
-    | Value_1 val
-    | Failed_1 FileError
-    deriving (Generic, Eq, Ord, Functor)
+instance PixmapShape (Int, Int) where
+  pixmapWidth (w, _) = w
+  pixmapHeight (_, h) = h
+  pixmapMaxVal _ = 255 -- whatever
 
-deriving instance Show val => Show (CacheValue_1 val)
+-- |Given the desired DPI and image dimensions, return the factor by
+-- which an image should be scaled.  Result of Nothing means the scale
+-- is pathological.
+scaleFromDPI :: PixmapShape a => ImageSize -> Rational -> a -> Maybe Rational
+scaleFromDPI sz dpi file =
+    case _dim sz of
+      _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
+      TheHeight -> Just $ inches sz * dpi / h
+      TheWidth -> Just $ inches sz * dpi / w
+      -- If we want an area of 9 square inches, and the dpi is 100, and the image
+      -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
+      TheArea -> Just (rsqrt (inches sz * dpi * dpi / (w * h)))
+    where
+      w = fromIntegral (pixmapWidth file)
+      h = fromIntegral (pixmapHeight file)
 
-$(deriveSafeCopy 1 'base ''CacheValue_1)
+widthInInches :: PixmapShape a => a -> ImageSize -> Rational
+widthInInches p s =
+    case _dim s of
+      TheWidth -> toInches (_units s) (_size s)
+      TheHeight -> widthInInches p (s {_dim = TheWidth, _size = approx (_size s / r)})
+      TheArea -> widthInInches p (s {_dim = TheWidth, _size = approx (rsqrt (_size s / r))})
+    where
+      r :: Rational
+      r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
+      toInches :: Units -> Rational -> Rational
+      toInches Inches x = x
+      toInches Cm x = x / (254 % 100)
+      toInches Points x = x / (7227 % 100)
 
-newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
+heightInInches :: PixmapShape a => a -> ImageSize -> Rational
+heightInInches p s =
+    case _dim s of
+      TheHeight -> toInches (_units s) (_size s)
+      TheWidth -> heightInInches p (s {_dim = TheHeight, _size = approx (_size s / r)})
+      TheArea -> heightInInches p (s {_dim = TheHeight, _size = approx (rsqrt (_size s / r))})
+    where
+      r :: Rational
+      r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
+      toInches Inches x = x
+      toInches Cm x = x / (254 % 100)
+      toInches Points x = x / (7227 % 100)
 
--- | Class of monads with a 'FilePath' value containing the top
--- directory of a file cache.
-class Monad m => HasFileCacheTop m where
-    fileCacheTop :: m FileCacheTop
+-- |Modify an ImageSize so that the dimension is width and the units
+-- are inches.  This way we can figure out how many images fit across
+-- the page.
+widthInInches' :: PixmapShape a => a -> ImageSize -> ImageSize
+widthInInches' p s = s {_units = Inches, _size = approx (widthInInches p s), _dim = TheWidth}
+
+-- * ImageCrop
 
-instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m) where
-    fileCacheTop = view _2
+-- |This describes the cropping and rotation of an image.
+data ImageCrop
+    = ImageCrop
+      { topCrop :: Int
+      , bottomCrop :: Int
+      , leftCrop :: Int
+      , rightCrop :: Int
+      , rotation :: Int         -- 0, 90, 180, 270
+      } deriving (Generic, Eq, Ord)
 
-instance Monad m => HasFileCacheTop (ReaderT (acid, FileCacheTop) m) where
-    fileCacheTop = view _2
+instance Default ImageCrop where def = ImageCrop 0 0 0 0 0
+instance SafeCopy ImageCrop where version = 0
+instance Serialize ImageCrop where get = safeGet; put = safePut
+deriving instance Data ImageCrop
+deriving instance Read ImageCrop
+deriving instance Show ImageCrop
+deriving instance Typeable ImageCrop
 
-instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
-    fileCacheTop = lift fileCacheTop
+instance Pretty ImageCrop where
+    pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
+
+-- * ImageType
+
+data ImageType = PPM | JPEG | GIF | PNG deriving (Generic, Eq, Ord)
+
+deriving instance Data ImageType
+deriving instance Read ImageType
+deriving instance Show ImageType
+deriving instance Typeable ImageType
+instance Serialize ImageType where get = safeGet; put = safePut
+instance SafeCopy ImageType where version = 0
+
+type Extension = Text
+
+fileExtension :: ImageType -> Extension
+fileExtension JPEG = ".jpg"
+fileExtension PPM = ".ppm"
+fileExtension GIF = ".gif"
+fileExtension PNG = ".png"
+
+-- * File
 
 -- |A local cache of a file obtained from a 'FileSource'.
 data File
@@ -295,7 +414,6 @@ data File_2
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = Text
-type Extension = Text
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
@@ -363,238 +481,8 @@ instance Arbitrary File where
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
 #endif
-
--- | Simplify the ratio to avoid a long representation:
---
--- > λ> toRational 0.123456
--- > 8895942329546431 % 72057594037927936
--- > λ> approxRational (toRational 0.123456) (1 % 10000)
--- > 10 % 81
--- > λ> 10 / 81
--- > 0.12345679012345678   (wow, that's wierd)
---
--- This is important for values that might become part of a path,
--- we don't want them to be too long or subject to rounding errors.
-approx :: Rational -> Rational
-approx x = approxRational x (1 % 10000)
-
--- | readShowLens is not a good choice for rational numbers,  because
--- it only understands strings like "15 % 4", not "15" or "3.5".
--- If an invalid string is input this returns 0.
-rationalLens :: Lens' Rational String
-rationalLens = lens showRational (\r s -> either (const r) id (readRationalMaybe s))
-
-rationalIso :: Iso' Rational String
-rationalIso = iso showRational (readRational 0)
-    where
-      readRational :: Rational -> String -> Rational
-      readRational d = either (const d) id . readRationalMaybe
-
-showRational :: Rational -> String
-showRational x = showSigned (showFFloat Nothing) 0 (fromRat x :: Double) ""
-
-readRationalMaybe :: Monad m => String -> m Rational
-readRationalMaybe s =
-    case (map fst $ filter (null . snd) $ readSigned readFloat s) of
-      [r] -> return r
-      [] -> fail $ "readRationalMaybe " ++ s
-      _rs -> fail $ "readRationalMaybe " ++ s
-
-instance View Rational where type ViewType Rational = Text; _View = rationalIso . iso pack unpack
-
--- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
--- mapRatio f r = f (numerator r) % f (denominator r)
-
-data ImageSize
-    = ImageSize
-      { _dim :: Dimension
-      , _size :: Rational
-      , _units :: Units
-      } deriving (Generic, Eq, Ord)
-
-instance Default ImageSize where
-    def = ImageSize TheArea 15.0 Inches
-instance SafeCopy ImageSize where version = 2
-instance Serialize ImageSize where get = safeGet; put = safePut
-deriving instance Data ImageSize
-deriving instance Read ImageSize
-deriving instance Show ImageSize
-deriving instance Typeable ImageSize
-
-data Dimension
-    = TheHeight
-    | TheWidth
-    | TheArea
-    deriving (Generic, Eq, Ord, Enum, Bounded)
-
-instance View Dimension where type ViewType Dimension = Text; _View = viewIso _Show TheHeight . iso pack unpack
-instance SafeCopy Dimension where version = 1
-instance Serialize Dimension where get = safeGet; put = safePut
-deriving instance Data Dimension
-deriving instance Read Dimension
-deriving instance Show Dimension
-deriving instance Typeable Dimension
-
-data Units
-    = Inches
-    | Cm
-    | Points
-    deriving (Generic, Eq, Ord, Enum, Bounded)
-
-instance View Units where type ViewType Units = Text; _View = viewIso _Show Inches . iso pack unpack
-instance SafeCopy Units where version = 0
-instance Serialize Units where get = safeGet; put = safePut
-deriving instance Data Units
-deriving instance Read Units
-deriving instance Show Units
-deriving instance Typeable Units
-
--- |This describes the cropping and rotation of an image.
-data ImageCrop
-    = ImageCrop
-      { topCrop :: Int
-      , bottomCrop :: Int
-      , leftCrop :: Int
-      , rightCrop :: Int
-      , rotation :: Int         -- 0, 90, 180, 270
-      } deriving (Generic, Eq, Ord)
-
-instance Default ImageCrop where def = ImageCrop 0 0 0 0 0
-instance SafeCopy ImageCrop where version = 0
-instance Serialize ImageCrop where get = safeGet; put = safePut
-deriving instance Data ImageCrop
-deriving instance Read ImageCrop
-deriving instance Show ImageCrop
-deriving instance Typeable ImageCrop
-
--- | A class whose primary (only?) instance is ImageFile.  Access to
--- the original dimensions of the image, so we can compute the aspect
--- ratio.
-class PixmapShape a where
-    pixmapHeight :: a -> Int
-    pixmapWidth :: a -> Int
-    pixmapMaxVal :: a -> Int
-
-instance PixmapShape (Int, Int) where
-  pixmapWidth (w, _) = w
-  pixmapHeight (_, h) = h
-  pixmapMaxVal _ = 255 -- whatever
-
--- |Given the desired DPI and image dimensions, return the factor by
--- which an image should be scaled.  Result of Nothing means the scale
--- is pathological.
-scaleFromDPI :: PixmapShape a => ImageSize -> Rational -> a -> Maybe Rational
-scaleFromDPI sz dpi file =
-    case _dim sz of
-      _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
-      TheHeight -> Just $ inches sz * dpi / h
-      TheWidth -> Just $ inches sz * dpi / w
-      -- If we want an area of 9 square inches, and the dpi is 100, and the image
-      -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
-      TheArea -> Just (rsqrt (inches sz * dpi * dpi / (w * h)))
-    where
-      w = fromIntegral (pixmapWidth file)
-      h = fromIntegral (pixmapHeight file)
-
-widthInInches :: PixmapShape a => a -> ImageSize -> Rational
-widthInInches p s =
-    case _dim s of
-      TheWidth -> toInches (_units s) (_size s)
-      TheHeight -> widthInInches p (s {_dim = TheWidth, _size = approx (_size s / r)})
-      TheArea -> widthInInches p (s {_dim = TheWidth, _size = approx (rsqrt (_size s / r))})
-    where
-      r :: Rational
-      r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
-      toInches :: Units -> Rational -> Rational
-      toInches Inches x = x
-      toInches Cm x = x / (254 % 100)
-      toInches Points x = x / (7227 % 100)
-
-rsqrt :: Rational -> Rational
-rsqrt = toRational . (sqrt :: Double -> Double) . fromRat
-
-heightInInches :: PixmapShape a => a -> ImageSize -> Rational
-heightInInches p s =
-    case _dim s of
-      TheHeight -> toInches (_units s) (_size s)
-      TheWidth -> heightInInches p (s {_dim = TheHeight, _size = approx (_size s / r)})
-      TheArea -> heightInInches p (s {_dim = TheHeight, _size = approx (rsqrt (_size s / r))})
-    where
-      r :: Rational
-      r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
-      toInches Inches x = x
-      toInches Cm x = x / (254 % 100)
-      toInches Points x = x / (7227 % 100)
-
--- |Modify an ImageSize so that the dimension is width and the units
--- are inches.  This way we can figure out how many images fit across
--- the page.
-widthInInches' :: PixmapShape a => a -> ImageSize -> ImageSize
-widthInInches' p s = s {_units = Inches, _size = approx (widthInInches p s), _dim = TheWidth}
-
--- | A wrapper type to suggest that lens_saneSize has been applied to
--- the ImageSize within.
-newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Generic, Eq, Ord)
-
-instance (SafeCopy a, Typeable a) => SafeCopy (SaneSize a) where version = 1
-instance (SafeCopy a, Typeable a) => Serialize (SaneSize a) where get = safeGet; put = safePut
-deriving instance Data a => Data (SaneSize a)
-deriving instance Read a => Read (SaneSize a)
-deriving instance Show a => Show (SaneSize a)
-deriving instance Typeable (SaneSize a)
-
-instance View (SaneSize ImageSize) where
-    type ViewType (SaneSize ImageSize) = ImageSize
-    _View = newtypeIso
-
-saneSize :: ImageSize -> SaneSize ImageSize
-saneSize sz = SaneSize $
-    case (_dim sz, inches sz) of
-      (TheArea, n) | n < minArea -> sz {_units = Inches, _size = minArea}
-      (TheArea, n) | n > maxArea -> sz {_units = Inches, _size = maxArea}
-      (_, n) | n < minDist -> sz {_units = Inches, _size = toRational minDist}
-      (_, n) | n > maxDist -> sz {_units = Inches, _size = maxDist}
-      _ -> sz
-    where
-      -- inches and square inches
-      minDist = 25 % 100
-      maxDist = 25
-      minArea = 625 % 10000
-      maxArea = 625
-
--- Surely, SaneSize should be a class so we could apply it to things
--- other than ImageSize.  But for the moment it is what it is.
-instance Default (SaneSize ImageSize) where
-    def = saneSize def
-
-defaultSize :: ImageSize
-defaultSize = ImageSize {_dim = TheArea, _units = Inches, _size = 6.0}
-
--- | Return the value of size in inches
-inches :: ImageSize -> Rational
-inches sz =
-    _size sz / case (_dim sz, _units sz) of
-                (_, Inches) -> 1
-                (TheArea, Cm) -> (254 % 100) * (254 % 100)
-                (TheArea, Points) -> (7227 % 100) * (7227 % 100)
-                (_, Cm) -> 254 % 100
-                (_, Points) -> 7227 % 100
-
-instance Pretty Dimension where
-    pPrint TheHeight = text "height"
-    pPrint TheWidth = text "width"
-    pPrint TheArea = text "area"
-
-instance Pretty Units where
-    pPrint Inches = text "in"
-    pPrint Cm = text "cm"
-    pPrint Points = text "pt"
-
-instance Pretty ImageSize where
-    pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> showRational sz <> " ") <> pPrint u
-
-instance Pretty ImageCrop where
-    pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
+
+-- * ImageFile
 
 -- | A file containing an image plus meta info.
 data ImageFile
@@ -624,24 +512,11 @@ instance PixmapShape ImageFile where
 instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Generic, Eq, Ord)
-
-deriving instance Data ImageType
-deriving instance Read ImageType
-deriving instance Show ImageType
-deriving instance Typeable ImageType
-instance Serialize ImageType where get = safeGet; put = safePut
-instance SafeCopy ImageType where version = 0
-
 -- |Return the area of an image in square pixels.
 imageFileArea :: ImageFile -> Int
 imageFileArea image = _imageFileWidth image * _imageFileHeight image
-
-fileExtension :: ImageType -> Extension
-fileExtension JPEG = ".jpg"
-fileExtension PPM = ".ppm"
-fileExtension GIF = ".gif"
-fileExtension PNG = ".png"
+
+-- * ImageKey
 
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
@@ -686,25 +561,6 @@ instance Pretty ImageKey where
 
 instance Ppr ImageKey where ppr = ptext . show
 
-type CacheImage = CacheValue ImageFile
-type ImageCacheMap = Map ImageKey ImageFile
-
--- | Remove null crops
-fixKey :: ImageKey -> ImageKey
-fixKey key@(ImageOriginal _) = key
-fixKey (ImageCropped crop key) | crop == def = fixKey key
-fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
-fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
-fixKey (ImageUpright key) = ImageUpright (fixKey key)
-
-instance PathInfo Rational where
-  toPathSegments r =
-    toPathSegments (numerator r') <> toPathSegments (denominator r')
-    -- This means that toPathSegments might not be the exact inverse
-    -- of fromPathSegments - is there any danger from this?
-    where r' = approx r
-  fromPathSegments = (%) <$> fromPathSegments <*> fromPathSegments
-
 -- | This describes how the keys we use are constructed
 class OriginalKey a where
   originalKey :: a -> ImageKey
@@ -727,9 +583,192 @@ class HasImageSize size => ScaledKey size a where
   scaledKey :: size -> Rational -> a -> ImageKey
 instance ScaledKey ImageSize ImageFile where
   scaledKey size dpi x = ImageScaled (imageSize size) dpi (editedKey x)
+
+-- * FileError, CommandInfo
 
-class HasImageSize a where imageSize :: a -> ImageSize
-instance HasImageSize ImageSize where imageSize = id
+-- | It would be nice to store the actual IOException and E.ErrorCall,
+-- but then the FileError type wouldn't be serializable.
+data FileError
+    = IOException {-IOException-} Text -- ^ Caught an IOException
+    | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
+    | CommandFailure CommandInfo -- ^ A shell command failed
+    | CacheDamage Text -- ^ The contents of the cache is wrong
+    deriving (Eq, Ord, Generic)
+
+instance Migrate FileError where
+  type MigrateFrom FileError = FileError_1
+  migrate (IOException_1 t) = IOException t
+  migrate (ErrorCall_1 t) = ErrorCall t
+  migrate (CommandFailure_1 info) = CommandFailure info
+  migrate CacheDamage_1 = CacheDamage ""
+
+data FileError_1
+    = IOException_1 Text
+    | ErrorCall_1 Text
+    | CommandFailure_1 CommandInfo
+    | CacheDamage_1
+    deriving (Eq, Ord, Generic)
+
+instance Exception FileError
+instance SafeCopy CommandInfo where version = 1
+instance SafeCopy FileError_1 where version = 1
+instance SafeCopy FileError where version = 2; kind = extension
+
+instance Serialize CommandInfo where get = safeGet; put = safePut
+instance Serialize FileError where get = safeGet; put = safePut
+
+deriving instance Data FileError
+deriving instance Data CommandInfo
+deriving instance Show FileError
+deriving instance Show CommandInfo
+
+-- | This ensures that runExceptT catches IOException
+instance HasIOException FileError where fromIOException = IOException . pack . show
+
+class HasIOException e => HasFileError e where fileErrorPrism :: Prism' e FileError
+instance HasFileError FileError where fileErrorPrism = id
+
+fromFileError :: HasFileError e => FileError -> e
+fromFileError = review fileErrorPrism
+
+withFileError :: HasFileError e => (Maybe FileError -> r) -> e -> r
+withFileError f = f . preview fileErrorPrism
+
+-- | Information about a shell command that failed.  This is
+-- recursive so we can include as much or as little as desired.
+data CommandInfo
+    = Command Text Text -- ^ CreateProcess and ExitCode
+    | CommandInput P.ByteString CommandInfo -- ^ command input
+    | CommandOut P.ByteString CommandInfo -- ^ stdout
+    | CommandErr P.ByteString CommandInfo -- ^ stderr
+    | FunctionName String CommandInfo -- ^ The function that ran the command
+    | Description String CommandInfo -- ^ free form description of what happened
+    deriving (Eq, Ord, Generic)
+
+class Loggable a where
+  logit :: Priority -> Loc -> a -> IO ()
+
+instance Loggable FileError where
+  logit priority loc (IOException e) = (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
+  logit priority loc (ErrorCall e) = (logM (loc_module loc) priority (" - error call: " <> show e))
+  logit priority loc (CommandFailure info) = (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
+  logit priority loc (CacheDamage t) = logM (loc_module loc) priority (" - file cache is damaged: " <> unpack t)
+
+logCommandInfo :: Priority -> Loc -> CommandInfo -> IO ()
+logCommandInfo priority loc (Description s e) = logM (loc_module loc) priority (" - error description: " <> s) >> logCommandInfo priority loc e
+logCommandInfo priority loc (FunctionName n e) = logM (loc_module loc) priority (" - error function " <> n) >> logCommandInfo priority loc e
+logCommandInfo priority loc (Command cmd code) = logM (loc_module loc) priority (" - command: " <> show cmd <> ", exit code: " <> show code)
+logCommandInfo priority loc (CommandInput bs e) = logM (loc_module loc) priority (" - command input: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+logCommandInfo priority loc (CommandOut bs e) = logM (loc_module loc) priority (" - command stdout: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+logCommandInfo priority loc (CommandErr bs e) = logM (loc_module loc) priority (" - command stderr: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
+
+logErrorCall :: MonadIO m => m (Either SomeException a) -> m (Either SomeException a)
+logErrorCall x =
+    x >>= either (\e -> case fromException e :: Maybe E.ErrorCall of
+                          Just (ErrorCallWithLocation msg loc) ->
+                              liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
+                          _ -> return (Left e)) (return . Right)
+
+-- * FileCacheTop
+
+newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
+
+-- | Class of monads with a 'FilePath' value containing the top
+-- directory of a file cache.
+class Monad m => HasFileCacheTop m where
+    fileCacheTop :: m FileCacheTop
+
+instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m) where
+    fileCacheTop = view _2
+
+instance Monad m => HasFileCacheTop (ReaderT (acid, FileCacheTop) m) where
+    fileCacheTop = view _2
+
+instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
+    fileCacheTop = lift fileCacheTop
+
+-- Later we could make FileError a type parameter, but right now its
+-- tangled with the MonadError type.
+data CacheMap key val =
+    CacheMap {_unCacheMap :: Map key (Either FileError val)}
+    deriving (Generic, Eq, Ord)
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap key val) where
+  version = 3
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap"
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => Migrate (CacheMap key val) where
+  type MigrateFrom (CacheMap key val) = CacheMap_2 key val
+  migrate (CacheMap_2 mp) =
+    CacheMap (fmap (\case Value_1 a -> Right a; Failed_1 e -> Left e; _ -> error "Migrate CacheMap") mp)
+
+data CacheMap_2 key val =
+    CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
+    deriving (Generic, Eq, Ord)
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
+  version = 2
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
+
+deriving instance (Show key, Show val) => Show (CacheMap key val)
+
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
+    type MigrateFrom (CacheMap_2 key val) = Map key val
+    migrate mp = CacheMap_2 (fmap Value_1 mp)
+
+data CacheValue_1 val
+    = InProgress_1
+    | Value_1 val
+    | Failed_1 FileError
+    deriving (Generic, Eq, Ord, Functor)
+
+deriving instance Show val => Show (CacheValue_1 val)
+
+$(deriveSafeCopy 1 'base ''CacheValue_1)
+#if 0
+
+__LOC__ :: Q Exp
+__LOC__ = TH.lift =<< location
+
+logAndThrow :: (MonadError e m, MonadIO m, Show e) => String -> Priority -> e -> m b
+logAndThrow m p e = liftIO (logM m p ("logAndThrow - " ++ show e)) >> throwError e
+
+-- | Create an expression of type (MonadIO m => Priority -> m a -> m a) that we can
+-- apply to an expression so that it catches, logs, and rethrows any
+-- exception.
+logException :: ExpQ
+logException =
+    [| \priority action ->
+         action `catchError` (\e -> do
+                                liftIO (logM (loc_module $__LOC__)
+                                             priority
+                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show e))
+                                throwError e) |]
+
+logExceptionV :: ExpQ
+logExceptionV =
+    [| \priority action ->
+         action `catchError` (\e -> do
+                                liftIO (logM (loc_module $__LOC__)
+                                             priority
+                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show (V e)))
+                                throwError e) |]
+
+type CacheValue val = Either FileError val
+
+type CacheImage = CacheValue ImageFile
+type ImageCacheMap = Map ImageKey ImageFile
+
+-- | Remove null crops
+fixKey :: ImageKey -> ImageKey
+fixKey key@(ImageOriginal _) = key
+fixKey (ImageCropped crop key) | crop == def = fixKey key
+fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
+fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
+fixKey (ImageUpright key) = ImageUpright (fixKey key)
+#endif
 
 $(concat <$>
   sequence
