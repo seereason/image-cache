@@ -20,8 +20,8 @@ module Data.FileCache.Common
   , PixmapShape(..)
   , scaleFromDPI
   , widthInInches
---  , widthInInches'
---  , heightInInches
+  , widthInInches'
+  , heightInInches
 
     -- * ImageCrop
   , ImageCrop(..)
@@ -36,7 +36,7 @@ module Data.FileCache.Common
   , FileSource(..)
   , Checksum
   , HasFileChecksum(fileChecksum)
---  , fileURI
+  , fileURI
   , filePath
   , fileDir
 --  , addMessage
@@ -44,6 +44,7 @@ module Data.FileCache.Common
 
     -- * ImageFile
   , ImageFile(..)
+  , imageFileArea
 
     -- * ImageKey
   , ImageKey(..)
@@ -73,7 +74,6 @@ module Data.FileCache.Common
   , CacheValue
 --
 --    -- * Image
---  , imageFileArea
   , CacheImage
 --  , ImageCacheMap
 --
@@ -84,7 +84,7 @@ import Control.Exception as E ( ErrorCall(ErrorCallWithLocation), Exception, fro
 import Control.Lens ( Iso', iso, Lens', lens, _Show, _2, view, over, preview, Prism', review )
 import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
-import Control.Monad.Except ( ExceptT, lift, MonadError(catchError, throwError) )
+import Control.Monad.Except ( ExceptT, lift )
 import Control.Monad.RWS ( RWST )
 import Control.Monad.Reader ( ReaderT )
 import Control.Monad.Trans ( MonadIO(liftIO) )
@@ -104,12 +104,11 @@ import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
 import Extra.Except ( HasIOException(..) )
 import GHC.Generics ( Generic, M1(M1) )
-import Language.Haskell.TH ( ExpQ, Exp, Loc(..), location, pprint, Q, Ppr(ppr) )
+import Language.Haskell.TH ( Loc(..), Ppr(ppr) )
 import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ( Lift )
 import Language.Haskell.TH.PprLib ( ptext )
 import Language.Haskell.TH.Syntax ( Loc(loc_module) )
-import qualified Language.Haskell.TH.Lift as TH ( Lift(lift) )
 import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
 import System.FilePath ( makeRelative, (</>) )
@@ -574,6 +573,8 @@ instance Ppr ImageKey where ppr = ptext . show
 -- | This describes how the keys we use are constructed
 class OriginalKey a where
   originalKey :: a -> ImageKey
+instance OriginalKey Checksum where -- danger - Checksum is just String
+  originalKey = ImageOriginal
 instance OriginalKey ImageFile where
   originalKey = originalKey . _imageFile
 instance OriginalKey File where
