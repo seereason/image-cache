@@ -49,7 +49,7 @@ import Data.ByteString.Lazy ( fromStrict, toStrict )
 import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import qualified Data.ByteString.UTF8 as P ( toString )
 import Data.Char ( isSpace )
-import Data.FileCache.Common ( CacheMap(..), {-CacheValue,-} File(..), FileCacheTop(..), HasFileCacheTop(..), Extension, CommandInfo(..), FileError(..), HasFileError, fromFileError, md5', FileSource(ThePath, TheURI), filePath, fileDir, FileError(CacheDamage), OriginalKey(originalKey), {-CacheImage,-} ImageKey(..), PixmapShape(pixmapHeight, pixmapWidth), ImageCrop(rotation, bottomCrop, topCrop, rightCrop, leftCrop), scaleFromDPI, HasFileCacheTop(fileCacheTop), SaneSize(SaneSize), Units(..), Dimension(..), ImageSize(..), readRationalMaybe, saneSize, withFileError, ImageType(..), ImageFile(..), ImageCrop(ImageCrop), approx, fileExtension )
+import Data.FileCache.Common
 import Data.FileCache.LogException (logException)
 import Data.Generics ( Typeable )
 import Data.Generics.Product ( field )
@@ -397,19 +397,18 @@ fileFromPath byteStringInfo toFileExt path = do
 
 -- | A shell command whose output becomes the contents of the file.
 fileFromCmd ::
-    forall e m a. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m)
+    forall e m a. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m, HasFileExtension a)
     => (BS.ByteString -> m a)
-    -> (a -> Extension)
-    -> String
+    -> CreateProcess
     -> m (File, a)
-fileFromCmd byteStringInfo toFileExt cmd = do
-  (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' (shell cmd) BS.empty)
+fileFromCmd byteStringInfo cmd = do
+  (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd BS.empty)
   case code of
     ExitSuccess ->
-        do (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
-           return $ (set (field @"_fileSource") (Just (ThePath cmd)) file, a)
+        do (file, a) <- fileFromBytes byteStringInfo fileExtension bytes
+           return $ (set (field @"_fileSource") (Just (ThePath (show cmd))) file, a)
     ExitFailure _ ->
-        throwError $ (fromFileError :: FileError -> e) $ CommandFailure (FunctionName "fileFromCmd" (Command (T.pack (show (shell cmd))) (T.pack (show code))))
+        throwError $ (fromFileError :: FileError -> e) $ CommandFailure (FunctionName "fileFromCmd" (Command (T.pack (show cmd)) (T.pack (show code))))
 
 -- |Retrieve a URI using curl and turn the resulting data into a File.
 fileFromURI ::
@@ -1057,7 +1056,7 @@ scaleImage scale orig = {- liftIO $ $logException ERROR $ -} do
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
         cmd = pipe' [decoder, scaler, encoder]
-    fileFromCmd (liftIO . getFileType) fileExtension cmd >>= makeImageFile
+    fileFromCmd (liftIO . getFileType) (shell cmd) >>= makeImageFile
 
 pipeline :: [CreateProcess] -> BS.ByteString -> IO BS.ByteString
 pipeline [] bytes = return bytes

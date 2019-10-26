@@ -29,12 +29,13 @@ module Data.FileCache.Common
     -- * ImageType
   , ImageType(..)
   , Extension
-  , fileExtension
+  , HasFileExtension(fileExtension)
 
     -- * File
   , File(..)
   , FileSource(..)
   , Checksum
+  , HasFileChecksum(fileChecksum)
 --  , fileURI
   , filePath
   , fileDir
@@ -383,11 +384,19 @@ instance SafeCopy ImageType where version = 0
 
 type Extension = Text
 
-fileExtension :: ImageType -> Extension
-fileExtension JPEG = ".jpg"
-fileExtension PPM = ".ppm"
-fileExtension GIF = ".gif"
-fileExtension PNG = ".png"
+class HasFileExtension a where fileExtension :: a -> Extension
+instance HasFileExtension Extension where fileExtension = id
+
+instance HasFileExtension ImageType where
+  fileExtension JPEG = ".jpg"
+  fileExtension PPM = ".ppm"
+  fileExtension GIF = ".gif"
+  fileExtension PNG = ".png"
+
+-- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
+type Checksum = Text
+
+class HasFileChecksum a where fileChecksum :: a -> Checksum
 
 -- * File
 
@@ -412,8 +421,8 @@ data File_2
              , _fileExt_2 :: String
              } deriving (Generic, Eq, Ord)
 
--- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
-type Checksum = Text
+instance HasFileChecksum File where fileChecksum = _fileChksum
+instance HasFileExtension File where fileExtension = _fileExt
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
@@ -460,14 +469,14 @@ md5' = show . md5
 md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
 
-filePath :: File -> FilePath
-filePath file = fileDir file <++> unpack (_fileChksum file) <> unpack (_fileExt file)
+filePath :: (HasFileExtension a, HasFileChecksum a) => a -> FilePath
+filePath file = fileDir file <++> unpack (fileChecksum file) <> unpack (fileExtension file)
 
 (<++>) :: FilePath -> FilePath -> FilePath
 a <++> b = a </> (makeRelative "" b)
 
-fileDir :: File -> FilePath
-fileDir file = take 2 (unpack (_fileChksum file))
+fileDir :: HasFileChecksum a => a -> FilePath
+fileDir = take 2 . unpack . fileChecksum
 
 $(concat <$>
   sequence
