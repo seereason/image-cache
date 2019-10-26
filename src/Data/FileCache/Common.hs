@@ -99,6 +99,7 @@ import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
 import Data.SafeCopy ( deriveSafeCopy, base, SafeCopy', extension, Migrate(..), SafeCopy(..), safeGet, safePut )
 import Data.Serialize ( Serialize(..) )
+import Data.String (IsString(fromString))
 import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
 import Extra.Except ( HasIOException(..) )
@@ -603,6 +604,9 @@ data FileError
     | CommandFailure CommandInfo -- ^ A shell command failed
     | CacheDamage Text -- ^ The contents of the cache is wrong
     deriving (Eq, Ord, Generic)
+
+-- Dubious instance, but omitting makes other things more dubious.
+instance IsString FileError where fromString = ErrorCall . pack
 
 instance Migrate FileError where
   type MigrateFrom FileError = FileError_1

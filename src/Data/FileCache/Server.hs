@@ -29,20 +29,20 @@ module Data.FileCache.Server
   , storeByteString
   , storeImageFiles
   , storeImageFile
+
+  , tests
   ) where
 
 import "regex-compat-tdfa" Text.Regex ( Regex, mkRegex, matchRegex )
 import Control.Exception ( throw )
-import Control.Lens ( (%=), at, view, Field1(_1), Field3(_3), Field2(_2), _Left, over, makeLensesFor, set )
+import Control.Lens ( (%=), _1, _2, _3, _Left, over, makeLensesFor, at, _Right, view, set )
 import Control.Monad ( unless, when )
-import Control.Monad.Catch ( bracket, MonadMask, catchJust, try )
-import Control.Monad.Except ( MonadError, catchError, throwError )
+import Control.Monad.Catch ( try )
 import Control.Monad.RWS ( RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask), ReaderT )
 import Control.Monad.Trans ( MonadTrans(lift), liftIO )
-import Control.Monad.Trans.Except ( ExceptT(ExceptT), runExceptT )
+import Control.Monad.Trans.Except ( ExceptT, runExceptT )
 import Data.Acid ( AcidState, makeAcidic, openLocalStateFrom, Query, Update, query, update )
-import Data.Acid.Local ( createCheckpointAndClose )
 import Data.Binary.Get ( getLazyByteString, Get, skip, bytesRead, getWord16be, getWord32be, getWord16le, getWord32le, runGetOrFail )
 import qualified Data.ByteString as BS ( ByteString, empty, readFile )
 import Data.ByteString.Lazy ( fromStrict, toStrict )
@@ -58,63 +58,34 @@ import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, inse
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
-import Data.SafeCopy ( SafeCopy, SafeCopy(version), SafeCopy' )
+import Data.SafeCopy ( SafeCopy )
 import Data.Set as Set ( Set )
-import Data.Text as T ( pack, take, Text, unpack )
+import Data.String (fromString)
+import Data.Text as T ( pack, take, Text )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
-import Extra.Except ( MonadIO, logIOError )
+import Extra.Except ( catchError, liftEither, logIOError, MonadError, MonadIO, throwError, tryError, withExceptT )
 import Extra.Log ( alog )
-import GHC.Generics ( Generic )
-import GHC.IO.Exception ( IOException(ioe_description) )
+import GHC.IO.Exception ( IOException )
 import GHC.Int ( Int64 )
 import Language.Haskell.TH.Instances ()
-import Language.Haskell.TH.Lift ( Lift )
 import Network.URI ( URI(..), uriToString )
 import Numeric ( fromRat, showFFloat )
-import System.Directory ( copyFile, createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
+import System.Directory ( createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( makeRelative, (</>) )
 import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
 import System.IO ( openBinaryTempFile )
-import System.IO.Error ( isDoesNotExistError )
 import System.Log.Logger ( Priority(ERROR), logM, Priority(DEBUG, CRITICAL) )
-import qualified System.Posix.Files as F ( createSymbolicLink, getSymbolicLinkStatus )
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode, showCreateProcessForUser )
 import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser, shell )
 import System.Process.ByteString.Lazy as LBS ( readCreateProcessWithExitCode )
-import System.Process.ListLike as LL ( ListLikeProcessIO, ProcessResult, readCreateProcessWithExitCode, readCreateProcess )
+import System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcessWithExitCode, readCreateProcess )
 import Test.HUnit ( assertEqual, Test(..) )
 import Text.Parsec ( Parsec, (<|>), many, parse, char, digit, newline, noneOf, oneOf, satisfy, space, spaces, string, many1, optionMaybe )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
-
-type ErrorWithIO m = ExceptT IOError m
-
-modify :: Monad m => (IOError -> IOError) -> ErrorWithIO m a -> ErrorWithIO m a
-modify f action = ExceptT (runExceptT action >>= return . either (Left . f) Right)
-
--- | Add a prefix to an IOError's description.
-prefix :: Monad m => String -> ErrorWithIO m a -> ErrorWithIO m a
-prefix s action = modify (mapIOErrorDescription (s ++)) action
-
-mapIOErrorDescription :: (String -> String) -> IOError -> IOError
-mapIOErrorDescription f e = e {ioe_description = f (ioe_description e)}
-
-ensureLink :: String -> FilePath -> IO ()
-ensureLink file path = (F.getSymbolicLinkStatus path >> return ()) `catchDoesNotExist` (\ () -> F.createSymbolicLink file path)
-
-catchDoesNotExist :: IO a -> (() -> IO a) -> IO a
-catchDoesNotExist = catchJust (\ e -> if isDoesNotExistError e then Just () else Nothing)
-
-readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
-readCreateProcessWithExitCode' p s =
-    -- logM "Appraisal.Utils.ErrorWithIO" DEBUG ("readCreateProcessWithExitCode': " <> show (pPrint p)) >>
-    $logException ERROR (LL.readCreateProcessWithExitCode p s)
-
-readCreateProcess' :: (ListLikeProcessIO a c, ProcessResult a b) => CreateProcess -> a -> IO b
-readCreateProcess' p s =
-    -- logM "Appraisal.Utils.ErrorWithIO" DEBUG ("readCreateProcess': " <> show (pPrint p)) >>
-    $logException ERROR (LL.readCreateProcess p s)
+
+-- * Orphan Instances
 
 instance Pretty CreateProcess where
     pPrint p = pPrint (cmdspec p)
@@ -122,6 +93,62 @@ instance Pretty CreateProcess where
 instance Pretty CmdSpec where
     pPrint (ShellCommand s) = text s
     pPrint (RawCommand path args) = text (showCommandForUser path args)
+
+-- * Processes
+
+readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
+readCreateProcessWithExitCode' p s =
+    $logException ERROR (LL.readCreateProcessWithExitCode p s)
+
+showCmdSpec :: CmdSpec -> String
+showCmdSpec (ShellCommand s) = s
+showCmdSpec (RawCommand p ss) = showCommandForUser p ss
+
+pipe :: [CreateProcess] -> CreateProcess
+pipe xs = foldl1 (<>) xs
+
+instance Semigroup CreateProcess where
+  a <> b =
+    if cwd a == cwd b &&
+       env a == env b &&
+       close_fds a == close_fds b &&
+       create_group a == create_group b
+    then a {cmdspec = ShellCommand (showCmdSpec (cmdspec a) ++ " | " ++ showCmdSpec (cmdspec b))}
+    else error $ "Pipeline of incompatible commands: " ++ LL.showCreateProcessForUser a ++ " | " ++ LL.showCreateProcessForUser b
+
+pipeline :: [CreateProcess] -> BS.ByteString -> IO BS.ByteString
+pipeline [] bytes = return bytes
+pipeline (p : ps) bytes =
+    (LL.readCreateProcessWithExitCode p bytes >>= doResult)
+      `catchError` (\ (e :: IOException) -> doException (LL.showCreateProcessForUser p ++ " -> " ++ show e) e)
+    where
+      doResult (ExitSuccess, out, _) = pipeline ps out
+      doResult (code, _, err) = let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in doException message (userError message)
+      -- Is there any exception we should ignore here?
+      doException message e = alog "Appraisal.ImageFile" ERROR message >> throw e
+
+pipe' :: [String] -> String
+pipe' = intercalate " | "
+
+{-
+pipelineWithExitCode :: [(String, [String])] -> B.ByteString -> IO (ExitCode, B.ByteString, [B.ByteString])
+pipelineWithExitCode cmds inp =
+    pipeline' cmds inp (ExitSuccess, [])
+    where
+      pipeline' _ bytes (code@(ExitFailure _), errs) = return (code, bytes, errs)
+      pipeline' [] bytes (code, errs) = return (code, bytes, reverse errs)
+      pipeline' ((cmd, args) : rest) bytes (code, errs) =
+          do (code, out, err) <- readProcessWithExitCode cmd args bytes
+             pipeline' rest out (code, err : errs)
+
+showPipelineForUser :: [(String, [String])] -> String
+showPipelineForUser ((cmd, args) : rest) =
+    showCommandForUser cmd args ++
+    case rest of 
+      [] -> ""
+      _ -> " | " ++ showPipelineForUser rest
+-}
+-- * Events
 
 -- | Install a key/value pair into the cache.
 putValue :: Ord key => key -> Either FileError val -> Update (CacheMap key val) (Either FileError val)
@@ -156,21 +183,133 @@ deleteValue key = field @"_unCacheMap" %= Map.delete key
 deleteValues :: Ord key => Set key -> Update (CacheMap key val) ()
 deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (const ()) keys))
 
-initCacheMap :: Ord key => CacheMap key val
-initCacheMap = CacheMap mempty
+$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
 openCache :: (SafeCopy key, Typeable key, Ord key,
               SafeCopy val, Typeable val) => FilePath -> IO (AcidState (CacheMap key val))
 openCache path = openLocalStateFrom path initCacheMap
 
--- | In theory the MonadError type e1 might differ from the error type
--- stored in the map e2.  But I'm not sure if it would work in practice.
-withCache :: (MonadIO m, MonadMask m,
-              SafeCopy val, Typeable val,
-              Ord key, Typeable key, SafeCopy key) => FilePath -> (AcidState (CacheMap key val) -> m b) -> m b
-withCache path f = bracket (liftIO (openCache path)) (liftIO . createCheckpointAndClose) $ f
+initCacheMap :: Ord key => CacheMap key val
+initCacheMap = CacheMap mempty
+
+-- * FileCacheTop
 
-$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
+-- | Read and return the contents of the file from the cache as a
+-- ByteString.  Verify that the checksum matches the checksum field of
+-- the 'File'.
+loadBytesSafe ::
+    forall e m. (HasFileError e, MonadIO m, MonadError e m, HasFileCacheTop m)
+    => File -> m BS.ByteString
+loadBytesSafe file =
+    do path <- fileCachePath file
+       bytes <- readFileBytes path
+       case T.pack (md5' bytes) == _fileChksum file of
+         True -> return bytes
+         -- If the checksum of the file we read from the cache does
+         -- not match its checksum field, we've got serious trouble.
+         -- We should probably try to read back files when we create
+         -- them
+         False -> do
+           let msg = "Checksum mismatch: expected " ++ show (_fileChksum file) ++ ", file contains " ++ show (md5' bytes)
+           liftIO $ logM "Appraisal.FileCache" CRITICAL msg
+           throwError $ fromFileError (CacheDamage ("Checksum problem in " <> T.pack (show file)))
+
+-- | Load an image file without verifying its checksum
+loadBytesUnsafe :: ({-HasFileError e,-} MonadIO m, HasFileCacheTop m) => File -> m BS.ByteString
+loadBytesUnsafe file = fileCachePath file >>= readFileBytes
+
+readFileBytes :: MonadIO m => FilePath -> m BS.ByteString
+readFileBytes path = liftIO $ BS.readFile path
+
+fileCachePathIO :: (MonadIO m, HasFileCacheTop m) => File -> m FilePath
+fileCachePathIO file = do
+  dir <- fileCacheDir file
+  liftIO $ createDirectoryIfMissing True dir
+  fileCachePath file
+
+-- | The full path name for the local cache of the file.
+fileCachePath :: HasFileCacheTop m => File -> m FilePath
+fileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
+
+fileCacheDir :: HasFileCacheTop m => File -> m FilePath
+fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
+
+(<++>) :: FilePath -> FilePath -> FilePath
+a <++> b = a </> (makeRelative "" b)
+
+-- * File
+
+-- | Turn the bytes in a ByteString into a File.  This is an IO
+-- operation because it saves the data into the local cache.  We
+-- use writeFileReadable because the files we create need to be
+-- read remotely by our backup program.
+fileFromBytes ::
+    forall m. (MonadIO m, HasFileCacheTop m)
+    => Extension
+    -> BS.ByteString
+    -> m File
+fileFromBytes fileExt bytes =
+      do let file = File { _fileSource = Nothing
+                         , _fileChksum = T.pack (md5' bytes)
+                         , _fileMessages = []
+                         , _fileExt = fileExt }
+         path <- fileCachePathIO file
+         exists <- liftIO $ doesFileExist path
+         unless exists (liftIO (writeFileReadable path bytes))
+         return file
+
+-- |Read the contents of a local path into a File.
+fileFromPath ::
+    forall m a. (MonadIO m, HasFileCacheTop m, HasFileExtension a)
+    => (BS.ByteString -> m a)
+    -> FilePath
+    -> m (File, a)
+fileFromPath byteStringInfo path = do
+  bytes <- liftIO $ BS.readFile path
+  a <- byteStringInfo bytes
+  file <- fileFromBytes (fileExtension a) bytes
+  return (set (field @"_fileSource") (Just (ThePath path)) file, a)
+
+-- | A shell command whose output becomes the contents of the file.
+fileFromCmd ::
+    forall e m a. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m, HasFileExtension a)
+    => (BS.ByteString -> m a)
+    -> CreateProcess
+    -> m (File, a)
+fileFromCmd byteStringInfo cmd = do
+  (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd BS.empty)
+  case code of
+    ExitSuccess ->
+        do a <- byteStringInfo bytes
+           file <- fileFromBytes (fileExtension a) bytes
+           return $ (set (field @"_fileSource") (Just (ThePath (show cmd))) file, a)
+    ExitFailure _ ->
+        throwError $ (fromFileError :: FileError -> e) $ CommandFailure (FunctionName "fileFromCmd" (Command (T.pack (show cmd)) (T.pack (show code))))
+
+-- |Retrieve a URI using curl and turn the resulting data into a File.
+fileFromURI ::
+    forall e m a. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m, HasFileExtension a)
+    => (BS.ByteString -> m a)
+    -> URI
+    -> m (File, a)
+fileFromURI byteStringInfo uri =
+    do let args = ["-s", uriToString id uri ""]
+           cmd = (proc "curl" args)
+       (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' cmd BS.empty
+       case code of
+         ExitSuccess ->
+             do a <- byteStringInfo bytes
+                file <- fileFromBytes (fileExtension a) bytes
+                return (set (field @"_fileSource") (Just (TheURI (uriToString id uri ""))) file, a)
+         _ -> throwError $ fromFileError $ CommandFailure (FunctionName "fileFromURI" (Command (T.pack (show cmd)) (T.pack (show code))))
+
+tests :: Test
+tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
+                               (SaneSize (ImageSize {_dim = TheHeight, _size = 0.25, _units = Inches}))
+                               (saneSize (ImageSize {_dim = TheHeight, _size = 0.0, _units = Inches})))
+                 ]
+
+-- * Image IO
 
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the
@@ -274,285 +413,6 @@ getWord32Motorola :: Bool -> Get Word32
 getWord32Motorola True = getWord32le
 getWord32Motorola False = getWord32be
 
-{-
--- Test
-
-dir = "/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images"
-
-main = do
-  names <- getDirectoryContents dir >>= return . filter (not . (`elem` [".", ".."])) . filter (not . isSuffixOf ".jpg")
-  mapM_ (uncurry doName) (zip [1..] names)
-
-doName :: Int -> FilePath -> IO ()
-doName count path = Data.ByteString.Lazy.readFile (dir </> path) >>= handle (\ (e :: SomeException) -> return ()) . doCode count (dir </> path)
-
-doCode :: Int -> FilePath -> ByteString -> IO ()
-doCode count path bs =
-    case getEXIFOrientationCode bs of
-      (1, _, _) -> return ()
-      result -> putStrLn (show count ++ ". " ++ show path ++ ": " ++ show result)
-
-Images with valid orientation codes other than 1:
-
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/6aa7ea4bd79f39c3092b6e4251b3b073": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/9624fd5634a5b6257725b42fbad1cbde": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/b7e8f8e5cf18926e839b3cf6083d4932": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/62368114d7b71b5c6b6899f92651b12e": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/198ee040f479b85490b92fb2a2804ecf": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/72cc1a950694cc2409c3a8f4bc71301f": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/2a504ec035e8868c2b95e9a7d9c3c69e": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/304837ab54c63738fecf556f0ed0ba2a": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/b41611aa15441535aead51769f801620": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/1a4b46c6272d45223cea4b2fd85882ff": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/12b4e042540ca1e1c8499bce228652e3": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/0197efa1312688937c7dfe80c1cd5a08": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/34711b918bea81cf6d7f4481b72c017b": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/32004c379d003ca780a6345fa79050c8": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/d0276f1a87d4617bd21664a894daab5a": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/b46817cecb5348ef82643b7654e01326": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/f8ed3f915cb9424f20b371f1667b2ecb": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/3a391f9f15e49c2d6f506556e08b45dd": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/e855b29fee68fcea34152c8ab6f05df7": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/fe08b904b41a159a469c519e9666325c": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/0d27c6db4f72952e134212b5eb56947d": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/b31797cf58d461ddf57af90a54bc9bda": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/0d423f15b9d129a923c63aac41b652b8": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/7c324add279ed38272ac1a03c490fa9b": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/3077253364f0a682d9c654bf0e087246": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/ae344bc17e1c6b92bf783ea7d3adeda3": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/6da21a666fbfd29e16aca6602fdc8478": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/b66b7a09b5ea7adcd0b9d4a4fbcb90ae": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/3cd5da3d4568095e6c15bd992a676d1c": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/22d628676e6b561f2aaba590dacf63e7": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/9172d8098bdf0c4ff9360801339d632d": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/144177d35e36e0a93e269af46ad01346": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/96a961a0f288e7e05b243889a1d06c14": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/4aa04ca61174a6d5bdfc30278ad04e9a": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/918a82dff691604601f21c4b4932c5bc": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/3337b1f7388639d2fc53f74a7bf834fa": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/e39a014def56a031b78c2e5e96d1f7c5": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/0bf267e6a880422d4479ef256d0836e9": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/135bf2de2dd4c2fa94ae05f117867b5e": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/5c100432de39d6f4fe911b69523cb22c": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/0aeecd29b06ed4738a72f554288ffc47": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/20a29b7d21ef647cd2e4841cf67656fa": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/c0419800d504d32c51f5c5ed6bb362cb": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/b619922e4856ba6e0f443ffb49d488f6": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/01e6856e1091b02642840a59386236e3": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/1a7f39310a5cfc3c38ab4f58c2d1a688": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/e04b93bf3d3183f8e6073857626fdda6": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/45842965ab1e4032625ca14309ee35b4": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/254f665f816cb484e4feb0d8197fe642": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/ae51018932436f9494ce087e2ec628f5": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/7231ae84a7c45da7f022da2edb22470c": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/4485d40fc73aeb5b3b4a59e56a03cad6": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/d8ab2be3f85b2033ab5ce6e798ee2a6a": (8,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/a41ab6f5b45888755eeae2edcdecb626": (6,54,True)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/dd0d1578040c42da93633b4ed7efd1ff": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/1fba9c9a78ba2e8284c2b7cc804feaa8": (8,54,False)
-"/srv/backups/appraisalscribe-production/current/appraisalscribe-production/images/3aeb2f1b415291ab5a90349dc21e2620": (8,54,False)
--}
-
-(<++>) :: FilePath -> FilePath -> FilePath
-a <++> b = a </> (makeRelative "" b)
-
--- | Build a URI for the locally cached version of the file given the
--- uri of the cache home directory.
-fileCacheURI :: URI -> File -> URI
-fileCacheURI cacheDirectoryURI file =
-    cacheDirectoryURI {uriPath = uriPath cacheDirectoryURI <++> T.unpack (_fileChksum file)}
-
--- | Turn the bytes in a ByteString into a File.  This is an IO
--- operation because it saves the data into the local cache.  We
--- use writeFileReadable because the files we create need to be
--- read remotely by our backup program.
-fileFromBytes ::
-    forall m a. (MonadIO m, HasFileCacheTop m)
-    => (BS.ByteString -> m a)
-    -> (a -> Extension)
-    -> BS.ByteString
-    -> m (File, a)
-fileFromBytes byteStringInfo toFileExt bytes =
-      do a <- byteStringInfo bytes
-         let file = File { _fileSource = Nothing
-                         , _fileChksum = T.pack (md5' bytes)
-                         , _fileMessages = []
-                         , _fileExt = toFileExt a }
-         path <- fileCachePathIO file
-         exists <- liftIO $ doesFileExist path
-         unless exists (liftIO (writeFileReadable path bytes))
-         return (file, a)
-
--- |Read the contents of a local path into a File.
-fileFromPath ::
-    forall m a. (MonadIO m, HasFileCacheTop m)
-    => (BS.ByteString -> m a)
-    -> (a -> Extension)
-    -> FilePath
-    -> m (File, a)
-fileFromPath byteStringInfo toFileExt path = do
-  bytes <- liftIO $ BS.readFile path
-  (file, a) <- fileFromBytes byteStringInfo toFileExt bytes
-  return (set (field @"_fileSource") (Just (ThePath path)) file, a)
-
--- | A shell command whose output becomes the contents of the file.
-fileFromCmd ::
-    forall e m a. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m, HasFileExtension a)
-    => (BS.ByteString -> m a)
-    -> CreateProcess
-    -> m (File, a)
-fileFromCmd byteStringInfo cmd = do
-  (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd BS.empty)
-  case code of
-    ExitSuccess ->
-        do (file, a) <- fileFromBytes byteStringInfo fileExtension bytes
-           return $ (set (field @"_fileSource") (Just (ThePath (show cmd))) file, a)
-    ExitFailure _ ->
-        throwError $ (fromFileError :: FileError -> e) $ CommandFailure (FunctionName "fileFromCmd" (Command (T.pack (show cmd)) (T.pack (show code))))
-
--- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI ::
-    forall e m a. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m)
-    => (BS.ByteString -> m a)
-    -> (a -> Extension)
-    -> String
-    -> m (File, a)
-fileFromURI byteStringInfo toFileExt uri =
-    do let args = ["-s", uri]
-           cmd = (proc "curl" args)
-       (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' cmd BS.empty
-       case code of
-         ExitSuccess ->
-             do (file, bytes') <- fileFromBytes byteStringInfo toFileExt bytes
-                return (set (field @"_fileSource") (Just (TheURI uri)) file, bytes')
-         _ -> throwError $ fromFileError $ CommandFailure (FunctionName "fileFromURI" (Command (T.pack (show cmd)) (T.pack (show code))))
-
--- | Build a file from the output of a command.  This uses a temporary
--- file to store the contents of the command while we checksum it.  This
--- is to avoid reading the file contents into a Haskell ByteString, which
--- may be slower than using a unix pipeline.  Though it shouldn't be.
-fileFromCmdViaTemp ::
-    forall e m. (MonadIO m, MonadError e m, HasFileCacheTop m, HasFileError e)
-    => Text
-    -> String
-    -> m File
-fileFromCmdViaTemp ext exe = do
-  FileCacheTop dir <- fileCacheTop
-  (tmp, h) <- liftIO $ openBinaryTempFile dir "scaled"
-  let cmd = shell (exe ++ " > " ++ tmp)
-  liftIO $ makeReadableAndClose h
-  -- io (hClose h)
-  (code, _out, _err) <- liftIO (readCreateProcessWithExitCode' cmd BS.empty)
-  case code of
-    ExitSuccess -> installFile tmp
-    ExitFailure _ -> throwError $ fromFileError $ CommandFailure $ FunctionName "fileFromCmdViaTemp" $ Command (T.pack (show cmd)) (T.pack (show code))
-    where
-      installFile :: FilePath -> m File
-      installFile tmp = fileFromPathViaRename (fromFileError . CommandFailure . FunctionName "fileFromCmdViaTemp" . Description "install failed") ext tmp
-
--- | Move a file into the file cache and incorporate it into a File.
-fileFromPathViaRename ::
-    forall e m. (HasFileError e, MonadIO m, MonadError e m, HasFileCacheTop m)
-    => (CommandInfo -> FileError) -- ^ Use this to customize exception thrown here
-    -> Extension
-    -> FilePath
-    -> m File
-fileFromPathViaRename err ext path = do
-  let cmd = shell ("md5sum < " ++ showCommandForUser path [])
-  result <- liftIO (LL.readCreateProcessWithExitCode cmd "")
-  case result of
-    (ExitSuccess, out, _err) -> do
-      let file = File { _fileSource = Just (ThePath path)
-                      , _fileChksum = T.take 32 out
-                      , _fileMessages = []
-                      , _fileExt = ext }
-      dest <- fileCachePathIO file
-      liftIO $ do
-        logM "Appraisal.FileCache" DEBUG ("fileFromPathViaRename - renameFile " <> path <> " " <> dest)
-        renameFile path dest
-      return file
-    (code, _, _) -> throwError $ fromFileError $ err (Command (T.pack (show cmd)) (T.pack (show code)))
-
--- | Move a file into the file cache and incorporate it into a File.
-fileFromPathViaCopy ::
-    forall m. (MonadIO m, HasFileCacheTop m)
-    => Extension
-    -> FilePath
-    -> m File
-fileFromPathViaCopy ext path = do
-  cksum <- (\(_, out, _) -> T.take 32 out) <$> liftIO (LL.readCreateProcessWithExitCode (shell ("md5sum < " ++ showCommandForUser path [])) "")
-  let file = File { _fileSource = Just (ThePath path)
-                  , _fileChksum = cksum
-                  , _fileMessages = []
-                  , _fileExt = ext }
-  dest <- fileCachePathIO file
-  liftIO $ logM "Appraisal.FileCache" DEBUG ("fileFromPathViaCopy - copyFile " <> path <> " " <> dest)
-  liftIO $ copyFile path dest
-  return file
-
--- | Read and return the contents of the file from the cache as a
--- ByteString.  Verify that the checksum matches the checksum field of
--- the 'File'.
-loadBytesSafe ::
-    forall e m. (HasFileError e, MonadIO m, MonadError e m, HasFileCacheTop m)
-    => File -> m BS.ByteString
-loadBytesSafe file =
-    do path <- fileCachePath file
-       bytes <- readFileBytes path
-       case T.pack (md5' bytes) == _fileChksum file of
-         True -> return bytes
-         -- If the checksum of the file we read from the cache does
-         -- not match its checksum field, we've got serious trouble.
-         -- We should probably try to read back files when we create
-         -- them
-         False -> do
-           let msg = "Checksum mismatch: expected " ++ show (_fileChksum file) ++ ", file contains " ++ show (md5' bytes)
-           liftIO $ logM "Appraisal.FileCache" CRITICAL msg
-           throwError $ fromFileError (CacheDamage ("Checksum problem in " <> T.pack (show file)))
-
--- | Load an image file without verifying its checksum
-loadBytesUnsafe :: ({-HasFileError e,-} MonadIO m, HasFileCacheTop m) => File -> m BS.ByteString
-loadBytesUnsafe file = fileCachePath file >>= readFileBytes
-
-readFileBytes :: MonadIO m => FilePath -> m BS.ByteString
-readFileBytes path = liftIO $ BS.readFile path
-
-fileCachePathIO :: (MonadIO m, HasFileCacheTop m) => File -> m FilePath
-fileCachePathIO file = do
-  dir <- fileCacheDir file
-  liftIO $ createDirectoryIfMissing True dir
-  fileCachePath file
-
-listDirectory :: FilePath -> IO [FilePath]
-listDirectory path =
-  (filter f) <$> (getDirectoryContents path)
-  where f filename = filename /= "." && filename /= ".."
-
--- | Scan all the file cache directories for files without using
--- the database.
-allFiles :: MonadIO m => ReaderT (st, FileCacheTop) m [FilePath]
-allFiles = do
-  FileCacheTop top <- fileCacheTop
-  dirs <- liftIO $ listDirectory top
-  Prelude.concat <$> mapM (\dir -> let dir' = top </> dir in
-                           fmap (dir' </>) <$> liftIO (listDirectory dir')) dirs
-
--- | The full path name for the local cache of the file.
-fileCachePath :: HasFileCacheTop m => File -> m FilePath
-fileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
-
-oldFileCachePath :: HasFileCacheTop m => File -> m FilePath
-oldFileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> T.unpack (_fileChksum file)
-
-fileCacheDir :: HasFileCacheTop m => File -> m FilePath
-fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
-
-tests :: Test
-tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
-                               (SaneSize (ImageSize {_dim = TheHeight, _size = 0.25, _units = Inches}))
-                               (saneSize (ImageSize {_dim = TheHeight, _size = 0.0, _units = Inches})))
-                 ]
-
 -- | Helper function to learn the 'ImageType' of a file by runing
 -- @file -b@.
 getFileType :: BS.ByteString -> IO ImageType
@@ -572,43 +432,6 @@ getFileType bytes =
               ,(mkRegex "JPEG image data", JPEG)
               ,(mkRegex "PNG image data", PNG)
               ,(mkRegex "GIF image data", GIF)]
-
-#if ARBITRARY
-instance Arbitrary Units where
-    arbitrary = elements [Inches, Cm, Points]
-
-instance Arbitrary ImageType where
-    arbitrary = elements [PPM, JPEG, GIF, PNG]
-
-instance Arbitrary Dimension where
-    arbitrary = oneof [pure TheHeight, pure TheWidth, pure TheArea]
-
-instance Arbitrary ImageSize where
-    arbitrary = ImageSize <$> arbitrary <*> ((% 100) <$> (choose (1,10000) :: Gen Integer)) <*> arbitrary
-
-instance Arbitrary a => Arbitrary (SaneSize a) where
-    arbitrary = SaneSize <$> arbitrary
-
-instance Arbitrary ImageFile where
-    arbitrary = ImageFile <$> arbitrary
-                          <*> arbitrary
-                          <*> choose (1,5000)
-                          <*> choose (1,5000)
-                          <*> choose (1,255)
-
-instance Arbitrary ImageCrop where
-    arbitrary = ImageCrop <$> choose (0,100)
-                          <*> choose (0,100)
-                          <*> choose (0,100)
-                          <*> choose (0,100)
-                          <*> elements [0, 90, 180, 270]
-
-instance Arbitrary ImageKey where
-    arbitrary = oneof [ ImageOriginal <$> arbitrary
-                      , ImageCropped <$> arbitrary <*> arbitrary
-                      , ImageScaled <$> arbitrary <*> arbitrary <*> arbitrary
-                      , ImageUpright <$> arbitrary ]
-#endif
 
 data Format = Binary | Gray | Color
 data RawOrPlain = Raw | Plain
@@ -715,15 +538,6 @@ parseExtractBBOutput = do
 deriving instance Show ExtractBB
 deriving instance Show Hires
 
-deriving instance Lift ImageFile
-deriving instance Lift ImageType
-deriving instance Lift ImageKey
-deriving instance Lift ImageSize
-deriving instance Lift Units
-deriving instance Lift ImageCrop
-deriving instance Lift Dimension
-deriving instance Lift a => Lift (SaneSize a)
-
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
 imageFileFromType :: FilePath -> File -> ImageType -> IO ImageFile
@@ -760,43 +574,8 @@ imageFileFromPnmfileOutput file typ out =
 -- with a suitable extension (.jpg, .gif) also exists.
 -- ensureExtensionLink :: MonadFileCacheIO st IOException m => File -> String -> m ()
 -- ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksum file) (path ++ ext)
-
-{-
-pipelineWithExitCode :: [(String, [String])] -> B.ByteString -> IO (ExitCode, B.ByteString, [B.ByteString])
-pipelineWithExitCode cmds inp =
-    pipeline' cmds inp (ExitSuccess, [])
-    where
-      pipeline' _ bytes (code@(ExitFailure _), errs) = return (code, bytes, errs)
-      pipeline' [] bytes (code, errs) = return (code, bytes, reverse errs)
-      pipeline' ((cmd, args) : rest) bytes (code, errs) =
-          do (code, out, err) <- readProcessWithExitCode cmd args bytes
-             pipeline' rest out (code, err : errs)
-
-showPipelineForUser :: [(String, [String])] -> String
-showPipelineForUser ((cmd, args) : rest) =
-    showCommandForUser cmd args ++
-    case rest of 
-      [] -> ""
-      _ -> " | " ++ showPipelineForUser rest
--}
-
-showCmdSpec :: CmdSpec -> String
-showCmdSpec (ShellCommand s) = s
-showCmdSpec (RawCommand p ss) = showCommandForUser p ss
-
-pipe :: [CreateProcess] -> CreateProcess
-pipe xs = foldl1 pipe2 xs
-
-pipe2 :: CreateProcess -> CreateProcess -> CreateProcess
-pipe2 a b =
-    if cwd a == cwd b &&
-       env a == env b &&
-       close_fds a == close_fds b &&
-       create_group a == create_group b
-    then a {cmdspec = ShellCommand (showCmdSpec (cmdspec a) ++ " | " ++ showCmdSpec (cmdspec b))}
-    else error $ "Pipeline of incompatible commands: " ++ LL.showCreateProcessForUser a ++ " | " ++ LL.showCreateProcessForUser b
-
-$(makeLensesFor [("imageFile", "imageFileL")] ''ImageFile)
+
+-- * FileCacheT
 
 type FileCacheT key val s m = RWST (AcidState (CacheMap key val), FileCacheTop) W s (ExceptT FileError m)
 
@@ -846,17 +625,14 @@ cacheInsert key = do
 cacheMiss ::
   forall key val e m. (MonadFileCache key val m, MonadIO m, MonadError e m, HasFileError e)
   => key -> m (Either FileError val)
-cacheMiss key = do
-  st <- askCacheAcid :: m (AcidState (CacheMap key val))
-  val <- buildCacheValue key
-  liftIO $ update st (PutValue key val)
+cacheMiss key = buildCacheValue key >>= cachePut key
 
 cachePut ::
-  forall key val m. (MonadFileCache key val m, MonadIO m{-, MonadError e m, HasFileError e, Show val-})
-  => key -> val -> m (Either FileError val)
+  forall key val m. (MonadFileCache key val m, MonadIO m)
+  => key -> (Either FileError val) -> m (Either FileError val)
 cachePut key val = do
-  st <- askCacheAcid :: m (AcidState (CacheMap key val))
-  liftIO $ update st (PutValue key (Right val))
+  st <- askCacheAcid
+  liftIO $ update st (PutValue key val)
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
@@ -879,41 +655,11 @@ cacheDelete ::
 cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)
+
+-- * ImageFile
 
 type ImageCacheT s m = FileCacheT ImageKey ImageFile s m
 type MonadImageCache m = MonadFileCache ImageKey ImageFile m
-
-#if 0
-runImageCacheT ::
-  (HasFileError e, MonadError e m)
-  => acid
-  -> FileCacheTop
-  -> RWST (acid, FileCacheTop) W s m a
-  -> m (a, s, W)
-runImageCacheT = runFileCacheT
-
-evalImageCacheT :: Monad m => acid -> FileCacheTop -> RWST (acid, FileCacheTop) W s m a -> m a
-evalImageCacheT = evalFileCacheT
-execImageCacheT :: Monad m => acid -> FileCacheTop -> RWST (acid, FileCacheTop) W s m a -> m s
-execImageCacheT = execFileCacheT
-writeImageCacheT :: Monad m => acid -> FileCacheTop -> RWST (acid, FileCacheTop) W s m a -> m W
-writeImageCacheT = writeFileCacheT
-
-runImageCacheIOT ::
-  (HasFileError e, MonadIO m, MonadError e m)
-  => acid
-  -> FileCacheTop
-  -> RWST (acid, FileCacheTop) W S m a
-  -> m (a, S, W)
-runImageCacheIOT = runFileCacheIOT
-
-evalImageCacheT :: Monad m => acid -> FileCacheTop -> RWST (acid, FileCacheTop) W S m a -> m a
-evalImageCacheT = evalFileCacheT
-execImageCacheT :: Monad m => acid -> FileCacheTop -> RWST (acid, FileCacheTop) W S m a -> m S
-execImageCacheT = execFileCacheT
-writeImageCacheT :: Monad m => acid -> FileCacheTop -> RWST (acid, FileCacheTop) W S m a -> m W
-writeImageCacheT = writeFileCacheT
-#endif
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
 buildImageFile ::
@@ -939,7 +685,11 @@ buildImageFile (ImageScaled sz dpi key) = do
 buildImageFile (ImageCropped crop key) = do
   buildImageFile key >>= overCached (editImage crop)
 
-overCached :: Monad m => (a -> m (Either FileError a)) -> Either FileError a -> m (Either FileError a)
+overCached ::
+  Monad m
+  => (a -> m (Either FileError a))
+  -> Either FileError a
+  -> m (Either FileError a)
 overCached f (Right a) = f a
 overCached _ v = pure v
 
@@ -953,24 +703,6 @@ instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ 
 -- mapError :: (MonadError e m, MonadError e' n) => (m (Either e a) -> n (Either e' b)) -> m a -> n b
 -- evalFileCacheT :: Functor m => acid -> FileCacheTop -> RWST (acid, FileCacheTop) W S m a -> m a
 -- runExceptT :: ExceptT e m a -> m (Either e a)
-
--- Crazy function to turn FileError into e.
-fromImageCacheT' ::
-  forall e m a n. (HasFileError e, MonadIO m, MonadImageCache m, n ~ ImageCacheT () IO)
-  => n (Either FileError a)
-  -> m (Either e a)
-fromImageCacheT' action1 = do
-  acid <- askCacheAcid @ImageKey @ImageFile
-  top <- fileCacheTop
-  flattenExcept1 (evalFileCacheT acid top () action1)
-  where
-    flattenExcept1 :: ExceptT FileError IO (Either FileError a) -> m (Either e a)
-    flattenExcept1 action = liftFileError (flattenEither <$> (runExceptT action))
-
-    liftFileError :: IO (Either FileError a) -> m (Either e a)
-    liftFileError action = over _Left fromFileError <$> liftIO action
-
-    flattenEither = either Left id
 
 -- Crazy function to turn FileError into e.
 fromImageCacheT ::
@@ -994,14 +726,16 @@ class MakeImageFile a where
   makeImageFile :: (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m) => a -> m (Either FileError ImageFile)
 
 instance MakeImageFile BS.ByteString where
-  makeImageFile bs =
-    fileFromBytes (liftIO . getFileType) fileExtension bs >>= makeImageFile
+  makeImageFile bs = do
+    a <- liftIO $ getFileType bs
+    file <- fileFromBytes (fileExtension a) bs
+    makeImageFile (file, a)
 instance MakeImageFile URI where
-  makeImageFile uri =
-    fileFromURI (liftIO . getFileType) fileExtension (uriToString id uri "") >>= makeImageFile
+  makeImageFile uri = do
+    fileFromURI (liftIO . getFileType) uri >>= makeImageFile
 instance MakeImageFile FilePath where
   makeImageFile path =
-    fileFromPath (liftIO . getFileType) fileExtension path >>= makeImageFile
+    fileFromPath (liftIO . getFileType) path >>= makeImageFile
 -- | Create an image file from a 'File'.  The existance of a 'File'
 -- value implies that the image has been found in or added to the
 -- acid-state cache.  Note that 'InProgress' is not a possible result
@@ -1031,8 +765,20 @@ uprightImage orig = do
   bs' <- liftIO $ $logException ERROR $ normalizeOrientationCode (fromStrict bs)
   either
     (\_ -> return (Right orig))
-    (\bs'' -> fileFromBytes (liftIO . $logException ERROR . getFileType) fileExtension (toStrict bs'') >>= makeImageFile)
+    (\bs'' -> do
+        let bs''' = toStrict bs''
+        a <- liftIO ($logException ERROR (getFileType bs'''))
+        file <- fileFromBytes (fileExtension a) (toStrict bs'')
+        makeImageFile (file, a))
     bs'
+
+-- | Find or create a version of some image with its orientation
+-- corrected based on the EXIF orientation flag.  If the image is
+-- already upright this will return Nothing.
+uprightImage' :: MonadIO m => BS.ByteString -> ExceptT FileError m (Maybe BS.ByteString)
+uprightImage' bs = do
+  liftIO io >>= return . either (const Nothing) (Just . toStrict)
+  where io = $logException ERROR $ normalizeOrientationCode (fromStrict bs)
 
 -- | Find or create a cached image resized by decoding, applying
 -- pnmscale, and then re-encoding.  The new image inherits attributes
@@ -1058,37 +804,24 @@ scaleImage scale orig = {- liftIO $ $logException ERROR $ -} do
         cmd = pipe' [decoder, scaler, encoder]
     fileFromCmd (liftIO . getFileType) (shell cmd) >>= makeImageFile
 
-pipeline :: [CreateProcess] -> BS.ByteString -> IO BS.ByteString
-pipeline [] bytes = return bytes
-pipeline (p : ps) bytes =
-    (LL.readCreateProcessWithExitCode p bytes >>= doResult)
-      `catchError` (\ (e :: IOException) -> doException (LL.showCreateProcessForUser p ++ " -> " ++ show e) e)
-    where
-      doResult (ExitSuccess, out, _) = pipeline ps out
-      doResult (code, _, err) = let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in doException message (userError message)
-      -- Is there any exception we should ignore here?
-      doException message e = alog "Appraisal.ImageFile" ERROR message >> throw e
-
-pipe' :: [String] -> String
-pipe' = intercalate " | "
-
 -- | Find or create a cached image which is a cropped version of
 -- another.
 editImage ::
     forall e m. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m)
     => ImageCrop -> ImageFile -> m (Either FileError ImageFile)
-editImage crop file =
+editImage crop ifile =
   logIOError $
     case commands of
       [] ->
-          return (Right file)
+          return (Right ifile)
       _ ->
-          (loadBytesSafe (view (field @"_imageFile") file) >>=
-           liftIO . pipeline commands >>=
-           fileFromBytes (liftIO . getFileType) fileExtension >>=
-           makeImageFile) `catchError` err
+          (do bs <- loadBytesSafe (view (field @"_imageFile") ifile)
+              bs' <- liftIO $ pipeline commands bs
+              a <- liftIO $ getFileType bs'
+              file <- fileFromBytes (fileExtension a) bs'
+              makeImageFile (file, a)) `catchError` err
     where
-      commands = buildPipeline (view (field @"_imageFileType") file) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") file))
+      commands = buildPipeline (view (field @"_imageFileType") ifile) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") ifile))
       -- We can only embed JPEG and PNG images in a LaTeX
       -- includegraphics command, so here we choose which one to use.
       latexImageFileType GIF = JPEG
@@ -1106,8 +839,8 @@ editImage crop file =
                  180 -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
                  270 -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
                  _ -> Nothing
-      w = pixmapWidth file
-      h = pixmapHeight file
+      w = pixmapWidth ifile
+      h = pixmapHeight ifile
       buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
       buildPipeline start [] end = convert start end
       buildPipeline start (Nothing : ops) end = buildPipeline start ops end
@@ -1142,7 +875,7 @@ cacheImageOriginal src = do
     Left e -> throwError (fromFileError e)
     Right img -> do
       let key = originalKey img
-      (key,) <$> cachePut key img
+      (key,) <$> cachePut key (Right img)
 
 -- | Scan for ReportImage objects and ensure that one version of that
 -- image has been added to the cache, adding it if necessary.
@@ -1169,13 +902,15 @@ storeImageFiles images acid files =
 -- storeFile :: (MonadIO m, MonadImageCache m, MonadCatch m, HasFileCacheTop m) => FilePath -> m ReportImage
 -- FileCacheT is an instance of MonadFileCache
 
+instance HasFileExtension a => HasFileExtension (b, a) where
+  fileExtension (_, a) = fileExtension a
+
 storeImageFile ::
     forall e m. (MonadImageCache m, HasFileError e, MonadIO m, MonadError e m)
     => FilePath -> m (ImageKey, Either FileError ImageFile)
 storeImageFile fp = do
   (_file, (bytes, _typ)) :: (File, (BS.ByteString, ImageType)) <-
-    fileFromPath (\bytes -> liftIO (getFileType bytes) >>= \typ -> return (bytes, typ))
-                 (fileExtension . snd) fp
+    fileFromPath (\bytes -> liftIO (getFileType bytes) >>= \typ -> return (bytes, typ)) fp
   cacheImageOriginal bytes
 
 -- This should be in FileCacheT, not IO
@@ -1186,16 +921,13 @@ storeByteStrings ::
     -> [(ImageFile, BS.ByteString)]
     -> ExceptT e IO [Either FileError ImageFile]
 storeByteStrings top acid pairs = do
-  evalFileCacheT acid top () (mapM (uncurry storeByteString) pairs)
-  -- ~(Right a) <- runExceptT (evalFileCacheT acid top (mapM (uncurry storeByteString) pairs))
-  -- return $ fmap (either Failed Value) a
+  evalFileCacheT acid top () (mapM storeByteString (fmap snd pairs))
 
 storeByteString ::
     (HasFileError e, MonadIO m, MonadError e m, MonadImageCache m)
-    => p -> BS.ByteString -> m (Either FileError ImageFile)
-storeByteString _ifile bytes = do
-  (_file, (_bytes', _typ)) :: (File, (BS.ByteString, ImageType)) <-
-     fileFromBytes (\bytes'' -> liftIO (getFileType bytes'') >>= \typ -> return (bytes'', typ))
-                   (fileExtension . snd) bytes
+    => BS.ByteString -> m (Either FileError ImageFile)
+storeByteString bytes = do
+  typ <- liftIO (getFileType bytes)
+  _file <- fileFromBytes (fileExtension typ) bytes
   (_key, img) <- cacheImageOriginal bytes
   return img
