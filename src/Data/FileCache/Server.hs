@@ -21,25 +21,22 @@ module Data.FileCache.Server
   , cacheInsert, cacheLook, cacheMap, cacheDelete, cacheMiss, cachePut
   , ImageCacheT
   , MonadImageCache
-  , fromImageCacheT
   , imageFilePath
   , cacheImageOriginal
+  , cacheImageOriginals
   , cacheImagesByKey
-  , storeByteStrings
-  , storeByteString
-  , storeImageFiles
-  , storeImageFile
+  , cacheImageByKey
 
   , tests
   ) where
 
 import "regex-compat-tdfa" Text.Regex ( Regex, mkRegex, matchRegex )
 import Control.Exception ( throw )
-import Control.Lens ( (%=), _1, _2, _3, _Left, over, makeLensesFor, at, _Right, view, set )
+import Control.Lens ( (%=), _1, _2, _3, at, view )
 import Control.Monad ( unless, when )
-import Control.Monad.Catch ( try )
-import Control.Monad.RWS ( modify, RWST(runRWST) )
-import Control.Monad.Reader ( MonadReader(ask), ReaderT )
+-- import Control.Monad.Catch ( try )
+import Control.Monad.RWS ( modify, MonadState, RWST(runRWST) )
+import Control.Monad.Reader ( MonadReader(ask) )
 import Control.Monad.Trans ( MonadTrans(lift), liftIO )
 import Control.Monad.Trans.Except ( ExceptT, runExceptT )
 import Data.Acid ( AcidState, makeAcidic, openLocalStateFrom, Query, Update, query, update )
@@ -54,29 +51,27 @@ import Data.FileCache.LogException (logException)
 import Data.Generics ( Typeable )
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
-import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, union )
+import Data.Map.Strict as Map ( delete, difference, Map, fromSet, insert, intersection, union )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( SafeCopy )
 import Data.Set as Set ( Set )
-import Data.String (fromString)
-import Data.Text as T ( pack, take, Text )
+import Data.Text as T ( pack, Text )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
-import Extra.Except ( catchError, liftEither, logIOError, MonadError, MonadIO, throwError, tryError, withExceptT )
+import Extra.Except ( catchError, liftEither, logIOError, MonadError, MonadIO, throwError, tryError )
 import Extra.Log ( alog )
 import GHC.IO.Exception ( IOException )
 import GHC.Int ( Int64 )
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( fromRat, showFFloat )
-import System.Directory ( createDirectoryIfMissing, doesFileExist, getDirectoryContents, renameFile )
+import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( makeRelative, (</>) )
-import System.FilePath.Extra ( writeFileReadable, makeReadableAndClose )
-import System.IO ( openBinaryTempFile )
-import System.Log.Logger ( Priority(ERROR), logM, Priority(DEBUG, CRITICAL) )
+import System.FilePath.Extra ( writeFileReadable )
+import System.Log.Logger ( logM, Priority(..) )
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode, showCreateProcessForUser )
 import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser, shell )
 import System.Process.ByteString.Lazy as LBS ( readCreateProcessWithExitCode )
@@ -198,11 +193,11 @@ initCacheMap = CacheMap mempty
 -- ByteString.  Verify that the checksum matches the checksum field of
 -- the 'File'.
 loadBytesSafe ::
-    forall e m. (MonadIO m, HasFileCacheTop m)
+    forall m. (MonadIO m, HasFileCacheTop m)
     => File -> ExceptT FileError m BS.ByteString
 loadBytesSafe file =
     do path <- fileCachePath file
-       bytes <- readFileBytes path
+       bytes <- liftIO (BS.readFile path)
        case T.pack (md5' bytes) == _fileChksum file of
          True -> return bytes
          -- If the checksum of the file we read from the cache does
@@ -215,12 +210,10 @@ loadBytesSafe file =
            throwError $ CacheDamage ("Checksum problem in " <> T.pack (show file))
 
 -- | Load an image file without verifying its checksum
-loadBytesUnsafe :: ({-HasFileError e,-} MonadIO m, HasFileCacheTop m) => File -> m BS.ByteString
-loadBytesUnsafe file = fileCachePath file >>= readFileBytes
+loadBytesUnsafe :: (MonadIO m, HasFileCacheTop m) => File -> m BS.ByteString
+loadBytesUnsafe file = fileCachePath file >>= liftIO . BS.readFile
 
-readFileBytes :: MonadIO m => FilePath -> m BS.ByteString
-readFileBytes path = liftIO $ BS.readFile path
-
+-- | Create any missing directories and evaluate 'fileCachePath'
 fileCachePathIO :: (MonadIO m, HasFileCacheTop m) => File -> m FilePath
 fileCachePathIO file = do
   dir <- fileCacheDir file
@@ -237,7 +230,7 @@ fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fi
 (<++>) :: FilePath -> FilePath -> FilePath
 a <++> b = a </> (makeRelative "" b)
 
--- * File
+-- * ByteString
 
 class MakeByteString a where
   makeByteString :: (MonadIO m) => a -> ExceptT FileError m BS.ByteString
@@ -246,8 +239,11 @@ instance MakeByteString FilePath where
   makeByteString path = liftIO $ BS.readFile path
 
 instance MakeByteString CreateProcess where
-  makeByteString cmd = do
-    (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd BS.empty)
+  makeByteString cmd = makeByteString (cmd, BS.empty)
+
+instance MakeByteString (CreateProcess, BS.ByteString) where
+  makeByteString (cmd, input) = do
+    (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd input)
     case code of
       ExitSuccess -> return bytes
       ExitFailure _ ->
@@ -261,6 +257,8 @@ instance MakeByteString URI where
     case code of
       ExitSuccess -> return bytes
       _ -> throwError $ CommandFailure (FunctionName "MakeByteString URI" (Command (T.pack (show cmd)) (T.pack (show code))))
+
+-- * File
 
 -- | Turn the bytes in a ByteString into a File.  This is an IO
 -- operation because it saves the data into the local cache.  We
@@ -281,53 +279,6 @@ fileFromBytes fileExt bytes =
          unless exists (liftIO (writeFileReadable path bytes))
          return file
 
-#if 0
--- |Read the contents of a local path into a File.
-fileFromPath ::
-    forall m a. (MonadIO m, HasFileCacheTop m, HasFileExtension a)
-    => (BS.ByteString -> m a)
-    -> FilePath
-    -> m (File, a)
-fileFromPath byteStringInfo path = do
-  bytes <- liftIO $ BS.readFile path
-  a <- byteStringInfo bytes
-  file <- fileFromBytes (fileExtension a) bytes
-  return (set (field @"_fileSource") (Just (ThePath path)) file, a)
-
--- | A shell command whose output becomes the contents of the file.
-fileFromCmd ::
-    forall e m a. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m, HasFileExtension a)
-    => (BS.ByteString -> m a)
-    -> CreateProcess
-    -> m (File, a)
-fileFromCmd byteStringInfo cmd = do
-  (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd BS.empty)
-  case code of
-    ExitSuccess ->
-        do a <- byteStringInfo bytes
-           file <- fileFromBytes (fileExtension a) bytes
-           return $ (set (field @"_fileSource") (Just (ThePath (show cmd))) file, a)
-    ExitFailure _ ->
-        throwError $ (fromFileError :: FileError -> e) $ CommandFailure (FunctionName "fileFromCmd" (Command (T.pack (show cmd)) (T.pack (show code))))
-
--- |Retrieve a URI using curl and turn the resulting data into a File.
-fileFromURI ::
-    forall e m a. (MonadIO m, MonadError e m, HasFileError e, HasFileCacheTop m, HasFileExtension a)
-    => (BS.ByteString -> m a)
-    -> URI
-    -> m (File, a)
-fileFromURI byteStringInfo uri =
-    do let args = ["-s", uriToString id uri ""]
-           cmd = (proc "curl" args)
-       (code, bytes, _err) <- liftIO $ readCreateProcessWithExitCode' cmd BS.empty
-       case code of
-         ExitSuccess ->
-             do a <- byteStringInfo bytes
-                file <- fileFromBytes (fileExtension a) bytes
-                return (set (field @"_fileSource") (Just (TheURI (uriToString id uri ""))) file, a)
-         _ -> throwError $ fromFileError $ CommandFailure (FunctionName "fileFromURI" (Command (T.pack (show cmd)) (T.pack (show code))))
-#endif
-
 tests :: Test
 tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
                                (SaneSize (ImageSize {_dim = TheHeight, _size = 0.25, _units = Inches}))
@@ -335,6 +286,19 @@ tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
                  ]
 
 -- * Image IO
+
+-- | Try to create a version of an image with its orientation
+-- corrected based on the EXIF orientation flag.  If the image is
+-- already upright this will return Left.
+uprightImage' :: BS.ByteString -> IO (Maybe (BS.ByteString, ImageType))
+uprightImage' bs = $logException ERROR $ do
+  normalizeOrientationCode (fromStrict bs) >>=
+    either
+      (const (return Nothing))
+      (\bs' -> do
+          let bs'' = toStrict bs'
+          typ <- getFileType bs''
+          return (Just (bs'', typ)))
 
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the
@@ -595,10 +559,76 @@ imageFileFromPnmfileOutput file typ out =
   where
       pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
 
--- | The image file names are just checksums.  This makes sure a link
--- with a suitable extension (.jpg, .gif) also exists.
--- ensureExtensionLink :: MonadFileCacheIO st IOException m => File -> String -> m ()
--- ensureExtensionLink file ext = fileCachePath file >>= \ path -> liftIO $ ensureLink (view fileChksum file) (path ++ ext)
+-- | Build an image resized by decoding, applying pnmscale, and then
+-- re-encoding.  The new image inherits attributes of the old (other
+-- than size.)
+scaleImage' ::
+  MonadIO m
+  => Double
+  -> BS.ByteString
+  -> ImageType
+  -> ExceptT FileError m (Maybe BS.ByteString)
+scaleImage' scale _ _ | approx (toRational scale) == 1 = return Nothing
+scaleImage' scale bytes typ = do
+    let decoder = case typ of
+                    JPEG -> showCommandForUser "jpegtopnm" ["-"]
+                    PPM -> showCommandForUser "cat" ["-"]
+                    GIF -> showCommandForUser "giftopnm" ["-"]
+                    PNG -> showCommandForUser "pngtopnm" ["-"]
+        scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
+        -- To save space, build a jpeg here rather than the original file type.
+        encoder = case typ of
+                    JPEG -> showCommandForUser "cjpeg" []
+                    PPM -> showCommandForUser {-"cat"-} "cjpeg" []
+                    GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
+                    PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
+        cmd = pipe' [decoder, scaler, encoder]
+    Just <$> makeByteString (shell cmd, bytes)
+
+editImage' ::
+    forall m shape. (MonadIO m, PixmapShape shape)
+    => ImageCrop -> BS.ByteString -> ImageType -> shape -> ExceptT FileError m (Maybe BS.ByteString)
+editImage' crop bs typ shape =
+  logIOError $
+    case commands of
+      [] -> return Nothing
+      _ -> Just <$> liftIO (pipeline commands bs)
+    where
+      commands = buildPipeline typ [cut, rotate] (latexImageFileType typ)
+      -- We can only embed JPEG and PNG images in a LaTeX
+      -- includegraphics command, so here we choose which one to use.
+      latexImageFileType GIF = JPEG
+      latexImageFileType PPM = JPEG
+      latexImageFileType JPEG = JPEG
+      latexImageFileType PNG = JPEG
+      cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
+              (0, 0, 0, 0) -> Nothing
+              (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
+                                                        "-right", show (w - r - 1),
+                                                        "-top", show t,
+                                                        "-bottom", show (h - b - 1)], PPM)
+      rotate = case rotation crop of
+                 90 -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
+                 180 -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
+                 270 -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
+                 _ -> Nothing
+      w = pixmapWidth shape
+      h = pixmapHeight shape
+      buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
+      buildPipeline start [] end = convert start end
+      buildPipeline start (Nothing : ops) end = buildPipeline start ops end
+      buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
+      buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
+      convert JPEG PPM = [proc "jpegtopnm" []]
+      convert GIF PPM = [proc "giftpnm" []]
+      convert PNG PPM = [proc "pngtopnm" []]
+      convert PPM JPEG = [proc "cjpeg" []]
+      convert PPM GIF = [proc "ppmtogif" []]
+      convert PPM PNG = [proc "pnmtopng" []]
+      convert PNG x = proc "pngtopnm" [] : convert PPM x
+      convert GIF x = proc "giftopnm" [] : convert PPM x
+      convert a b | a == b = []
+      convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
 
 -- * FileCacheT
 
@@ -641,12 +671,12 @@ class (HasFileCacheTop m,
 
 -- | Call the build function on cache miss to build the value.
 cacheInsert ::
-  forall key val e m. (MonadFileCache key val m, MonadIO m)
+  forall key val m. (MonadFileCache key val m, MonadIO m)
   => key -> ExceptT FileError m val
 cacheInsert key = cacheLook key >>= maybe (cacheMiss key) return
 
 cacheMiss ::
-  forall key val e m. (MonadFileCache key val m, MonadIO m)
+  forall key val m. (MonadFileCache key val m, MonadIO m)
   => key -> ExceptT FileError m val
 cacheMiss key = tryError (buildCacheValue key) >>= cachePut key
 
@@ -680,105 +710,6 @@ cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)
 
--- * Image File IO
-
--- | Find or create a version of some image with its orientation
--- corrected based on the EXIF orientation flag.  If the image is
--- already upright this will return the original ImageFile.
-uprightImage ::
-    forall m. (MonadIO m, HasFileCacheTop m)
-    => ImageFile -> ExceptT FileError m ImageFile
-uprightImage orig = do
-  loadBytesSafe (view (field @"_imageFile") orig) >>= uprightImage'
-  where
-    uprightImage' :: BS.ByteString -> ExceptT FileError m ImageFile
-    uprightImage' bs = do
-      (bs' :: Either String LBS.ByteString) <- liftIO $ $logException ERROR $ normalizeOrientationCode (fromStrict bs)
-      case bs' of
-        Left _ -> return orig
-        Right bs'' -> do
-          let bs''' = toStrict bs''
-          a <- liftIO ($logException ERROR (getFileType bs'''))
-          file <- fileFromBytes (fileExtension a) (toStrict bs'')
-          makeImageFile (file, a)
-
--- | Find or create a cached image resized by decoding, applying
--- pnmscale, and then re-encoding.  The new image inherits attributes
--- of the old other than size.
-scaleImage ::
-  forall e m. (MonadIO m, HasFileCacheTop m)
-  => Double -> ImageFile -> ExceptT FileError m ImageFile
-scaleImage scale orig | approx (toRational scale) == 1 = return orig
-scaleImage scale orig = {- liftIO $ $logException ERROR $ -} do
-    path <- fileCachePath (view (field @"_imageFile") orig)
-    let decoder = case view (field @"_imageFileType") orig of
-                    JPEG -> showCommandForUser "jpegtopnm" [path]
-                    PPM -> showCommandForUser "cat" [path]
-                    GIF -> showCommandForUser "giftopnm" [path]
-                    PNG -> showCommandForUser "pngtopnm" [path]
-        scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
-        -- To save space, build a jpeg here rather than the original file type.
-        encoder = case view (field @"_imageFileType") orig of
-                    JPEG -> showCommandForUser "cjpeg" []
-                    PPM -> showCommandForUser {-"cat"-} "cjpeg" []
-                    GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
-                    PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
-        cmd = pipe' [decoder, scaler, encoder]
-    makeByteString (shell cmd) >>= makeImageFile
-
--- | Find or create a cached image which is a cropped version of
--- another.
-editImage ::
-    forall e m. (MonadIO m, HasFileCacheTop m)
-    => ImageCrop -> ImageFile -> ExceptT FileError m ImageFile
-editImage crop ifile =
-  logIOError $
-    case commands of
-      [] ->
-          return ifile
-      _ ->
-          (do bs <- loadBytesSafe (view (field @"_imageFile") ifile)
-              bs' <- liftIO $ pipeline commands bs
-              a <- liftIO $ getFileType bs'
-              file <- fileFromBytes (fileExtension a) bs'
-              makeImageFile (file, a))
-    where
-      commands = buildPipeline (view (field @"_imageFileType") ifile) [cut, rotate] (latexImageFileType (view (field @"_imageFileType") ifile))
-      -- We can only embed JPEG and PNG images in a LaTeX
-      -- includegraphics command, so here we choose which one to use.
-      latexImageFileType GIF = JPEG
-      latexImageFileType PPM = JPEG
-      latexImageFileType JPEG = JPEG
-      latexImageFileType PNG = JPEG
-      cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
-              (0, 0, 0, 0) -> Nothing
-              (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
-                                                        "-right", show (w - r - 1),
-                                                        "-top", show t,
-                                                        "-bottom", show (h - b - 1)], PPM)
-      rotate = case rotation crop of
-                 90 -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
-                 180 -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
-                 270 -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
-                 _ -> Nothing
-      w = pixmapWidth ifile
-      h = pixmapHeight ifile
-      buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
-      buildPipeline start [] end = convert start end
-      buildPipeline start (Nothing : ops) end = buildPipeline start ops end
-      buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
-      buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
-      convert JPEG PPM = [proc "jpegtopnm" []]
-      convert GIF PPM = [proc "giftpnm" []]
-      convert PNG PPM = [proc "pngtopnm" []]
-      convert PPM JPEG = [proc "cjpeg" []]
-      convert PPM GIF = [proc "ppmtogif" []]
-      convert PPM PNG = [proc "pnmtopng" []]
-      convert PNG x = proc "pngtopnm" [] : convert PPM x
-      convert GIF x = proc "giftopnm" [] : convert PPM x
-      convert a b | a == b = []
-      convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
-
 -- * ImageCache
 
 type ImageCacheT s m = FileCacheT ImageKey ImageFile s m
@@ -786,7 +717,7 @@ type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
 buildImageFile ::
-  forall e m. (MonadImageCache m, MonadIO m)
+  forall m. (MonadImageCache m, MonadIO m)
   => ImageKey
   -> ExceptT FileError m ImageFile
 buildImageFile key@(ImageOriginal _) = do
@@ -797,24 +728,33 @@ buildImageFile key@(ImageOriginal _) = do
     -- it as it is the software could later corrected.
     Nothing -> throwError (CacheDamage ("Missing original: " <> T.pack (show key)))
     Just c -> return c
-  -- maybe (throwError (fromFileError (CacheDamage ("Missing original: " <> pack (show key))) :: e)) (return . _unCached) r
 buildImageFile (ImageUpright key) = do
-  -- mapError (\m -> either (Left . fromFileError) Right <$> m) $
-  buildImageFile key >>= uprightImage
+  img <- buildImageFile key
+  bs <- loadBytesSafe (view (field @"_imageFile") img)
+  liftIO (uprightImage' bs) >>= maybe (return img) f
+    where
+      f (bs', typ) = do
+        file <- fileFromBytes (fileExtension typ) bs'
+        makeImageFile (file, typ)
 buildImageFile (ImageScaled sz dpi key) = do
   img <- buildImageFile key
-  let scale = scaleFromDPI sz dpi img
-  logIOError $ scaleImage (fromRat (fromMaybe 1 scale)) img
+  let scale' = scaleFromDPI sz dpi img
+      scale = fromRat (fromMaybe 1 scale')
+  path <- fileCachePath (view (field @"_imageFile") img)
+  bytes <- makeByteString path
+  let typ = _imageFileType img
+  scaleImage' scale bytes typ >>= maybe (pure img) (makeImageFile :: BS.ByteString -> ExceptT FileError m ImageFile)
 buildImageFile (ImageCropped crop key) = do
-  buildImageFile key >>= editImage crop
-
-overCached ::
-  Monad m
-  => (a -> m (Either FileError a))
-  -> Either FileError a
-  -> m (Either FileError a)
-overCached f (Right a) = f a
-overCached _ v = pure v
+  img <- buildImageFile key
+  -- editImage crop img
+  bs <- loadBytesSafe (view (field @"_imageFile") img)
+  r <- editImage' crop bs (_imageFileType img) img
+  case r of
+    Nothing -> return img
+    Just bs' -> do
+      a <- liftIO $ getFileType bs'
+      file <- fileFromBytes (fileExtension a) bs'
+      makeImageFile (file, a)
 
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'
@@ -822,26 +762,6 @@ instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ 
   => MonadFileCache ImageKey ImageFile (RWST (acid, top) W s m) where
     askCacheAcid = view _1 :: RWST (acid, top) W s m (AcidState (CacheMap ImageKey ImageFile))
     buildCacheValue = buildImageFile
-
--- mapError :: (MonadError e m, MonadError e' n) => (m (Either e a) -> n (Either e' b)) -> m a -> n b
--- evalFileCacheT :: Functor m => acid -> FileCacheTop -> RWST (acid, FileCacheTop) W S m a -> m a
--- runExceptT :: ExceptT e m a -> m (Either e a)
-
--- Crazy function to turn FileError into e.
-fromImageCacheT ::
-  forall e m a n. (HasFileError e, MonadIO m, MonadError e m, MonadImageCache m, n ~ ImageCacheT () IO)
-  => n a
-  -> m a
-fromImageCacheT action = do
-  acid <- askCacheAcid @ImageKey @ImageFile
-  top <- fileCacheTop
-  flattenExcept (evalFileCacheT acid top () action)
-  where
-    flattenExcept :: ExceptT FileError IO a -> m a
-    flattenExcept = liftFileError . runExceptT
-
-    liftFileError :: IO (Either FileError a) -> m a
-    liftFileError action' = liftIO action' >>= either (throwError . fromFileError) return
 
 -- This creates the file in the image cache but doesn't add it to the
 -- database.  Why?  I'm not entirely sure.
@@ -868,7 +788,7 @@ instance MakeImageFile FilePath where
 instance MakeImageFile (File, ImageType) where
   makeImageFile (file, ityp) = do
     path <- fileCachePath file
-    ($logException ERROR (liftIO $ imageFileFromType path file ityp))
+    $logException ERROR (liftIO $ imageFileFromType path file ityp)
 
 -- | Return the local pathname of an image file.  The path will have a
 -- suitable extension (e.g. .jpg) for the benefit of software that
@@ -879,7 +799,7 @@ imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
 cacheImageOriginal ::
-    forall f e m. (MakeImageFile f, MonadIO m, MonadImageCache m)
+    forall f m. (MakeImageFile f, MonadIO m, MonadImageCache m)
     => f
     -> ExceptT FileError m (ImageKey, ImageFile)
 cacheImageOriginal src = do
@@ -887,53 +807,28 @@ cacheImageOriginal src = do
   let key = originalKey img
   (key,) <$> cachePut key (Right img)
 
--- | Scan for ReportImage objects and ensure that one version of that
--- image has been added to the cache, adding it if necessary.
-cacheImagesByKey ::
-  forall a e m. (Ord a, MonadImageCache m, MonadIO m)
-  => (a -> ImageKey)
-  -> [a]
-  -> m (Map a (Either FileError ImageFile))
-cacheImagesByKey keyfn keys =
-  fromList <$> mapM (\img -> let key = keyfn img in runExceptT (cacheInsert key) >>= \val -> return (img, val)) keys
-
 -- | Add some image files to an image repository - updates the acid
 -- state image map and copies the file to a location determined by the
 -- FileCacheTop and its checksum.
-storeImageFiles ::
-  forall e m. (MonadImageCache m, MonadIO m)
-  => [FilePath] -> m [(FilePath, Either FileError (ImageKey, ImageFile))]
-storeImageFiles paths =
-  mapM (\path -> (path,) <$> runExceptT (storeImageFile path)) paths
+cacheImageOriginals ::
+  forall x m. (MakeImageFile x, Ord x, MonadImageCache m, MonadIO m,
+               MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
+  => [x] -> m ()
+cacheImageOriginals =
+  mapM_ (\x -> runExceptT (cacheImageOriginal x) >>= modify  . Map.insert x)
 
-instance HasFileExtension a => HasFileExtension (b, a) where
-  fileExtension (_, a) = fileExtension a
+-- | Build the image described by the 'ImageKey' as necessary and
+-- return its meta information as an 'ImageFile'.
+cacheImageByKey :: forall m. (MonadImageCache m, MonadIO m)
+  => ImageKey
+  -> ExceptT FileError m ImageFile
+cacheImageByKey key = cacheInsert key
 
-storeImageFile ::
-    forall e m. (MonadImageCache m, MonadIO m)
-    => FilePath -> ExceptT FileError m (ImageKey, ImageFile)
-storeImageFile fp = do
-  bytes <- makeByteString fp
-  typ <- liftIO (getFileType bytes)
-  file <- fileFromBytes (fileExtension typ) bytes
-  img <- makeImageFile (file, typ)
-  cacheImageOriginal bytes
-
--- This should be in FileCacheT, not IO
-storeByteStrings ::
-    MonadIO m
-    => FileCacheTop
-    -> AcidState (CacheMap ImageKey ImageFile)
-    -> [(ImageFile, BS.ByteString)]
-    -> ExceptT e m [Either FileError ImageFile]
-storeByteStrings top acid pairs = do
-  evalFileCacheT acid top () (mapM storeByteString (fmap snd pairs))
-
-storeByteString ::
-    (MonadIO m, MonadImageCache m)
-    => BS.ByteString -> m (Either FileError ImageFile)
-storeByteString bytes = runExceptT $ do
-  typ <- liftIO (getFileType bytes)
-  _file <- fileFromBytes (fileExtension typ) bytes
-  (_key, img) <- cacheImageOriginal bytes
-  return img
+-- | Build an image map in the state monad
+cacheImagesByKey ::
+  forall m. (MonadImageCache m, MonadIO m,
+             MonadState (Map ImageKey (Either FileError ImageFile)) m)
+  => [ImageKey]
+  -> m ()
+cacheImagesByKey =
+  mapM_ (\key -> runExceptT (cacheImageByKey key) >>= modify . Map.insert key)
