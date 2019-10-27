@@ -16,7 +16,7 @@ module Data.FileCache.Server
   , validateJPG
   -- * File Cache
   -- , loadBytesUnsafe
-  , fileCachePath
+  , HasFileCachePath(fileCachePath, fileCachePathIO)
   , FileCacheT, W(W)
   , ensureFileCacheTop
   , runFileCacheT, evalFileCacheT, execFileCacheT -- , writeFileCacheT
@@ -25,7 +25,6 @@ module Data.FileCache.Server
   -- * Image Cache
   , ImageCacheT
   , MonadImageCache
-  , imageFilePath
   , cacheImageOriginal
   , cacheImageOriginals
   , cacheImagesByKey
@@ -220,16 +219,19 @@ loadBytesSafe file =
 loadBytesUnsafe :: (MonadIO m, HasFileCacheTop m) => File -> m BS.ByteString
 loadBytesUnsafe file = fileCachePath file >>= liftIO . BS.readFile
 
--- | Create any missing directories and evaluate 'fileCachePath'
-fileCachePathIO :: (MonadIO m, HasFileCacheTop m) => File -> m FilePath
-fileCachePathIO file = do
-  dir <- fileCacheDir file
-  liftIO $ createDirectoryIfMissing True dir
-  fileCachePath file
+class HasFileCachePath a where
+  fileCachePath :: HasFileCacheTop m => a -> m FilePath
+  -- ^ The full path name for the local cache of the file.
+  fileCachePathIO :: (HasFileCacheTop m, MonadIO m) => a -> m FilePath
+  -- ^ Create any missing directories and evaluate 'fileCachePath'
 
--- | The full path name for the local cache of the file.
-fileCachePath :: HasFileCacheTop m => File -> m FilePath
-fileCachePath file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
+instance HasFileCachePath File where
+  fileCachePath file =
+    fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
+  fileCachePathIO file = do
+    dir <- fileCacheDir file
+    liftIO $ createDirectoryIfMissing True dir
+    fileCachePath file
 
 fileCacheDir :: HasFileCacheTop m => File -> m FilePath
 fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
@@ -724,6 +726,10 @@ cacheDelete _ keys = do
 type ImageCacheT s m = FileCacheT ImageKey ImageFile s m
 type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 
+instance HasFileCachePath ImageFile where
+  fileCachePath = fileCachePath . view (field @"_imageFile")
+  fileCachePathIO = fileCachePathIO . view (field @"_imageFile")
+
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
 buildImageFile ::
   forall m. (MonadImageCache m, MonadIO m)
@@ -798,12 +804,6 @@ instance MakeImageFile (File, ImageType) where
   makeImageFile (file, ityp) = do
     path <- fileCachePath file
     $logException ERROR (liftIO $ imageFileFromType path file ityp)
-
--- | Return the local pathname of an image file.  The path will have a
--- suitable extension (e.g. .jpg) for the benefit of software that
--- depends on this, so the result might point to a symbolic link.
-imageFilePath :: HasFileCacheTop m => ImageFile -> m FilePath
-imageFilePath img = fileCachePath (view (field @"_imageFile") img)
 
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
