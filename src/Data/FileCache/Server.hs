@@ -1,7 +1,8 @@
-{-# LANGUAGE DeriveLift, OverloadedStrings, PackageImports, TemplateHaskell, TupleSections, UndecidableInstances #-}
+{-# LANGUAGE DeriveLift, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, UndecidableInstances #-}
 
 module Data.FileCache.Server
-  ( initCacheMap
+  ( -- * Cache Events
+    initCacheMap
   , openCache
   , PutValue(..)
   , PutValues(..)
@@ -10,15 +11,18 @@ module Data.FileCache.Server
   , LookMap(..)
   , DeleteValue(..)
   , DeleteValues(..)
-  , loadBytesUnsafe
-  , fileCachePath
+  -- * Image IO
   , getFileType
   , validateJPG
+  -- * File Cache
+  -- , loadBytesUnsafe
+  , fileCachePath
   , FileCacheT, W(W)
   , ensureFileCacheTop
-  , runFileCacheT, evalFileCacheT, execFileCacheT, writeFileCacheT
+  , runFileCacheT, evalFileCacheT, execFileCacheT -- , writeFileCacheT
   , MonadFileCache(askCacheAcid, buildCacheValue)
   , cacheInsert, cacheLook, cacheMap, cacheDelete, cacheMiss, cachePut
+  -- * Image Cache
   , ImageCacheT
   , MonadImageCache
   , imageFilePath
@@ -27,14 +31,16 @@ module Data.FileCache.Server
   , cacheImagesByKey
   , cacheImageByKey
 
+  , validateImageKey
+  , validateImageFile
   , tests
   ) where
 
 import "regex-compat-tdfa" Text.Regex ( Regex, mkRegex, matchRegex )
 import Control.Exception ( throw )
-import Control.Lens ( (%=), _1, _2, _3, at, view )
+import Control.Lens ( (%=), _1, _2, at, view )
 import Control.Monad ( unless, when )
--- import Control.Monad.Catch ( try )
+import Control.Monad.Catch ( MonadCatch, try )
 import Control.Monad.RWS ( modify, MonadState, RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask) )
 import Control.Monad.Trans ( MonadTrans(lift), liftIO )
@@ -46,6 +52,7 @@ import Data.ByteString.Lazy ( fromStrict, toStrict )
 import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import qualified Data.ByteString.UTF8 as P ( toString )
 import Data.Char ( isSpace )
+import Data.Digest.Pure.MD5 (md5)
 import Data.FileCache.Common
 import Data.FileCache.LogException (logException)
 import Data.Generics ( Typeable )
@@ -100,7 +107,7 @@ showCmdSpec (ShellCommand s) = s
 showCmdSpec (RawCommand p ss) = showCommandForUser p ss
 
 pipe :: [CreateProcess] -> CreateProcess
-pipe xs = foldl1 (<>) xs
+pipe = foldl1 (<>)
 
 instance Semigroup CreateProcess where
   a <> b =
@@ -654,8 +661,10 @@ evalFileCacheT ::
   -> RWST (acid, FileCacheTop) W s m a
   -> m a
 evalFileCacheT r0 top s0 action = view _1 <$> runFileCacheT r0 top s0 action
+execFileCacheT :: Functor f => acid -> FileCacheTop -> s -> RWST (acid, FileCacheTop) W s f a -> f s
 execFileCacheT r0 top s0 action = view _2 <$> runFileCacheT r0 top s0 action
-writeFileCacheT r0 top s0 action = view _3 <$> runFileCacheT r0 top s0 action
+-- writeFileCacheT :: Functor f => acid -> FileCacheTop -> s -> RWST (acid, FileCacheTop) w s f a -> f w
+-- writeFileCacheT r0 top s0 action = view _3 <$> runFileCacheT r0 top s0 action
 
 ensureFileCacheTop :: MonadIO m => FileCacheT key val s m ()
 ensureFileCacheTop = do
@@ -832,3 +841,33 @@ cacheImagesByKey ::
   -> m ()
 cacheImagesByKey =
   mapM_ (\key -> runExceptT (cacheImageByKey key) >>= modify . Map.insert key)
+
+-- | Integrity testing
+validateImageKey ::
+  forall m. (MonadImageCache m, MonadIO m, MonadCatch m, MonadError FileError m)
+  => ImageKey -> m ()
+validateImageKey key = do
+  runExceptT (cacheLook key :: ExceptT FileError m (Maybe ImageFile)) >>=
+    either (\e -> (throwError (CacheDamage ("validateImageKey - image " <> pack (show key) <> " got error from cacheLook: " <> pack (show e)))))
+           (maybe (throwError (CacheDamage ("validateImageKey - missing: " <> pack (show key))))
+                  validateImageFile)
+
+validateImageFile ::
+  forall m. (MonadImageCache m, MonadIO m, MonadCatch m, MonadError FileError m)
+  => ImageFile -> m ()
+validateImageFile (ImageFile {..}) = do
+  path <- fileCachePath _imageFile
+  when (_imageFileType == JPEG)
+    (liftIO (validateJPG path) >>=
+     either (\e -> throwError (CacheDamage ("image " <> pack (show (fileChecksum _imageFile)) <> " not a valid jpeg: " <> pack (show e))))
+            (\_ -> return ()))
+  bs <- try (loadBytesUnsafe _imageFile >>= checkFile _imageFile path)
+  case bs of
+    Left (e :: IOException) -> liftIO (putStrLn ("error loading " ++ show _imageFile ++ ": " ++ show e))
+    Right _ -> return ()
+  where
+    checkFile :: File -> FilePath -> BS.ByteString -> m ()
+    checkFile file _path bs
+      | T.pack (show (md5 (fromStrict bs))) /= (_fileChksum file) =
+          liftIO (putStrLn ("checksum mismatch in file " ++ show file))
+    checkFile _file _path _bs = return ()
