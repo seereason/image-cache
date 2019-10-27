@@ -219,21 +219,22 @@ loadBytesUnsafe :: (MonadIO m, HasFileCacheTop m) => File -> m BS.ByteString
 loadBytesUnsafe file = fileCachePath file >>= liftIO . BS.readFile
 
 class HasFileCachePath a where
+  fileCacheDir :: HasFileCacheTop m => a -> m FilePath
+  -- ^ The subdirectory of images where the file will be placed
   fileCachePath :: HasFileCacheTop m => a -> m FilePath
   -- ^ The full path name for the local cache of the file.
   fileCachePathIO :: (HasFileCacheTop m, MonadIO m) => a -> m FilePath
   -- ^ Create any missing directories and evaluate 'fileCachePath'
 
 instance HasFileCachePath File where
+  fileCacheDir file =
+    fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
   fileCachePath file =
     fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
   fileCachePathIO file = do
     dir <- fileCacheDir file
     liftIO $ createDirectoryIfMissing True dir
     fileCachePath file
-
-fileCacheDir :: HasFileCacheTop m => File -> m FilePath
-fileCacheDir file = fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
 
 (<++>) :: FilePath -> FilePath -> FilePath
 a <++> b = a </> (makeRelative "" b)

@@ -446,21 +446,22 @@ fileURI file = case _fileSource file of
 addMessage :: String -> File -> File
 addMessage message file = over (field @"_fileMessages") (++ [message]) file
 
+filePath :: (HasFileExtension a, HasFileChecksum a) => a -> FilePath
+filePath file = fileDir file <++> unpack (fileChecksum file) <> unpack (fileExtension file)
+
+fileDir :: HasFileChecksum a => a -> FilePath
+fileDir = take 2 . unpack . fileChecksum
+
+-- feels like </> but I think its a little different
+(<++>) :: FilePath -> FilePath -> FilePath
+a <++> b = a </> (makeRelative "" b)
+
 md5' :: P.ByteString -> String
 #ifdef LAZYIMAGES
 md5' = show . md5
 #else
 md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
-
-filePath :: (HasFileExtension a, HasFileChecksum a) => a -> FilePath
-filePath file = fileDir file <++> unpack (fileChecksum file) <> unpack (fileExtension file)
-
-(<++>) :: FilePath -> FilePath -> FilePath
-a <++> b = a </> (makeRelative "" b)
-
-fileDir :: HasFileChecksum a => a -> FilePath
-fileDir = take 2 . unpack . fileChecksum
 
 $(concat <$>
   sequence
