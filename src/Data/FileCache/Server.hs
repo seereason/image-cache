@@ -299,15 +299,10 @@ tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
 -- | Try to create a version of an image with its orientation
 -- corrected based on the EXIF orientation flag.  If the image is
 -- already upright this will return Left.
-uprightImage' :: BS.ByteString -> IO (Maybe (BS.ByteString, ImageType))
+uprightImage' :: BS.ByteString -> IO (Maybe BS.ByteString)
 uprightImage' bs = $logException ERROR $ do
   normalizeOrientationCode (fromStrict bs) >>=
-    either
-      (const (return Nothing))
-      (\bs' -> do
-          let bs'' = toStrict bs'
-          typ <- getFileType bs''
-          return (Just (bs'', typ)))
+    either (const (return Nothing)) (return . Just . toStrict)
 
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the
@@ -740,7 +735,8 @@ buildImageFile (ImageUpright key) = do
   bs <- loadBytesSafe (view (field @"_imageFile") img)
   liftIO (uprightImage' bs) >>= maybe (return img) f
     where
-      f (bs', typ) = do
+      f bs' = do
+        typ <- liftIO $ getFileType bs'
         file <- fileFromBytes (fileExtension typ) bs'
         makeImageFile (file, typ)
 buildImageFile (ImageScaled sz dpi key) = do
