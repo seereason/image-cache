@@ -63,21 +63,6 @@ module Data.FileCache.Common
   , FileCacheTop(..)
   , HasFileCacheTop(fileCacheTop)
   , CacheMap(..)
-#if 0
-    -- * LogException
-  , logException
---  , logExceptionV
---  , logAndThrow
---  , Loggable(logit)
---
---    -- * Cache
-  , CacheValue
---
---    -- * Image
-  , CacheImage
---  , ImageCacheMap
---
-#endif
   ) where
 
 import Control.Exception as E ( ErrorCall(ErrorCallWithLocation), Exception, fromException, SomeException )
@@ -104,10 +89,9 @@ import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
 import Extra.Except ( HasIOException(..) )
 import GHC.Generics ( Generic, M1(M1) )
-import Language.Haskell.TH ( Loc(..), Ppr(ppr) )
+import Language.Haskell.TH ( Loc(..) )
 import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ( Lift )
-import Language.Haskell.TH.PprLib ( ptext )
 import Language.Haskell.TH.Syntax ( Loc(loc_module) )
 import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
@@ -568,7 +552,7 @@ instance Pretty ImageKey where
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
 
-instance Ppr ImageKey where ppr = ptext . show
+instance Pretty ImageType where pPrint = text . show
 
 -- | This describes how the keys we use are constructed
 class OriginalKey a where
@@ -798,6 +782,16 @@ $(concat <$>
   , derivePathInfo ''ImageKey
   , derivePathInfo ''ImageCrop
   , derivePathInfo ''ImageSize
+  , derivePathInfo ''ImageType
   , derivePathInfo ''Dimension
   , derivePathInfo ''Units
   ])
+
+{-
+λ> toPathInfo (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0")
+"/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
+λ> toPathInfo (ImageUpright (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0"))
+"/image-upright/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
+λ> toPathInfo (ImageScaled (ImageSize TheWidth 3 Inches) (1 % 3) (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0"))
+"/image-scaled/image-size/the-width/3/1/inches/1/3/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
+-}

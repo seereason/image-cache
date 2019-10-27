@@ -17,8 +17,7 @@ module Data.FileCache.Server
   -- * File Cache
   -- , loadBytesUnsafe
   , HasFileCachePath(fileCachePath, fileCachePathIO)
-  , FileCacheT, W(W)
-  , ensureFileCacheTop
+  , FileCacheT
   , runFileCacheT, evalFileCacheT, execFileCacheT -- , writeFileCacheT
   , MonadFileCache(askCacheAcid, buildCacheValue)
   , cacheInsert, cacheLook, cacheMap, cacheDelete, cacheMiss, cachePut
@@ -641,18 +640,14 @@ editImage' crop bs typ shape =
 
 -- * FileCacheT
 
-type FileCacheT key val s m = RWST (AcidState (CacheMap key val), FileCacheTop) W s (ExceptT FileError m)
-
-data W = W
-instance Semigroup W where W <> W = W
-instance Monoid W where mempty = W; mappend = (<>)
+type FileCacheT key val s m = RWST (AcidState (CacheMap key val), FileCacheTop) () s (ExceptT FileError m)
 
 runFileCacheT ::
      acid
   -> FileCacheTop
   -> s
-  -> RWST (acid, FileCacheTop) W s m a
-  -> m (a, s, W)
+  -> RWST (acid, FileCacheTop) () s m a
+  -> m (a, s, ())
 runFileCacheT r0 top s0 action = runRWST action (r0, top) s0
 
 evalFileCacheT ::
@@ -660,17 +655,13 @@ evalFileCacheT ::
   => acid
   -> FileCacheTop
   -> s
-  -> RWST (acid, FileCacheTop) W s m a
+  -> RWST (acid, FileCacheTop) () s m a
   -> m a
 evalFileCacheT r0 top s0 action = view _1 <$> runFileCacheT r0 top s0 action
-execFileCacheT :: Functor f => acid -> FileCacheTop -> s -> RWST (acid, FileCacheTop) W s f a -> f s
+execFileCacheT :: Functor f => acid -> FileCacheTop -> s -> RWST (acid, FileCacheTop) () s f a -> f s
 execFileCacheT r0 top s0 action = view _2 <$> runFileCacheT r0 top s0 action
 -- writeFileCacheT :: Functor f => acid -> FileCacheTop -> s -> RWST (acid, FileCacheTop) w s f a -> f w
 -- writeFileCacheT r0 top s0 action = view _3 <$> runFileCacheT r0 top s0 action
-
-ensureFileCacheTop :: MonadIO m => FileCacheT key val s m ()
-ensureFileCacheTop = do
-  fileCacheTop >>= lift . lift . liftIO . createDirectoryIfMissing True . _unFileCacheTop
 
 -- No MonadIO constraint here - not all MonadFileCache operations require
 -- MonadIO, and we might want to use MonadIOError instead.
@@ -693,7 +684,7 @@ cacheMiss key = tryError (buildCacheValue key) >>= cachePut key
 
 cachePut ::
   forall key val m. (MonadFileCache key val m, MonadIO m)
-  => key -> (Either FileError val) -> ExceptT FileError m val
+  => key -> Either FileError val -> ExceptT FileError m val
 cachePut key val = do
   st <- lift askCacheAcid
   liftIO (update st (PutValue key val)) >>= liftEither
@@ -774,8 +765,8 @@ buildImageFile (ImageCropped crop key) = do
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'
 instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
-  => MonadFileCache ImageKey ImageFile (RWST (acid, top) W s m) where
-    askCacheAcid = view _1 :: RWST (acid, top) W s m (AcidState (CacheMap ImageKey ImageFile))
+  => MonadFileCache ImageKey ImageFile (RWST (acid, top) () s m) where
+    askCacheAcid = view _1 :: RWST (acid, top) () s m (AcidState (CacheMap ImageKey ImageFile))
     buildCacheValue = buildImageFile
 
 -- This creates the file in the image cache but doesn't add it to the
@@ -797,9 +788,7 @@ instance MakeImageFile FilePath where
     makeByteString path >>= makeImageFile
 -- | Create an image file from a 'File'.  The existance of a 'File'
 -- value implies that the image has been found in or added to the
--- acid-state cache.  Note that 'InProgress' is not a possible result
--- here, it will only occur for derived (scaled, cropped, etc.)
--- images.
+-- acid-state cache.
 instance MakeImageFile (File, ImageType) where
   makeImageFile (file, ityp) = do
     path <- fileCachePath file
@@ -826,7 +815,7 @@ cacheImageOriginals ::
 cacheImageOriginals =
   mapM_ (\x -> runExceptT (cacheImageOriginal x) >>= modify  . Map.insert x)
 
--- | Build the image described by the 'ImageKey' as necessary and
+-- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.
 cacheImageByKey :: forall m. (MonadImageCache m, MonadIO m)
   => ImageKey
