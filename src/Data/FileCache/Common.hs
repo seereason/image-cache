@@ -589,6 +589,10 @@ data FileError
     | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
     | CommandFailure CommandInfo -- ^ A shell command failed
     | CacheDamage Text -- ^ The contents of the cache is wrong
+    | NoShape
+      -- ^ Could not determine the dimensions of an image.  This comes
+      -- from failed attempt to parse the output of the unix file(1)
+      -- command.
     deriving (Eq, Ord, Generic)
 
 -- Dubious instance, but omitting makes other things more dubious.

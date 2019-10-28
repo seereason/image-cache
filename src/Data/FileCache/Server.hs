@@ -12,7 +12,6 @@ module Data.FileCache.Server
   , DeleteValue(..)
   , DeleteValues(..)
   -- * Image IO
-  , getFileType
   , validateJPG
   -- * File Cache
   -- , loadBytesUnsafe
@@ -52,6 +51,7 @@ import qualified Data.ByteString.UTF8 as P ( toString )
 import Data.Char ( isSpace )
 import Data.Digest.Pure.MD5 (md5)
 import Data.FileCache.Common
+import Data.FileCache.ImageType (getFileInfo)
 import Data.FileCache.LogException (logException)
 import Data.Generics ( Typeable )
 import Data.Generics.Product ( field )
@@ -406,26 +406,6 @@ getWord32Motorola :: Bool -> Get Word32
 getWord32Motorola True = getWord32le
 getWord32Motorola False = getWord32be
 
--- | Helper function to learn the 'ImageType' of a file by runing
--- @file -b@.
-getFileType :: BS.ByteString -> IO ImageType
-getFileType bytes =
-    LL.readProcessWithExitCode cmd args bytes >>= test . view _2
-    where
-      cmd = "file"
-      args = ["-b", "-"]
-      test :: Monad m => BS.ByteString -> m ImageType
-      test s = maybe (fail $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") return (foldr (testre (P.toString s)) Nothing reTests)
-      testre :: String -> (Regex, ImageType) -> Maybe ImageType -> Maybe ImageType
-      testre _ _ (Just result) = Just result
-      testre s (re, typ) Nothing = maybe Nothing (const (Just typ)) (matchRegex re s)
-      -- Any more?
-      reTests =
-              [(mkRegex "Netpbm P[BGPP]M \"rawbits\" image data$", PPM)
-              ,(mkRegex "JPEG image data", JPEG)
-              ,(mkRegex "PNG image data", PNG)
-              ,(mkRegex "GIF image data", GIF)]
-
 data Format = Binary | Gray | Color
 data RawOrPlain = Raw | Plain
 data Pnmfile = Pnmfile Format RawOrPlain (Integer, Integer, Maybe Integer)
@@ -531,38 +511,6 @@ parseExtractBBOutput = do
 deriving instance Show ExtractBB
 deriving instance Show Hires
 
--- | Helper function to build an image once its type is known - JPEG,
--- GIF, etc.
-imageFileFromType :: FilePath -> File -> ImageType -> IO ImageFile
-imageFileFromType path file typ = do
-  -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
-  let cmd = case typ of
-              JPEG -> pipe [proc "jpegtopnm" [path], proc "pnmfile" []]
-              PPM ->  (proc "pnmfile" [])
-              GIF -> pipe [proc "giftopnm" [path], proc "pnmfile" []]
-              PNG -> pipe [proc "pngtopnm" [path], proc "pnmfile" []]
-  -- err may contain "Output file write error --- out of disk space?"
-  -- because pnmfile closes the output descriptor of the decoder
-  -- process early.  This can be ignored.
-  (code, out, _err) <- LL.readCreateProcessWithExitCode cmd BS.empty
-  case code of
-    ExitSuccess -> imageFileFromPnmfileOutput file typ out
-    ExitFailure _ -> error $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
-
--- | Helper function to load a PNM file.
-imageFileFromPnmfileOutput :: File -> ImageType -> BS.ByteString -> IO ImageFile
-imageFileFromPnmfileOutput file typ out =
-        case matchRegex pnmFileRegex (P.toString out) of
-          Just [width, height, _, maxval] ->
-            return $ ImageFile { _imageFile = file
-                               , _imageFileType = typ
-                               , _imageFileWidth = read width
-                               , _imageFileHeight = read height
-                               , _imageFileMaxVal = if maxval == "" then 1 else read maxval }
-          _ -> error $ "Unexpected output from pnmfile: " ++ show out
-  where
-      pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
-
 -- | Build an image resized by decoding, applying pnmscale, and then
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
@@ -665,16 +613,16 @@ class (HasFileCacheTop m,
        Ord key, SafeCopy key, Typeable key, Show key,
        SafeCopy val, Typeable val) => MonadFileCache key val m where
     askCacheAcid :: m (AcidState (CacheMap key val))
-    buildCacheValue :: MonadIO m => key -> ExceptT FileError m val
+    buildCacheValue :: (MonadIO m, MonadCatch m) => key -> ExceptT FileError m val
 
 -- | Call the build function on cache miss to build the value.
 cacheInsert ::
-  forall key val m. (MonadFileCache key val m, MonadIO m)
+  forall key val m. (MonadFileCache key val m, MonadIO m, MonadCatch m)
   => key -> ExceptT FileError m val
 cacheInsert key = cacheLook key >>= maybe (cacheMiss key) return
 
 cacheMiss ::
-  forall key val m. (MonadFileCache key val m, MonadIO m)
+  forall key val m. (MonadFileCache key val m, MonadIO m, MonadCatch m)
   => key -> ExceptT FileError m val
 cacheMiss key = tryError (buildCacheValue key) >>= cachePut key
 
@@ -714,50 +662,38 @@ type ImageCacheT s m = FileCacheT ImageKey ImageFile s m
 type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 
 instance HasFileCachePath ImageFile where
+  fileCacheDir = fileCacheDir . view (field @"_imageFile")
   fileCachePath = fileCachePath . view (field @"_imageFile")
   fileCachePathIO = fileCachePathIO . view (field @"_imageFile")
 
+buildImage ::
+  forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
+  => ImageKey
+  -> ExceptT FileError m BS.ByteString
+buildImage key@(ImageOriginal _) = do
+  -- This should already be in the cache
+  cacheLook key >>= maybe miss (loadBytesUnsafe . _imageFile)
+    where miss = throwError (CacheDamage ("Missing original: " <> T.pack (show key)))
+buildImage (ImageUpright key) =
+  buildImage key >>= \bs -> liftIO (uprightImage' bs) >>= maybe (return bs) return
+buildImage (ImageScaled sz dpi key) = do
+  bs <- buildImage key
+  -- the buildImage that just ran might have this info
+  (typ, shape) <- getFileInfo bs
+  let scale' = scaleFromDPI sz dpi shape
+      scale = fromRat (fromMaybe 1 scale')
+  scaleImage' scale bs typ >>= maybe (return bs) return
+buildImage (ImageCropped crop key) = do
+  bs <- buildImage key
+  (typ, shape) <- getFileInfo bs
+  editImage' crop bs typ shape >>= maybe (return bs) return
+
 -- | Build and return the 'ImageFile' described by the 'ImageKey'.
 buildImageFile ::
-  forall m. (MonadImageCache m, MonadIO m)
+  forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
   => ImageKey
   -> ExceptT FileError m ImageFile
-buildImageFile key@(ImageOriginal _) = do
-  -- This should already be in the cache
-  (r :: Maybe ImageFile) <- cacheLook key
-  case r of
-    -- Should we write this into the cache?  Probably not, if we leave
-    -- it as it is the software could later corrected.
-    Nothing -> throwError (CacheDamage ("Missing original: " <> T.pack (show key)))
-    Just c -> return c
-buildImageFile (ImageUpright key) = do
-  img <- buildImageFile key
-  bs <- loadBytesSafe (view (field @"_imageFile") img)
-  liftIO (uprightImage' bs) >>= maybe (return img) f
-    where
-      f bs' = do
-        typ <- liftIO $ getFileType bs'
-        file <- fileFromBytes (fileExtension typ) bs'
-        makeImageFile (file, typ)
-buildImageFile (ImageScaled sz dpi key) = do
-  img <- buildImageFile key
-  let scale' = scaleFromDPI sz dpi img
-      scale = fromRat (fromMaybe 1 scale')
-  path <- fileCachePath (view (field @"_imageFile") img)
-  bytes <- makeByteString path
-  let typ = _imageFileType img
-  scaleImage' scale bytes typ >>= maybe (pure img) (makeImageFile :: BS.ByteString -> ExceptT FileError m ImageFile)
-buildImageFile (ImageCropped crop key) = do
-  img <- buildImageFile key
-  -- editImage crop img
-  bs <- loadBytesSafe (view (field @"_imageFile") img)
-  r <- editImage' crop bs (_imageFileType img) img
-  case r of
-    Nothing -> return img
-    Just bs' -> do
-      a <- liftIO $ getFileType bs'
-      file <- fileFromBytes (fileExtension a) bs'
-      makeImageFile (file, a)
+buildImageFile key = buildImage key >>= makeImageFile
 
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'
@@ -766,14 +702,12 @@ instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ 
     askCacheAcid = view _1 :: RWST (acid, top) () s m (AcidState (CacheMap ImageKey ImageFile))
     buildCacheValue = buildImageFile
 
--- This creates the file in the image cache but doesn't add it to the
--- database.  Why?  I'm not entirely sure.
 class MakeImageFile a where
-  makeImageFile :: (MonadIO m, HasFileCacheTop m) => a -> ExceptT FileError m ImageFile
+  makeImageFile :: (MonadIO m, MonadCatch m, HasFileCacheTop m) => a -> ExceptT FileError m ImageFile
 
 instance MakeImageFile BS.ByteString where
   makeImageFile bs = do
-    a <- liftIO $ getFileType bs
+    (a, shape) <- getFileInfo bs
     file <- fileFromBytes (fileExtension a) bs
     makeImageFile (file, a)
 instance MakeImageFile URI where
@@ -791,10 +725,42 @@ instance MakeImageFile (File, ImageType) where
     path <- fileCachePath file
     $logException ERROR (liftIO $ imageFileFromType path file ityp)
 
+-- | Helper function to build an image once its type is known - JPEG,
+-- GIF, etc.
+imageFileFromType :: FilePath -> File -> ImageType -> IO ImageFile
+imageFileFromType path file typ = do
+  -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
+  let cmd = case typ of
+              JPEG -> pipe [proc "jpegtopnm" [path], proc "pnmfile" []]
+              PPM ->  (proc "pnmfile" [])
+              GIF -> pipe [proc "giftopnm" [path], proc "pnmfile" []]
+              PNG -> pipe [proc "pngtopnm" [path], proc "pnmfile" []]
+  -- err may contain "Output file write error --- out of disk space?"
+  -- because pnmfile closes the output descriptor of the decoder
+  -- process early.  This can be ignored.
+  (code, out, _err) <- LL.readCreateProcessWithExitCode cmd BS.empty
+  case code of
+    ExitSuccess -> imageFileFromPnmfileOutput file typ out
+    ExitFailure _ -> error $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
+
+-- | Helper function to load a PNM file.
+imageFileFromPnmfileOutput :: File -> ImageType -> BS.ByteString -> IO ImageFile
+imageFileFromPnmfileOutput file typ out =
+        case matchRegex pnmFileRegex (P.toString out) of
+          Just [width, height, _, maxval] ->
+            return $ ImageFile { _imageFile = file
+                               , _imageFileType = typ
+                               , _imageFileWidth = read width
+                               , _imageFileHeight = read height
+                               , _imageFileMaxVal = if maxval == "" then 1 else read maxval }
+          _ -> error $ "Unexpected output from pnmfile: " ++ show out
+  where
+      pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
+
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
 cacheImageOriginal ::
-    forall f m. (MakeImageFile f, MonadIO m, MonadImageCache m)
+    forall f m. (MakeImageFile f, MonadIO m, MonadCatch m, MonadImageCache m)
     => f
     -> ExceptT FileError m (ImageKey, ImageFile)
 cacheImageOriginal src = do
@@ -806,7 +772,7 @@ cacheImageOriginal src = do
 -- state image map and copies the file to a location determined by the
 -- FileCacheTop and its checksum.
 cacheImageOriginals ::
-  forall x m. (MakeImageFile x, Ord x, MonadImageCache m, MonadIO m,
+  forall x m. (MakeImageFile x, Ord x, MonadImageCache m, MonadIO m, MonadCatch m,
                MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
   => [x] -> m ()
 cacheImageOriginals =
@@ -814,14 +780,14 @@ cacheImageOriginals =
 
 -- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.
-cacheImageByKey :: forall m. (MonadImageCache m, MonadIO m)
+cacheImageByKey :: forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
   => ImageKey
   -> ExceptT FileError m ImageFile
 cacheImageByKey key = cacheInsert key
 
 -- | Build an image map in the state monad
 cacheImagesByKey ::
-  forall m. (MonadImageCache m, MonadIO m,
+  forall m. (MonadImageCache m, MonadIO m, MonadCatch m,
              MonadState (Map ImageKey (Either FileError ImageFile)) m)
   => [ImageKey]
   -> m ()

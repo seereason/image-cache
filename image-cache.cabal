@@ -59,6 +59,7 @@ Library
     web-routes-th
   if !impl(ghcjs)
     Exposed-Modules:
+      Data.FileCache.ImageType
       Data.FileCache.LogException
       Data.FileCache.Server
     Build-Depends:
