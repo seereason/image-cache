@@ -14,8 +14,7 @@ module Data.FileCache.Server
   -- * Image IO
   , validateJPG
   -- * File Cache
-  -- , loadBytesUnsafe
-  , HasFileCachePath(fileCachePath, fileCachePathIO)
+  , HasFileCachePath(fileCacheDir, fileCachePath, fileCachePathIO)
   , FileCacheT
   , runFileCacheT, evalFileCacheT, execFileCacheT -- , writeFileCacheT
   , MonadFileCache(askCacheAcid, buildCacheValue)
@@ -74,7 +73,7 @@ import Network.URI ( URI(..), uriToString )
 import Numeric ( fromRat, showFFloat )
 import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.Exit ( ExitCode(..) )
-import System.FilePath ( makeRelative, (</>) )
+import System.FilePath ( (</>), makeRelative, takeDirectory )
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( logM, Priority(..) )
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode, showCreateProcessForUser )
@@ -194,26 +193,6 @@ initCacheMap = CacheMap mempty
 
 -- * FileCacheTop
 
--- | Read and return the contents of the file from the cache as a
--- ByteString.  Verify that the checksum matches the checksum field of
--- the 'File'.
-loadBytesSafe ::
-    forall m. (MonadIO m, HasFileCacheTop m)
-    => File -> ExceptT FileError m BS.ByteString
-loadBytesSafe file =
-    do path <- fileCachePath file
-       bytes <- liftIO (BS.readFile path)
-       case T.pack (md5' bytes) == _fileChksum file of
-         True -> return bytes
-         -- If the checksum of the file we read from the cache does
-         -- not match its checksum field, we've got serious trouble.
-         -- We should probably try to read back files when we create
-         -- them
-         False -> do
-           let msg = "Checksum mismatch: expected " ++ show (_fileChksum file) ++ ", file contains " ++ show (md5' bytes)
-           liftIO $ logM "Appraisal.FileCache" CRITICAL msg
-           throwError $ CacheDamage ("Checksum problem in " <> T.pack (show file))
-
 -- | Load an image file without verifying its checksum
 loadBytesUnsafe :: (MonadIO m, HasFileCacheTop m) => File -> m BS.ByteString
 loadBytesUnsafe file = fileCachePath file >>= liftIO . BS.readFile
@@ -224,6 +203,10 @@ class HasFileCachePath a where
   fileCachePath :: HasFileCacheTop m => a -> m FilePath
   -- ^ The full path name for the local cache of the file.
   fileCachePathIO :: (HasFileCacheTop m, MonadIO m) => a -> m FilePath
+  fileCachePathIO file = do
+    path <- fileCachePath file
+    liftIO $ createDirectoryIfMissing True $ takeDirectory path
+    return path
   -- ^ Create any missing directories and evaluate 'fileCachePath'
 
 instance HasFileCachePath File where
@@ -231,10 +214,6 @@ instance HasFileCachePath File where
     fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
   fileCachePath file =
     fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
-  fileCachePathIO file = do
-    dir <- fileCacheDir file
-    liftIO $ createDirectoryIfMissing True dir
-    fileCachePath file
 
 (<++>) :: FilePath -> FilePath -> FilePath
 a <++> b = a </> (makeRelative "" b)
@@ -664,7 +643,13 @@ type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 instance HasFileCachePath ImageFile where
   fileCacheDir = fileCacheDir . view (field @"_imageFile")
   fileCachePath = fileCachePath . view (field @"_imageFile")
-  fileCachePathIO = fileCachePathIO . view (field @"_imageFile")
+
+-- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
+-- 'runFileCacheT'
+instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
+  => MonadFileCache ImageKey ImageFile (RWST (acid, top) () s m) where
+    askCacheAcid = view _1
+    buildCacheValue key = buildImage key >>= makeImageFile
 
 buildImage ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
@@ -672,8 +657,9 @@ buildImage ::
   -> ExceptT FileError m BS.ByteString
 buildImage key@(ImageOriginal _) = do
   -- This should already be in the cache
-  cacheLook key >>= maybe miss (loadBytesUnsafe . _imageFile)
+  cacheLook key >>= maybe miss hit
     where miss = throwError (CacheDamage ("Missing original: " <> T.pack (show key)))
+          hit (img :: ImageFile) = fileCachePath img >>= liftIO . BS.readFile
 buildImage (ImageUpright key) =
   buildImage key >>= \bs -> liftIO (uprightImage' bs) >>= maybe (return bs) return
 buildImage (ImageScaled sz dpi key) = do
@@ -687,20 +673,6 @@ buildImage (ImageCropped crop key) = do
   bs <- buildImage key
   (typ, shape) <- getFileInfo bs
   editImage' crop bs typ shape >>= maybe (return bs) return
-
--- | Build and return the 'ImageFile' described by the 'ImageKey'.
-buildImageFile ::
-  forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
-  => ImageKey
-  -> ExceptT FileError m ImageFile
-buildImageFile key = buildImage key >>= makeImageFile
-
--- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
--- 'runFileCacheT'
-instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
-  => MonadFileCache ImageKey ImageFile (RWST (acid, top) () s m) where
-    askCacheAcid = view _1 :: RWST (acid, top) () s m (AcidState (CacheMap ImageKey ImageFile))
-    buildCacheValue = buildImageFile
 
 class MakeImageFile a where
   makeImageFile :: (MonadIO m, MonadCatch m, HasFileCacheTop m) => a -> ExceptT FileError m ImageFile
