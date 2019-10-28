@@ -193,10 +193,6 @@ initCacheMap = CacheMap mempty
 
 -- * FileCacheTop
 
--- | Load an image file without verifying its checksum
-loadBytesUnsafe :: (MonadIO m, HasFileCacheTop m) => File -> m BS.ByteString
-loadBytesUnsafe file = fileCachePath file >>= liftIO . BS.readFile
-
 class HasFileCachePath a where
   fileCacheDir :: HasFileCacheTop m => a -> m FilePath
   -- ^ The subdirectory of images where the file will be placed
@@ -245,33 +241,6 @@ instance MakeByteString URI where
     case code of
       ExitSuccess -> return bytes
       _ -> throwError $ CommandFailure (FunctionName "MakeByteString URI" (Command (T.pack (show cmd)) (T.pack (show code))))
-
--- * File
-
--- | Turn the bytes in a ByteString into a File.  This is an IO
--- operation because it saves the data into the local cache.  We
--- use writeFileReadable because the files we create need to be
--- read remotely by our backup program.
-fileFromBytes ::
-    forall m. (MonadIO m, HasFileCacheTop m)
-    => Extension
-    -> BS.ByteString
-    -> m File
-fileFromBytes fileExt bytes =
-      do let file = File { _fileSource = Nothing
-                         , _fileChksum = T.pack (md5' bytes)
-                         , _fileMessages = []
-                         , _fileExt = fileExt }
-         path <- fileCachePathIO file
-         exists <- liftIO $ doesFileExist path
-         unless exists (liftIO (writeFileReadable path bytes))
-         return file
-
-tests :: Test
-tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
-                               (SaneSize (ImageSize {_dim = TheHeight, _size = 0.25, _units = Inches}))
-                               (saneSize (ImageSize {_dim = TheHeight, _size = 0.0, _units = Inches})))
-                 ]
 
 -- * Image IO
 
@@ -679,9 +648,9 @@ class MakeImageFile a where
 
 instance MakeImageFile BS.ByteString where
   makeImageFile bs = do
-    (a, shape) <- getFileInfo bs
+    (typ, shape) <- getFileInfo bs
     file <- fileFromBytes (fileExtension a) bs
-    makeImageFile (file, a)
+    makeImageFile (file, typ)
 instance MakeImageFile URI where
   makeImageFile uri = do
     makeByteString uri >>= makeImageFile
@@ -696,6 +665,25 @@ instance MakeImageFile (File, ImageType) where
   makeImageFile (file, ityp) = do
     path <- fileCachePath file
     $logException ERROR (liftIO $ imageFileFromType path file ityp)
+
+-- | Turn the bytes in a ByteString into a File.  This is an IO
+-- operation because it saves the data into the local cache.  We
+-- use writeFileReadable because the files we create need to be
+-- read remotely by our backup program.
+fileFromBytes ::
+    forall m. (MonadIO m, HasFileCacheTop m)
+    => Extension
+    -> BS.ByteString
+    -> m File
+fileFromBytes fileExt bytes =
+      do let file = File { _fileSource = Nothing
+                         , _fileChksum = T.pack (md5' bytes)
+                         , _fileMessages = []
+                         , _fileExt = fileExt }
+         path <- fileCachePathIO file
+         exists <- liftIO $ doesFileExist path
+         unless exists (liftIO (writeFileReadable path bytes))
+         return file
 
 -- | Helper function to build an image once its type is known - JPEG,
 -- GIF, etc.
@@ -785,7 +773,7 @@ validateImageFile (ImageFile {..}) = do
     (liftIO (validateJPG path) >>=
      either (\e -> throwError (CacheDamage ("image " <> pack (show (fileChecksum _imageFile)) <> " not a valid jpeg: " <> pack (show e))))
             (\_ -> return ()))
-  bs <- try (loadBytesUnsafe _imageFile >>= checkFile _imageFile path)
+  bs <- try (liftIO (BS.readFile path) >>= checkFile _imageFile path)
   case bs of
     Left (e :: IOException) -> liftIO (putStrLn ("error loading " ++ show _imageFile ++ ": " ++ show e))
     Right _ -> return ()
@@ -795,3 +783,9 @@ validateImageFile (ImageFile {..}) = do
       | T.pack (show (md5 (fromStrict bs))) /= (_fileChksum file) =
           liftIO (putStrLn ("checksum mismatch in file " ++ show file))
     checkFile _file _path _bs = return ()
+
+tests :: Test
+tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
+                               (SaneSize (ImageSize {_dim = TheHeight, _size = 0.25, _units = Inches}))
+                               (saneSize (ImageSize {_dim = TheHeight, _size = 0.0, _units = Inches})))
+                 ]
