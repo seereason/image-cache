@@ -32,7 +32,7 @@ module Data.FileCache.Server
   , tests
   ) where
 
-import "regex-compat-tdfa" Text.Regex ( Regex, mkRegex, matchRegex )
+-- import "regex-compat-tdfa" Text.Regex ( Regex, mkRegex, matchRegex )
 import Control.Exception ( throw )
 import Control.Lens ( (%=), _1, _2, at, view )
 import Control.Monad ( unless, when )
@@ -46,7 +46,7 @@ import Data.Binary.Get ( getLazyByteString, Get, skip, bytesRead, getWord16be, g
 import qualified Data.ByteString as BS ( ByteString, empty, readFile )
 import Data.ByteString.Lazy ( fromStrict, toStrict )
 import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
-import qualified Data.ByteString.UTF8 as P ( toString )
+--import qualified Data.ByteString.UTF8 as P ( toString )
 import Data.Char ( isSpace )
 import Data.Digest.Pure.MD5 (md5)
 import Data.FileCache.Common
@@ -75,8 +75,8 @@ import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( (</>), makeRelative, takeDirectory )
 import System.FilePath.Extra ( writeFileReadable )
-import System.Log.Logger ( logM, Priority(..) )
-import qualified System.Process.ListLike as LL ( readProcessWithExitCode, showCreateProcessForUser )
+import System.Log.Logger ( Priority(..) )
+import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
 import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser, shell )
 import System.Process.ByteString.Lazy as LBS ( readCreateProcessWithExitCode )
 import System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcessWithExitCode, readCreateProcess )
@@ -99,22 +99,6 @@ readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a ->
 readCreateProcessWithExitCode' p s =
     $logException ERROR (LL.readCreateProcessWithExitCode p s)
 
-showCmdSpec :: CmdSpec -> String
-showCmdSpec (ShellCommand s) = s
-showCmdSpec (RawCommand p ss) = showCommandForUser p ss
-
-pipe :: [CreateProcess] -> CreateProcess
-pipe = foldl1 (<>)
-
-instance Semigroup CreateProcess where
-  a <> b =
-    if cwd a == cwd b &&
-       env a == env b &&
-       close_fds a == close_fds b &&
-       create_group a == create_group b
-    then a {cmdspec = ShellCommand (showCmdSpec (cmdspec a) ++ " | " ++ showCmdSpec (cmdspec b))}
-    else error $ "Pipeline of incompatible commands: " ++ LL.showCreateProcessForUser a ++ " | " ++ LL.showCreateProcessForUser b
-
 pipeline :: [CreateProcess] -> BS.ByteString -> IO BS.ByteString
 pipeline [] bytes = return bytes
 pipeline (p : ps) bytes =
@@ -128,25 +112,7 @@ pipeline (p : ps) bytes =
 
 pipe' :: [String] -> String
 pipe' = intercalate " | "
-
-{-
-pipelineWithExitCode :: [(String, [String])] -> B.ByteString -> IO (ExitCode, B.ByteString, [B.ByteString])
-pipelineWithExitCode cmds inp =
-    pipeline' cmds inp (ExitSuccess, [])
-    where
-      pipeline' _ bytes (code@(ExitFailure _), errs) = return (code, bytes, errs)
-      pipeline' [] bytes (code, errs) = return (code, bytes, reverse errs)
-      pipeline' ((cmd, args) : rest) bytes (code, errs) =
-          do (code, out, err) <- readProcessWithExitCode cmd args bytes
-             pipeline' rest out (code, err : errs)
-
-showPipelineForUser :: [(String, [String])] -> String
-showPipelineForUser ((cmd, args) : rest) =
-    showCommandForUser cmd args ++
-    case rest of 
-      [] -> ""
-      _ -> " | " ++ showPipelineForUser rest
--}
+
 -- * Events
 
 -- | Install a key/value pair into the cache.
@@ -190,29 +156,6 @@ openCache path = openLocalStateFrom path initCacheMap
 
 initCacheMap :: Ord key => CacheMap key val
 initCacheMap = CacheMap mempty
-
--- * FileCacheTop
-
-class HasFileCachePath a where
-  fileCacheDir :: HasFileCacheTop m => a -> m FilePath
-  -- ^ The subdirectory of images where the file will be placed
-  fileCachePath :: HasFileCacheTop m => a -> m FilePath
-  -- ^ The full path name for the local cache of the file.
-  fileCachePathIO :: (HasFileCacheTop m, MonadIO m) => a -> m FilePath
-  fileCachePathIO file = do
-    path <- fileCachePath file
-    liftIO $ createDirectoryIfMissing True $ takeDirectory path
-    return path
-  -- ^ Create any missing directories and evaluate 'fileCachePath'
-
-instance HasFileCachePath File where
-  fileCacheDir file =
-    fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
-  fileCachePath file =
-    fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
-
-(<++>) :: FilePath -> FilePath -> FilePath
-a <++> b = a </> (makeRelative "" b)
 
 -- * ByteString
 
@@ -530,9 +473,33 @@ editImage' crop bs typ shape =
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
 
+-- * FileCacheTop
+
+class HasFileCachePath a where
+  fileCacheDir :: HasFileCacheTop m => a -> m FilePath
+  -- ^ The subdirectory of images where the file will be placed
+  fileCachePath :: HasFileCacheTop m => a -> m FilePath
+  -- ^ The full path name for the local cache of the file.
+  fileCachePathIO :: (HasFileCacheTop m, MonadIO m) => a -> m FilePath
+  fileCachePathIO file = do
+    path <- fileCachePath file
+    liftIO $ createDirectoryIfMissing True $ takeDirectory path
+    return path
+  -- ^ Create any missing directories and evaluate 'fileCachePath'
+
+instance HasFileCachePath File where
+  fileCacheDir file =
+    fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
+  fileCachePath file =
+    fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
+
+(<++>) :: FilePath -> FilePath -> FilePath
+a <++> b = a </> (makeRelative "" b)
+
 -- * FileCacheT
 
-type FileCacheT key val s m = RWST (AcidState (CacheMap key val), FileCacheTop) () s (ExceptT FileError m)
+type FileCacheT key val s m =
+  RWST (AcidState (CacheMap key val), FileCacheTop) () s (ExceptT FileError m)
 
 runFileCacheT ::
      acid
@@ -552,16 +519,15 @@ evalFileCacheT ::
 evalFileCacheT r0 top s0 action = view _1 <$> runFileCacheT r0 top s0 action
 execFileCacheT :: Functor f => acid -> FileCacheTop -> s -> RWST (acid, FileCacheTop) () s f a -> f s
 execFileCacheT r0 top s0 action = view _2 <$> runFileCacheT r0 top s0 action
--- writeFileCacheT :: Functor f => acid -> FileCacheTop -> s -> RWST (acid, FileCacheTop) w s f a -> f w
--- writeFileCacheT r0 top s0 action = view _3 <$> runFileCacheT r0 top s0 action
 
 -- No MonadIO constraint here - not all MonadFileCache operations require
 -- MonadIO, and we might want to use MonadIOError instead.
 class (HasFileCacheTop m,
        Ord key, SafeCopy key, Typeable key, Show key,
-       SafeCopy val, Typeable val) => MonadFileCache key val m where
-    askCacheAcid :: m (AcidState (CacheMap key val))
-    buildCacheValue :: (MonadIO m, MonadCatch m) => key -> ExceptT FileError m val
+       SafeCopy val, Typeable val)
+  => MonadFileCache key val m where
+  askCacheAcid :: m (AcidState (CacheMap key val))
+  buildCacheValue :: (MonadIO m, MonadCatch m) => key -> ExceptT FileError m val
 
 -- | Call the build function on cache miss to build the value.
 cacheInsert ::
@@ -618,7 +584,7 @@ instance HasFileCachePath ImageFile where
 instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
   => MonadFileCache ImageKey ImageFile (RWST (acid, top) () s m) where
     askCacheAcid = view _1
-    buildCacheValue key = buildImage key >>= makeImageFile
+    buildCacheValue key = makeImageFile key
 
 buildImage ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
@@ -643,79 +609,15 @@ buildImage (ImageCropped crop key) = do
   (typ, shape) <- getFileInfo bs
   editImage' crop bs typ shape >>= maybe (return bs) return
 
-class MakeImageFile a where
-  makeImageFile :: (MonadIO m, MonadCatch m, HasFileCacheTop m) => a -> ExceptT FileError m ImageFile
-
-instance MakeImageFile BS.ByteString where
-  makeImageFile bs = do
-    (typ, shape) <- getFileInfo bs
-    file <- fileFromBytes (fileExtension a) bs
-    makeImageFile (file, typ)
-instance MakeImageFile URI where
-  makeImageFile uri = do
-    makeByteString uri >>= makeImageFile
-    -- fileFromURI (liftIO . getFileType) uri >>= makeImageFile
-instance MakeImageFile FilePath where
-  makeImageFile path =
-    makeByteString path >>= makeImageFile
--- | Create an image file from a 'File'.  The existance of a 'File'
--- value implies that the image has been found in or added to the
--- acid-state cache.
-instance MakeImageFile (File, ImageType) where
-  makeImageFile (file, ityp) = do
-    path <- fileCachePath file
-    $logException ERROR (liftIO $ imageFileFromType path file ityp)
-
--- | Turn the bytes in a ByteString into a File.  This is an IO
--- operation because it saves the data into the local cache.  We
--- use writeFileReadable because the files we create need to be
--- read remotely by our backup program.
-fileFromBytes ::
-    forall m. (MonadIO m, HasFileCacheTop m)
-    => Extension
-    -> BS.ByteString
-    -> m File
-fileFromBytes fileExt bytes =
-      do let file = File { _fileSource = Nothing
-                         , _fileChksum = T.pack (md5' bytes)
-                         , _fileMessages = []
-                         , _fileExt = fileExt }
-         path <- fileCachePathIO file
-         exists <- liftIO $ doesFileExist path
-         unless exists (liftIO (writeFileReadable path bytes))
-         return file
-
--- | Helper function to build an image once its type is known - JPEG,
--- GIF, etc.
-imageFileFromType :: FilePath -> File -> ImageType -> IO ImageFile
-imageFileFromType path file typ = do
-  -- logM "Appraisal.ImageFile.imageFileFromType" DEBUG ("Appraisal.ImageFile.imageFileFromType - typ=" ++ show typ) >>
-  let cmd = case typ of
-              JPEG -> pipe [proc "jpegtopnm" [path], proc "pnmfile" []]
-              PPM ->  (proc "pnmfile" [])
-              GIF -> pipe [proc "giftopnm" [path], proc "pnmfile" []]
-              PNG -> pipe [proc "pngtopnm" [path], proc "pnmfile" []]
-  -- err may contain "Output file write error --- out of disk space?"
-  -- because pnmfile closes the output descriptor of the decoder
-  -- process early.  This can be ignored.
-  (code, out, _err) <- LL.readCreateProcessWithExitCode cmd BS.empty
-  case code of
-    ExitSuccess -> imageFileFromPnmfileOutput file typ out
-    ExitFailure _ -> error $ "Failure building image file:\n " ++ showCmdSpec (cmdspec cmd) ++ " -> " ++ show code
-
--- | Helper function to load a PNM file.
-imageFileFromPnmfileOutput :: File -> ImageType -> BS.ByteString -> IO ImageFile
-imageFileFromPnmfileOutput file typ out =
-        case matchRegex pnmFileRegex (P.toString out) of
-          Just [width, height, _, maxval] ->
-            return $ ImageFile { _imageFile = file
-                               , _imageFileType = typ
-                               , _imageFileWidth = read width
-                               , _imageFileHeight = read height
-                               , _imageFileMaxVal = if maxval == "" then 1 else read maxval }
-          _ -> error $ "Unexpected output from pnmfile: " ++ show out
-  where
-      pnmFileRegex = mkRegex "^stdin:\tP[PGB]M raw, ([0-9]+) by ([0-9]+)([ ]+maxval ([0-9]+))?$"
+-- | Add some image files to an image repository - updates the acid
+-- state image map and copies the file to a location determined by the
+-- FileCacheTop and its checksum.
+cacheImageOriginals ::
+  forall x m. (MakeImageFile x, Ord x, MonadImageCache m, MonadIO m, MonadCatch m,
+               MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
+  => [x] -> m ()
+cacheImageOriginals =
+  mapM_ (\x -> runExceptT (cacheImageOriginal x) >>= modify  . Map.insert x)
 
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
@@ -728,15 +630,36 @@ cacheImageOriginal src = do
   let key = originalKey img
   (key,) <$> cachePut key (Right img)
 
--- | Add some image files to an image repository - updates the acid
--- state image map and copies the file to a location determined by the
--- FileCacheTop and its checksum.
-cacheImageOriginals ::
-  forall x m. (MakeImageFile x, Ord x, MonadImageCache m, MonadIO m, MonadCatch m,
-               MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
-  => [x] -> m ()
-cacheImageOriginals =
-  mapM_ (\x -> runExceptT (cacheImageOriginal x) >>= modify  . Map.insert x)
+class MakeImageFile a where
+  makeImageFile ::
+    (MonadIO m, MonadCatch m, MonadImageCache m)
+    => a -> ExceptT FileError m ImageFile
+
+instance MakeImageFile BS.ByteString where
+  makeImageFile bs = do
+    (typ, (width, height)) <- getFileInfo bs
+    let file = File { _fileSource = Nothing
+                    , _fileChksum = T.pack (md5' bs)
+                    , _fileMessages = []
+                    , _fileExt = fileExtension typ }
+    path <- fileCachePathIO file
+    exists <- liftIO $ doesFileExist path
+    unless exists $ liftIO $ writeFileReadable path bs
+    let img = ImageFile { _imageFile = file
+                        , _imageFileType = typ
+                        , _imageFileWidth = width
+                        , _imageFileHeight = height
+                        , _imageFileMaxVal = 1 }
+    return img
+instance MakeImageFile ImageKey where
+  makeImageFile key = do
+    buildImage key >>= makeImageFile
+instance MakeImageFile URI where
+  makeImageFile uri = makeByteString uri >>= makeImageFile
+    -- fileFromURI (liftIO . getFileType) uri >>= makeImageFile
+instance MakeImageFile FilePath where
+  makeImageFile path =
+    makeByteString path >>= makeImageFile
 
 -- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.

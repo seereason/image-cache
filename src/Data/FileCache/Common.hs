@@ -355,7 +355,7 @@ deriving instance Typeable ImageCrop
 instance Pretty ImageCrop where
     pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
 
--- * ImageType
+-- * ImageType and Checksum
 
 data ImageType = PPM | JPEG | GIF | PNG deriving (Generic, Eq, Ord)
 
@@ -365,6 +365,7 @@ deriving instance Show ImageType
 deriving instance Typeable ImageType
 instance Serialize ImageType where get = safeGet; put = safePut
 instance SafeCopy ImageType where version = 0
+instance Pretty ImageType where pPrint = text . show
 
 type Extension = Text
 
@@ -436,6 +437,11 @@ deriving instance Data FileSource
 deriving instance Typeable FileSource
 deriving instance Lift FileSource
 
+$(concat <$>
+  sequence
+  [ makePathInstances [FIELDS] ''File
+  , makePathInstances [FIELDS] ''FileSource ])
+
 -- |Return the remote URI if the file resulted from downloading a URI.
 fileURI :: File -> Maybe URI
 fileURI file = case _fileSource file of
@@ -462,11 +468,6 @@ md5' = show . md5
 #else
 md5' = show . md5 . Lazy.fromChunks . (: [])
 #endif
-
-$(concat <$>
-  sequence
-  [ makePathInstances [FIELDS] ''File
-  , makePathInstances [FIELDS] ''FileSource ])
 
 #if ARBITRARY
 instance Arbitrary File where
@@ -552,8 +553,6 @@ instance Pretty ImageKey where
     pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
-
-instance Pretty ImageType where pPrint = text . show
 
 -- | This describes how the keys we use are constructed
 class OriginalKey a where
