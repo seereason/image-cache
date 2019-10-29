@@ -63,7 +63,7 @@ module Data.FileCache.Common
   ) where
 
 import Control.Exception as E ( ErrorCall(ErrorCallWithLocation), Exception, fromException, SomeException )
-import Control.Lens ( Iso', iso, Lens', lens, _Show, _2, view, over, preview, Prism', review )
+import Control.Lens ( Iso', iso, Lens', lens, _Show, _2, view, preview, Prism', review )
 import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Control.Monad.Except ( ExceptT, lift )
@@ -73,7 +73,6 @@ import Control.Monad.Trans ( MonadIO(liftIO) )
 import qualified Data.ByteString as P ( ByteString, take )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
-import Data.Generics.Product ( field )
 import Data.Map ( Map )
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
@@ -88,14 +87,14 @@ import Language.Haskell.TH ( Loc(..) )
 import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ( Lift )
 import Language.Haskell.TH.Syntax ( Loc(loc_module) )
-import Network.URI ( URI(..), parseRelativeReference, parseURI )
+--import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
 import System.FilePath ( makeRelative, (</>) )
 import System.Log.Logger ( Priority(ERROR), logM )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Text.PrettyPrint.HughesPJClass ()
 import Text.Read ( readMaybe )
-import Web.Routes ( PathInfo(..) )
+import Web.Routes ( PathInfo(..), toPathInfo )
 import Web.Routes.TH ( derivePathInfo )
 
 -- * Rational
@@ -139,7 +138,9 @@ readRationalMaybe s =
 rsqrt :: Rational -> Rational
 rsqrt = toRational . (sqrt :: Double -> Double) . fromRat
 
-instance View Rational where type ViewType Rational = Text; _View = rationalIso . iso pack unpack
+instance View Rational where
+  type ViewType Rational = Text
+  _View = rationalIso . iso pack unpack
 
 instance PathInfo Rational where
   toPathSegments r =
@@ -446,13 +447,6 @@ class HasURIPath a where
   toURIPath :: a -> FilePath
   toURIDir :: a -> FilePath
 
--- This instance is going away.
-instance HasURIPath File where
-  toURIPath file =
-    toURIDir file </> makeRelative "" (unpack (_fileChksum file <> _fileExt file))
-  toURIDir =
-    take 2 . unpack . _fileChksum
-
 #if ARBITRARY
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
@@ -491,9 +485,28 @@ instance PixmapShape ImageFile where
 instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
+#if 1
+instance HasURIPath File where
+  toURIDir =
+    take 2 . unpack . _fileChksum
+  toURIPath file =
+    toURIDir file </> makeRelative "" (unpack (_fileChksum file <> _fileExt file))
+
 instance HasURIPath ImageFile where
   toURIDir = toURIDir @File . _imageFile
   toURIPath = toURIPath @File . _imageFile
+#else
+instance HasURIPath ImageKey where
+  -- The subdirectory is based on the original image, not the derived
+  toURIDir (ImageOriginal csum) = take 2 $ unpack csum
+  toURIDir (ImageUpright key) = toURIDir key
+  toURIDir (ImageScaled _ _ key) = toURIDir key
+  toURIDir (ImageCropped _ key) = toURIDir key
+  -- No extension, we will explicitly set the mime type
+  toURIPath key =
+    toURIDir key </>
+    makeRelative "" (unpack (toPathInfo key {- <> fileExtension typ-}))
+#endif
 
 -- * ImageKey
 

@@ -164,6 +164,9 @@ initCacheMap = CacheMap mempty
 class MakeByteString a where
   makeByteString :: (MonadIO m) => a -> ExceptT FileError m BS.ByteString
 
+instance MakeByteString BS.ByteString where
+  makeByteString = return
+
 instance MakeByteString FilePath where
   makeByteString path = liftIO $ BS.readFile path
 
@@ -579,8 +582,24 @@ type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
   => MonadFileCache ImageKey ImageFile (RWST (acid, top) () s m) where
     askCacheAcid = view _1
-    buildCacheValue key = makeImageFile key
+    buildCacheValue key = do
+      bs <- buildImage key
+      (typ, (width, height)) <- getFileInfo bs
+      let file = File { _fileSource = Nothing
+                      , _fileChksum = T.pack (md5' bs)
+                      , _fileMessages = []
+                      , _fileExt = fileExtension typ }
+      path <- fileCachePathIO file
+      exists <- liftIO $ doesFileExist path
+      unless exists $ liftIO $ writeFileReadable path bs
+      let img = ImageFile { _imageFile = file
+                          , _imageFileType = typ
+                          , _imageFileWidth = width
+                          , _imageFileHeight = height
+                          , _imageFileMaxVal = 1 }
+      return img
 
+-- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImage ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
   => ImageKey
@@ -608,7 +627,7 @@ buildImage (ImageCropped crop key) = do
 -- state image map and copies the file to a location determined by the
 -- FileCacheTop and its checksum.
 cacheImageOriginals ::
-  forall x m. (MakeImageFile x, Ord x, MonadImageCache m, MonadIO m, MonadCatch m,
+  forall x m. (MakeByteString x, Ord x, MonadImageCache m, MonadIO m, MonadCatch m,
                MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
   => [x] -> m ()
 cacheImageOriginals =
@@ -617,44 +636,26 @@ cacheImageOriginals =
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
 cacheImageOriginal ::
-    forall f m. (MakeImageFile f, MonadIO m, MonadCatch m, MonadImageCache m)
-    => f
+    forall x m. (MakeByteString x, MonadIO m, MonadCatch m, MonadImageCache m)
+    => x
     -> ExceptT FileError m (ImageKey, ImageFile)
-cacheImageOriginal src = do
-  (img :: ImageFile) <- makeImageFile src
+cacheImageOriginal x = do
+  bs <- makeByteString x
+  (typ, (width, height)) <- getFileInfo bs
+  let file = File { _fileSource = Nothing
+                  , _fileChksum = T.pack (md5' bs)
+                  , _fileMessages = []
+                  , _fileExt = fileExtension typ }
+  path <- fileCachePathIO file
+  exists <- liftIO $ doesFileExist path
+  unless exists $ liftIO $ writeFileReadable path bs
+  let img = ImageFile { _imageFile = file
+                      , _imageFileType = typ
+                      , _imageFileWidth = width
+                      , _imageFileHeight = height
+                      , _imageFileMaxVal = 1 }
   let key = originalKey img
   (key,) <$> cachePut key (Right img)
-
-class MakeImageFile a where
-  makeImageFile ::
-    (MonadIO m, MonadCatch m, MonadImageCache m)
-    => a -> ExceptT FileError m ImageFile
-
-instance MakeImageFile BS.ByteString where
-  makeImageFile bs = do
-    (typ, (width, height)) <- getFileInfo bs
-    let file = File { _fileSource = Nothing
-                    , _fileChksum = T.pack (md5' bs)
-                    , _fileMessages = []
-                    , _fileExt = fileExtension typ }
-    path <- fileCachePathIO file
-    exists <- liftIO $ doesFileExist path
-    unless exists $ liftIO $ writeFileReadable path bs
-    let img = ImageFile { _imageFile = file
-                        , _imageFileType = typ
-                        , _imageFileWidth = width
-                        , _imageFileHeight = height
-                        , _imageFileMaxVal = 1 }
-    return img
-instance MakeImageFile ImageKey where
-  makeImageFile key = do
-    buildImage key >>= makeImageFile
-instance MakeImageFile URI where
-  makeImageFile uri = makeByteString uri >>= makeImageFile
-    -- fileFromURI (liftIO . getFileType) uri >>= makeImageFile
-instance MakeImageFile FilePath where
-  makeImageFile path =
-    makeByteString path >>= makeImageFile
 
 md5' :: BS.ByteString -> String
 #ifdef LAZYIMAGES
