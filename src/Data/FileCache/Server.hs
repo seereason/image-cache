@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveLift, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, UndecidableInstances #-}
+{-# LANGUAGE DeriveLift, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators, UndecidableInstances #-}
 
 module Data.FileCache.Server
   ( -- * Cache Events
@@ -11,6 +11,7 @@ module Data.FileCache.Server
   , LookMap(..)
   , DeleteValue(..)
   , DeleteValues(..)
+  , SetImageFileTypes(..)
   -- * Image IO
   , validateJPG
   -- * File Cache
@@ -29,6 +30,7 @@ module Data.FileCache.Server
   , cacheImagesByKey
   , cacheImageByKey
 
+  , setImageFileTypes
   , validateImageKey
   , validateImageFile
   , tests
@@ -50,15 +52,16 @@ import Data.ByteString.Lazy ( fromChunks, fromStrict, toStrict )
 import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 --import qualified Data.ByteString.UTF8 as P ( toString )
 import Data.Char ( isSpace )
+import Data.Default (def)
 import Data.Digest.Pure.MD5 (md5)
 import Data.FileCache.Common
 import Data.FileCache.ImageType (getFileInfo)
 import Data.FileCache.LogException (logException)
-import Data.Generics ( Typeable )
+import Data.Typeable -- ( (:~:), eqT, Typeable )
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
-import Data.Map.Strict as Map ( delete, difference, Map, fromSet, insert, intersection, union )
-import Data.Maybe ( fromMaybe )
+import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, toList, union )
+import Data.Maybe ( mapMaybe, fromMaybe )
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( SafeCopy )
@@ -150,7 +153,25 @@ deleteValue key = field @"_unCacheMap" %= Map.delete key
 deleteValues :: Ord key => Set key -> Update (CacheMap key val) ()
 deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (const ()) keys))
 
-$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
+-- | The migration of 'ImageKey' sets the 'ImageType' field to
+-- 'Unknown' everywhere, this looks at the pairs in the cache map and
+-- copies the 'ImageType' of the 'ImageFile' into the keys.  We can't
+-- do this in the CacheMap migration above because the types are too
+-- specific.  But this should be removed when 'ImageKey' version 2 is
+-- removed.
+setImageFileTypes :: forall key val. (Typeable key, Typeable val) => Update (CacheMap key val) ()
+setImageFileTypes =
+  case eqT :: Maybe ((key, val) :~: (ImageKey, ImageFile)) of
+    Nothing -> return ()
+    Just Refl ->
+      let fixType (ImageOriginal key Unknown) (Right img) =
+            Just (ImageOriginal key (_imageFileType img), (Right img))
+          -- fixType key (Failed_1 img) = undefined
+          fixType key img =
+            Nothing in
+        modify (\(CacheMap mp) -> CacheMap (fromList (mapMaybe (uncurry fixType) (toList mp))))
+
+$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues, 'setImageFileTypes])
 
 openCache :: (SafeCopy key, Typeable key, Ord key,
               SafeCopy val, Typeable val) => FilePath -> IO (AcidState (CacheMap key val))
@@ -604,10 +625,12 @@ buildImage ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
   => ImageKey
   -> ExceptT FileError m BS.ByteString
-buildImage key@(ImageOriginal _) = do
+buildImage key@(ImageOriginal csum typ) = do
   -- This should already be in the cache
   cacheLook key >>= maybe miss hit
-    where miss = throwError (CacheDamage ("Missing original: " <> T.pack (show key)))
+    where miss = do
+            path <- fileCachePath (csum, typ)
+            throwError (CacheDamage ("Missing original: " <> T.pack (show key <> " -> " <> path)))
           hit (img :: ImageFile) = fileCachePath img >>= liftIO . BS.readFile
 buildImage (ImageUpright key) =
   buildImage key >>= \bs -> liftIO (uprightImage' bs) >>= maybe (return bs) return
@@ -622,6 +645,18 @@ buildImage (ImageCropped crop key) = do
   bs <- buildImage key
   (typ, shape) <- getFileInfo bs
   editImage' crop bs typ shape >>= maybe (return bs) return
+
+-- | We can infer the file type from the key using insider info on how
+-- the various IO operations work.
+instance PixmapShape a => HasImageType (ImageKey, a) where
+  imageType (ImageOriginal _ typ, _) = typ
+  imageType (ImageUpright key, shape) = imageType (key, shape)
+  imageType (ImageCropped crop key, shape) =
+    if crop == def then imageType (key, shape) else JPEG
+  imageType (ImageScaled sz dpi key, shape) =
+    let scale' = scaleFromDPI sz dpi shape
+        scale = fromRat (fromMaybe 1 scale') in
+      if approx (toRational scale) == 1 then imageType (key, shape) else JPEG
 
 -- | Add some image files to an image repository - updates the acid
 -- state image map and copies the file to a location determined by the

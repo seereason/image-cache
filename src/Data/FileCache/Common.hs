@@ -30,6 +30,7 @@ module Data.FileCache.Common
   , ImageType(..)
   , Extension
   , HasFileExtension(fileExtension)
+  , HasImageType(imageType)
 
     -- * File
   , File(..)
@@ -73,7 +74,7 @@ import Control.Monad.Trans ( MonadIO(liftIO) )
 import qualified Data.ByteString as P ( ByteString, take )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
-import Data.Map ( Map )
+import Data.Map ( fromList, Map, toList )
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
 import Data.SafeCopy ( deriveSafeCopy, base, SafeCopy', extension, Migrate(..), SafeCopy(..), safeGet, safePut )
@@ -91,10 +92,13 @@ import Language.Haskell.TH.Syntax ( Loc(loc_module) )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
 import System.FilePath ( makeRelative, (</>) )
 import System.Log.Logger ( Priority(ERROR), logM )
+import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1, sepBy,
+                              spaces, try, parse, string, noneOf)-}
+import Text.Parsec.String as String (Parser)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Text.PrettyPrint.HughesPJClass ()
 import Text.Read ( readMaybe )
-import Web.Routes ( PathInfo(..), toPathInfo )
+import Web.Routes ( PathInfo(..), toPathInfo, URLParser )
 import Web.Routes.TH ( derivePathInfo )
 
 -- * Rational
@@ -356,7 +360,7 @@ instance Pretty ImageCrop where
 
 -- * ImageType and Checksum
 
-data ImageType = PPM | JPEG | GIF | PNG deriving (Generic, Eq, Ord)
+data ImageType = PPM | JPEG | GIF | PNG | Unknown deriving (Generic, Eq, Ord)
 
 deriving instance Data ImageType
 deriving instance Read ImageType
@@ -367,6 +371,8 @@ instance SafeCopy ImageType where version = 0
 instance Pretty ImageType where pPrint = text . show
 
 type Extension = Text
+
+class HasImageType a where imageType :: a -> ImageType
 
 class HasFileExtension a where fileExtension :: a -> Extension
 instance HasFileExtension Extension where fileExtension = id
@@ -486,6 +492,12 @@ instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
 #if 1
+instance HasURIPath (Checksum, ImageType) where
+  toURIDir (csum, _) =
+    take 2 $ unpack csum
+  toURIPath (csum, typ) =
+    toURIDir (csum, typ) </> makeRelative "" (unpack (csum <> fileExtension typ))
+
 instance HasURIPath File where
   toURIDir =
     take 2 . unpack . _fileChksum
@@ -498,7 +510,7 @@ instance HasURIPath ImageFile where
 #else
 instance HasURIPath ImageKey where
   -- The subdirectory is based on the original image, not the derived
-  toURIDir (ImageOriginal csum) = take 2 $ unpack csum
+  toURIDir (ImageOriginal csum _) = take 2 $ unpack csum
   toURIDir (ImageUpright key) = toURIDir key
   toURIDir (ImageScaled _ _ key) = toURIDir key
   toURIDir (ImageCropped _ key) = toURIDir key
@@ -513,7 +525,7 @@ instance HasURIPath ImageKey where
 -- | Describes an ImageFile and, if it was derived from other image
 -- files, how.
 data ImageKey
-    = ImageOriginal Checksum
+    = ImageOriginal Checksum ImageType
     -- ^ An unmodified upload, the info lets us construct an URL
     | ImageCropped ImageCrop ImageKey
     -- ^ A cropped version of another image
@@ -524,12 +536,38 @@ data ImageKey
     deriving (Generic, Eq, Ord)
 
 instance Migrate ImageKey where
-  type MigrateFrom ImageKey = ImageKey_2
-  migrate (ImageOriginal_2 i) = ImageOriginal (_fileChksum f) where f = _imageFile i
-  migrate (ImageCropped_2 crop key) = ImageCropped crop key
-  migrate (ImageScaled_2 size dpi key) = ImageScaled size dpi key
-  migrate (ImageUpright_2 key) = ImageUpright key
+  type MigrateFrom ImageKey = ImageKey_3
+  migrate (ImageOriginal_3 csum) =
+    -- We need to update the image original types with a migration of CacheMap
+    ImageOriginal csum Unknown
+  migrate (ImageCropped_3 crop key) = ImageCropped crop key
+  migrate (ImageScaled_3 size dpi key) = ImageScaled size dpi key
+  migrate (ImageUpright_3 key) = ImageUpright key
 
+-- | Describes an ImageFile and, if it was derived from other image
+-- files, how.
+data ImageKey_3
+    = ImageOriginal_3 Checksum
+    -- ^ An unmodified upload, the info lets us construct an URL
+    | ImageCropped_3 ImageCrop ImageKey
+    -- ^ A cropped version of another image
+    | ImageScaled_3 ImageSize Rational ImageKey
+    -- ^ A resized version of another image
+    | ImageUpright_3 ImageKey
+    -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
+    deriving (Generic, Eq, Ord)
+
+instance Migrate ImageKey_3 where
+  type MigrateFrom ImageKey_3 = ImageKey_2
+  migrate (ImageOriginal_2 i) =
+    -- We need to update the image original types with a migration of CacheMap
+    ImageOriginal_3 (_fileChksum f) where f = _imageFile i
+  migrate (ImageCropped_2 crop key) = ImageCropped_3 crop key
+  migrate (ImageScaled_2 size dpi key) = ImageScaled_3 size dpi key
+  migrate (ImageUpright_2 key) = ImageUpright_3 key
+
+-- When this is removed the 'setImageFileTypes' function should also
+-- be removed.
 data ImageKey_2
     = ImageOriginal_2 ImageFile
     | ImageCropped_2 ImageCrop ImageKey
@@ -543,10 +581,11 @@ deriving instance Show ImageKey
 deriving instance Typeable ImageKey
 instance Serialize ImageKey where get = safeGet; put = safePut
 instance SafeCopy ImageKey_2 where version = 2
-instance SafeCopy ImageKey where version = 3; kind = extension
+instance SafeCopy ImageKey_3 where kind = extension; version = 3
+instance SafeCopy ImageKey where version = 4; kind = extension
 
 instance Pretty ImageKey where
-    pPrint (ImageOriginal _) = text "ImageOriginal"
+    pPrint (ImageOriginal csum typ) = text ("ImageOriginal " <> show csum <> " ") <> pPrint typ
     pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
@@ -554,12 +593,12 @@ instance Pretty ImageKey where
 -- | This describes how the keys we use are constructed
 class OriginalKey a where
   originalKey :: a -> ImageKey
-instance OriginalKey Checksum where -- danger - Checksum is just String
-  originalKey = ImageOriginal
+instance OriginalKey (Checksum, ImageType) where -- danger - Checksum is just String
+  originalKey = uncurry ImageOriginal
 instance OriginalKey ImageFile where
-  originalKey = originalKey . _imageFile
-instance OriginalKey File where
-  originalKey f = ImageOriginal (_fileChksum f)
+  originalKey i = originalKey (_imageFile i, _imageFileType i)
+instance OriginalKey (File, ImageType) where
+  originalKey (f, typ) = ImageOriginal (_fileChksum f) typ
 
 class UprightKey a where
   uprightKey :: a -> ImageKey
@@ -788,11 +827,38 @@ $(concat <$>
   , derivePathInfo ''Units
   ])
 
+#if 0
+-- Ultimately we will need a custom PathInfo instance
+
+pChecksum :: String.Parser Checksum
+pChecksum = pack <$> many (noneOf ['.'])
+
+pExtension :: String.Parser ImageType
+pExtension = testExtension <$> many anyChar
+  where
+    testExtension :: String -> ImageType
+    testExtension ".jpg" = JPEG
+    testExtension ".png" = PNG
+    testExtension ".pbm" = PPM
+    testExtension ".pgm" = PPM
+    testExtension ".ppm" = PPM
+    testExtension ".pnm" = PPM
+    testExtension ".gif" = GIF
+    testExtension s = error ("testExtension " <> show s)
+
+pImageKey :: String.Parser ImageKey
+pImageKey = ImageOriginal <$> pChecksum <*> pExtension
+
+instance HasImageType ImageKey => PathInfo ImageKey where
+  toPathSegments (ImageOriginal csum typ) = [csum <> fileExtension typ]
+  fromPathSegments = p2u pImageKey
+#endif
+
 {-
-λ> toPathInfo (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0")
+λ> toPathInfo (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG)
 "/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
-λ> toPathInfo (ImageUpright (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0"))
+λ> toPathInfo (ImageUpright (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG))
 "/image-upright/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
-λ> toPathInfo (ImageScaled (ImageSize TheWidth 3 Inches) (1 % 3) (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0"))
+λ> toPathInfo (ImageScaled (ImageSize TheWidth 3 Inches) (1 % 3) (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG))
 "/image-scaled/image-size/the-width/3/1/inches/1/3/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
 -}
