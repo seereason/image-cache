@@ -36,15 +36,12 @@ module Data.FileCache.Common
   , FileSource(..)
   , Checksum
   , HasFileChecksum(fileChecksum)
-  , fileURI
-  , filePath
-  , fileDir
---  , addMessage
-  , md5'
+  -- , fileURI
+  -- , addMessage
+  , HasURIPath(toURIPath, toURIDir)
 
     -- * ImageFile
   , ImageFile(..)
-  , imageFileArea
 
     -- * ImageKey
   , ImageKey(..)
@@ -74,10 +71,8 @@ import Control.Monad.RWS ( RWST )
 import Control.Monad.Reader ( ReaderT )
 import Control.Monad.Trans ( MonadIO(liftIO) )
 import qualified Data.ByteString as P ( ByteString, take )
-import qualified Data.ByteString.Lazy.Char8 as Lazy ( fromChunks )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
-import Data.Digest.Pure.MD5 ( md5 )
 import Data.Generics.Product ( field )
 import Data.Map ( Map )
 import Data.Monoid ( (<>) )
@@ -278,6 +273,9 @@ class PixmapShape a where
     pixmapWidth :: a -> Int
     pixmapMaxVal :: a -> Int
 
+pixmapArea :: PixmapShape a => a -> Int
+pixmapArea a = pixmapWidth a * pixmapHeight a
+
 instance PixmapShape (Int, Int) where
   pixmapWidth (w, _) = w
   pixmapHeight (_, h) = h
@@ -442,32 +440,18 @@ $(concat <$>
   [ makePathInstances [FIELDS] ''File
   , makePathInstances [FIELDS] ''FileSource ])
 
--- |Return the remote URI if the file resulted from downloading a URI.
-fileURI :: File -> Maybe URI
-fileURI file = case _fileSource file of
-                 Just (TheURI uri) -> maybe (parseRelativeReference uri) Just (parseURI uri)
-                 _ -> Nothing
+-- | The common suffix of the path to the image URI and its server
+-- FilePath.
+class HasURIPath a where
+  toURIPath :: a -> FilePath
+  toURIDir :: a -> FilePath
 
--- |Add a message to the file message list.
-addMessage :: String -> File -> File
-addMessage message file = over (field @"_fileMessages") (++ [message]) file
-
-filePath :: (HasFileExtension a, HasFileChecksum a) => a -> FilePath
-filePath file = fileDir file <++> unpack (fileChecksum file) <> unpack (fileExtension file)
-
-fileDir :: HasFileChecksum a => a -> FilePath
-fileDir = take 2 . unpack . fileChecksum
-
--- feels like </> but I think its a little different
-(<++>) :: FilePath -> FilePath -> FilePath
-a <++> b = a </> (makeRelative "" b)
-
-md5' :: P.ByteString -> String
-#ifdef LAZYIMAGES
-md5' = show . md5
-#else
-md5' = show . md5 . Lazy.fromChunks . (: [])
-#endif
+-- This instance is going away.
+instance HasURIPath File where
+  toURIPath file =
+    toURIDir file </> makeRelative "" (unpack (_fileChksum file <> _fileExt file))
+  toURIDir =
+    take 2 . unpack . _fileChksum
 
 #if ARBITRARY
 instance Arbitrary File where
@@ -507,9 +491,9 @@ instance PixmapShape ImageFile where
 instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
--- |Return the area of an image in square pixels.
-imageFileArea :: ImageFile -> Int
-imageFileArea image = _imageFileWidth image * _imageFileHeight image
+instance HasURIPath ImageFile where
+  toURIDir = toURIDir @File . _imageFile
+  toURIPath = toURIPath @File . _imageFile
 
 -- * ImageKey
 

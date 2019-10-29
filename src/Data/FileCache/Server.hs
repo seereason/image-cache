@@ -14,7 +14,9 @@ module Data.FileCache.Server
   -- * Image IO
   , validateJPG
   -- * File Cache
-  , HasFileCachePath(fileCacheDir, fileCachePath, fileCachePathIO)
+  , fileCacheDir
+  , fileCachePath
+  , fileCachePathIO
   , FileCacheT
   , runFileCacheT, evalFileCacheT, execFileCacheT -- , writeFileCacheT
   , MonadFileCache(askCacheAcid, buildCacheValue)
@@ -44,7 +46,7 @@ import Control.Monad.Trans.Except ( ExceptT, runExceptT )
 import Data.Acid ( AcidState, makeAcidic, openLocalStateFrom, Query, Update, query, update )
 import Data.Binary.Get ( getLazyByteString, Get, skip, bytesRead, getWord16be, getWord32be, getWord16le, getWord32le, runGetOrFail )
 import qualified Data.ByteString as BS ( ByteString, empty, readFile )
-import Data.ByteString.Lazy ( fromStrict, toStrict )
+import Data.ByteString.Lazy ( fromChunks, fromStrict, toStrict )
 import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 --import qualified Data.ByteString.UTF8 as P ( toString )
 import Data.Char ( isSpace )
@@ -475,23 +477,20 @@ editImage' crop bs typ shape =
 
 -- * FileCacheTop
 
-class HasFileCachePath a where
-  fileCacheDir :: HasFileCacheTop m => a -> m FilePath
-  -- ^ The subdirectory of images where the file will be placed
-  fileCachePath :: HasFileCacheTop m => a -> m FilePath
-  -- ^ The full path name for the local cache of the file.
-  fileCachePathIO :: (HasFileCacheTop m, MonadIO m) => a -> m FilePath
-  fileCachePathIO file = do
-    path <- fileCachePath file
-    liftIO $ createDirectoryIfMissing True $ takeDirectory path
-    return path
-  -- ^ Create any missing directories and evaluate 'fileCachePath'
+-- | The subdirectory of images where the file will be placed
+fileCacheDir :: (HasURIPath a, HasFileCacheTop m) => a -> m FilePath
+fileCacheDir file = fileCacheTop >>= \(FileCacheTop top) -> return $ top <++> toURIDir file
 
-instance HasFileCachePath File where
-  fileCacheDir file =
-    fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> fileDir file
-  fileCachePath file =
-    fileCacheTop >>= \(FileCacheTop ver) -> return $ ver <++> filePath file
+-- | The full path name for the local cache of the file.
+fileCachePath :: (HasURIPath a, HasFileCacheTop m) => a -> m FilePath
+fileCachePath file = fileCacheTop >>= \(FileCacheTop top) -> return $ top <++> toURIPath file
+
+-- | Create any missing directories and evaluate 'fileCachePath'
+fileCachePathIO :: (HasURIPath a, HasFileCacheTop m, MonadIO m) => a -> m FilePath
+fileCachePathIO file = do
+  path <- fileCachePath file
+  liftIO $ createDirectoryIfMissing True $ takeDirectory path
+  return path
 
 (<++>) :: FilePath -> FilePath -> FilePath
 a <++> b = a </> (makeRelative "" b)
@@ -575,10 +574,6 @@ cacheDelete _ keys = do
 type ImageCacheT s m = FileCacheT ImageKey ImageFile s m
 type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 
-instance HasFileCachePath ImageFile where
-  fileCacheDir = fileCacheDir . view (field @"_imageFile")
-  fileCachePath = fileCachePath . view (field @"_imageFile")
-
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'
 instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
@@ -660,6 +655,13 @@ instance MakeImageFile URI where
 instance MakeImageFile FilePath where
   makeImageFile path =
     makeByteString path >>= makeImageFile
+
+md5' :: BS.ByteString -> String
+#ifdef LAZYIMAGES
+md5' = show . md5
+#else
+md5' = show . md5 . fromChunks . (: [])
+#endif
 
 -- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.
