@@ -167,7 +167,7 @@ setImageFileTypes =
       let fixType (ImageOriginal key Unknown) (Right img) =
             Just (ImageOriginal key (_imageFileType img), (Right img))
           -- fixType key (Failed_1 img) = undefined
-          fixType key img =
+          fixType _key _img =
             Nothing in
         modify (\(CacheMap mp) -> CacheMap (fromList (mapMaybe (uncurry fixType) (toList mp))))
 
@@ -444,6 +444,7 @@ scaleImage' scale bytes typ = do
                     PPM -> showCommandForUser "cat" ["-"]
                     GIF -> showCommandForUser "giftopnm" ["-"]
                     PNG -> showCommandForUser "pngtopnm" ["-"]
+                    Unknown -> error "scaleImage' unknown file type"
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
         -- To save space, build a jpeg here rather than the original file type.
         encoder = case typ of
@@ -451,6 +452,7 @@ scaleImage' scale bytes typ = do
                     PPM -> showCommandForUser {-"cat"-} "cjpeg" []
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
+                    Unknown -> error "scaleImage' unknown file type"
         cmd = pipe' [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
 
@@ -610,7 +612,7 @@ instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ 
                       , _fileChksum = T.pack (md5' bs)
                       , _fileMessages = []
                       , _fileExt = fileExtension typ }
-      path <- fileCachePathIO file
+      path <- fileCachePathIO (ImagePath key typ)
       exists <- liftIO $ doesFileExist path
       unless exists $ liftIO $ writeFileReadable path bs
       let img = ImageFile { _imageFile = file
@@ -629,9 +631,13 @@ buildImage key@(ImageOriginal csum typ) = do
   -- This should already be in the cache
   cacheLook key >>= maybe miss hit
     where miss = do
-            path <- fileCachePath (csum, typ)
-            throwError (CacheDamage ("Missing original: " <> T.pack (show key <> " -> " <> path)))
-          hit (img :: ImageFile) = fileCachePath img >>= liftIO . BS.readFile
+            path <- fileCachePath (ImagePath key typ)
+            let e = CacheDamage ("buildImage - missing original: " <> T.pack (show key <> " -> " <> path))
+            alog "Data.FileCache.Server" ERROR (show e)
+            throwError e
+          hit (img :: ImageFile) = do
+            path <- fileCachePath (ImagePath key typ)
+            liftIO $ BS.readFile path
 buildImage (ImageUpright key) =
   buildImage key >>= \bs -> liftIO (uprightImage' bs) >>= maybe (return bs) return
 buildImage (ImageScaled sz dpi key) = do
@@ -676,12 +682,13 @@ cacheImageOriginal ::
     -> ExceptT FileError m (ImageKey, ImageFile)
 cacheImageOriginal x = do
   bs <- makeByteString x
+  let csum = T.pack (md5' bs)
   (typ, (width, height)) <- getFileInfo bs
   let file = File { _fileSource = Nothing
-                  , _fileChksum = T.pack (md5' bs)
+                  , _fileChksum = csum
                   , _fileMessages = []
                   , _fileExt = fileExtension typ }
-  path <- fileCachePathIO file
+  path <- fileCachePathIO (ImagePath (ImageOriginal csum typ) typ)
   exists <- liftIO $ doesFileExist path
   unless exists $ liftIO $ writeFileReadable path bs
   let img = ImageFile { _imageFile = file
@@ -723,13 +730,13 @@ validateImageKey key = do
   runExceptT (cacheLook key :: ExceptT FileError m (Maybe ImageFile)) >>=
     either (\e -> (throwError (CacheDamage ("validateImageKey - image " <> pack (show key) <> " got error from cacheLook: " <> pack (show e)))))
            (maybe (throwError (CacheDamage ("validateImageKey - missing: " <> pack (show key))))
-                  validateImageFile)
+                  (validateImageFile key))
 
 validateImageFile ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m, MonadError FileError m)
-  => ImageFile -> m ()
-validateImageFile (ImageFile {..}) = do
-  path <- fileCachePath _imageFile
+  => ImageKey -> ImageFile -> m ()
+validateImageFile key i@(ImageFile {..}) = do
+  path <- fileCachePath (ImagePath key (imageType i))
   when (_imageFileType == JPEG)
     (liftIO (validateJPG path) >>=
      either (\e -> throwError (CacheDamage ("image " <> pack (show (fileChecksum _imageFile)) <> " not a valid jpeg: " <> pack (show e))))

@@ -50,6 +50,11 @@ module Data.FileCache.Common
   , UprightKey(uprightKey)
   , EditedKey(editedKey)
   , ScaledKey(scaledKey)
+  , ImagePath(..)
+  , HasImagePath(..)
+
+    -- * ImageCached
+  , ImageCached(..)
 
 --    -- * FileError
   , FileError(..)
@@ -74,7 +79,7 @@ import Control.Monad.Trans ( MonadIO(liftIO) )
 import qualified Data.ByteString as P ( ByteString, take )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
-import Data.Map ( fromList, Map, toList )
+import Data.Map ( Map )
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
 import Data.SafeCopy ( deriveSafeCopy, base, SafeCopy', extension, Migrate(..), SafeCopy(..), safeGet, safePut )
@@ -94,11 +99,11 @@ import System.FilePath ( makeRelative, (</>) )
 import System.Log.Logger ( Priority(ERROR), logM )
 import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)-}
-import Text.Parsec.String as String (Parser)
+--import Text.Parsec.String as String (Parser)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Text.PrettyPrint.HughesPJClass ()
 import Text.Read ( readMaybe )
-import Web.Routes ( PathInfo(..), toPathInfo, URLParser )
+import Web.Routes ( PathInfo(..), segment, toPathInfo )
 import Web.Routes.TH ( derivePathInfo )
 
 -- * Rational
@@ -276,7 +281,7 @@ instance Pretty ImageSize where
 class PixmapShape a where
     pixmapHeight :: a -> Int
     pixmapWidth :: a -> Int
-    pixmapMaxVal :: a -> Int
+    -- pixmapMaxVal :: a -> Int
 
 pixmapArea :: PixmapShape a => a -> Int
 pixmapArea a = pixmapWidth a * pixmapHeight a
@@ -284,7 +289,7 @@ pixmapArea a = pixmapWidth a * pixmapHeight a
 instance PixmapShape (Int, Int) where
   pixmapWidth (w, _) = w
   pixmapHeight (_, h) = h
-  pixmapMaxVal _ = 255 -- whatever
+  -- pixmapMaxVal _ = 255 -- whatever
 
 -- |Given the desired DPI and image dimensions, return the factor by
 -- which an image should be scaled.  Result of Nothing means the scale
@@ -486,12 +491,14 @@ instance View (Maybe ImageFile) where
 instance PixmapShape ImageFile where
     pixmapHeight = _imageFileHeight
     pixmapWidth = _imageFileWidth
-    pixmapMaxVal = _imageFileMaxVal
+    -- pixmapMaxVal = _imageFileMaxVal
 
 instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
-#if 1
+instance HasImageType ImageFile where imageType = _imageFileType
+
+#if 0
 instance HasURIPath (Checksum, ImageType) where
   toURIDir (csum, _) =
     take 2 $ unpack csum
@@ -508,16 +515,15 @@ instance HasURIPath ImageFile where
   toURIDir = toURIDir @File . _imageFile
   toURIPath = toURIPath @File . _imageFile
 #else
-instance HasURIPath ImageKey where
-  -- The subdirectory is based on the original image, not the derived
-  toURIDir (ImageOriginal csum _) = take 2 $ unpack csum
-  toURIDir (ImageUpright key) = toURIDir key
-  toURIDir (ImageScaled _ _ key) = toURIDir key
-  toURIDir (ImageCropped _ key) = toURIDir key
-  -- No extension, we will explicitly set the mime type
-  toURIPath key =
-    toURIDir key </>
-    makeRelative "" (unpack (toPathInfo key {- <> fileExtension typ-}))
+instance HasURIPath ImagePath where
+  toURIDir (ImagePath (ImageOriginal csum _) _) = take 2 $ unpack csum
+  toURIDir (ImagePath (ImageUpright key) typ) = toURIDir (ImagePath key typ)
+  toURIDir (ImagePath (ImageScaled _ _ key) typ) = toURIDir (ImagePath key typ)
+  toURIDir (ImagePath (ImageCropped _ key) typ) = toURIDir (ImagePath key typ)
+  -- for backwards compatibility, special case ImageOriginal
+  toURIPath p@(ImagePath (ImageOriginal csum typ) _) =
+     toURIDir p </> makeRelative "" (unpack (csum <> fileExtension typ))
+  toURIPath p = toURIDir p </> makeRelative "" (unpack (toPathInfo p))
 #endif
 
 -- * ImageKey
@@ -534,6 +540,14 @@ data ImageKey
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
     deriving (Generic, Eq, Ord)
+
+data ImagePath =
+  ImagePath { _imagePathKey :: ImageKey
+            , _imagePathType :: ImageType
+            } deriving (Generic, Eq, Ord)
+
+class HasImagePath a where imagePath :: a -> ImagePath
+instance HasImagePath ImagePath where imagePath = id
 
 instance Migrate ImageKey where
   type MigrateFrom ImageKey = ImageKey_3
@@ -614,6 +628,7 @@ class HasImageSize size => ScaledKey size a where
   scaledKey :: size -> Rational -> a -> ImageKey
 instance ScaledKey ImageSize ImageFile where
   scaledKey size dpi x = ImageScaled (imageSize size) dpi (editedKey x)
+
 
 -- * FileError, CommandInfo
 
@@ -724,6 +739,8 @@ instance Monad m => HasFileCacheTop (ReaderT (acid, FileCacheTop) m) where
 
 instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
     fileCacheTop = lift fileCacheTop
+
+-- * CacheMap
 
 -- Later we could make FileError a type parameter, but right now its
 -- tangled with the MonadError type.
@@ -765,8 +782,102 @@ data CacheValue_1 val
 deriving instance Show val => Show (CacheValue_1 val)
 
 $(deriveSafeCopy 1 'base ''CacheValue_1)
-#if 0
 
+-- * ImageCached
+
+-- | This is the information in one entry of CacheMap
+data ImageCached =
+  ImageCached { _imageCachedKey :: ImageKey -- the key that produced the ImageFile
+              , _imageCachedFile :: ImageFile
+              } deriving (Generic, Eq, Ord, Show)
+
+instance Serialize ImageCached where get = safeGet; put = safePut
+instance SafeCopy ImageCached
+
+instance PixmapShape ImageCached where
+  pixmapWidth = pixmapWidth . _imageCachedFile
+  pixmapHeight = pixmapHeight . _imageCachedFile
+
+instance HasImagePath ImageCached where
+  imagePath (ImageCached key img) = ImagePath key (_imageFileType img)
+
+instance HasURIPath ImageCached where
+  toURIDir c = toURIDir (imagePath c)
+  toURIPath c@(ImageCached key img) = toURIPath (imagePath c)
+
+$(concat <$>
+  sequence
+  [ makeValueInstance [] [t|Rational|]
+  , makePathInstances [FIELDS] ''ImageFile
+  , makePathInstances [] ''ImageType
+  , makePathInstances [FIELDS] ''ImageSize
+  , makePathInstances [] ''Dimension
+  , makePathInstances [FIELDS] ''ImageCrop
+  , makePathInstances [FIELDS] ''ImageKey
+  , makePathInstances [] ''Units
+  , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
+  , derivePathInfo ''ImagePath
+  , derivePathInfo ''ImageKey
+  , derivePathInfo ''ImageCrop
+  , derivePathInfo ''ImageSize
+  -- , derivePathInfo ''ImageType
+  , derivePathInfo ''Dimension
+  , derivePathInfo ''Units
+  ])
+
+instance PathInfo ImageType where
+  toPathSegments inp =
+    case inp of
+      PPM -> [pack "i.ppm"]
+      JPEG -> [pack "i.jpg"]
+      GIF -> [pack "i.gif"]
+      PNG -> [pack "i.png"]
+      Unknown -> [pack "i.???"]
+  fromPathSegments =
+    (segment (pack "i.ppm") >> return PPM) <|>
+    (segment (pack "i.jpg") >> return JPEG) <|>
+    (segment (pack "i.gif") >> return GIF) <|>
+    (segment (pack "i.png") >> return PNG) <|>
+    (segment (pack "i.???") >> return Unknown)
+
+{-
+λ> toPathInfo (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG)
+"/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
+λ> toPathInfo (ImageUpright (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG))
+"/image-upright/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
+λ> toPathInfo (ImageScaled (ImageSize TheWidth 3 Inches) (1 % 3) (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG))
+"/image-scaled/image-size/the-width/3/1/inches/1/3/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
+-}
+
+#if 0
+-- Ultimately we will need a custom PathInfo instance
+
+pChecksum :: String.Parser Checksum
+pChecksum = pack <$> many (noneOf ['.'])
+
+pExtension :: String.Parser ImageType
+pExtension = testExtension <$> many anyChar
+  where
+    testExtension :: String -> ImageType
+    testExtension ".jpg" = JPEG
+    testExtension ".png" = PNG
+    testExtension ".pbm" = PPM
+    testExtension ".pgm" = PPM
+    testExtension ".ppm" = PPM
+    testExtension ".pnm" = PPM
+    testExtension ".gif" = GIF
+    testExtension s = error ("testExtension " <> show s)
+
+pImageKey :: String.Parser ImageKey
+pImageKey = ImageOriginal <$> pChecksum <*> pExtension
+
+instance HasImageType ImageKey => PathInfo ImageKey where
+  toPathSegments (ImageOriginal csum typ) = [csum <> fileExtension typ]
+  fromPathSegments = p2u pImageKey
+#endif
+
+#if 0
+
 __LOC__ :: Q Exp
 __LOC__ = TH.lift =<< location
 
@@ -807,58 +918,3 @@ fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
 fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
 fixKey (ImageUpright key) = ImageUpright (fixKey key)
 #endif
-
-$(concat <$>
-  sequence
-  [ makeValueInstance [] [t|Rational|]
-  , makePathInstances [FIELDS] ''ImageFile
-  , makePathInstances [] ''ImageType
-  , makePathInstances [FIELDS] ''ImageSize
-  , makePathInstances [] ''Dimension
-  , makePathInstances [FIELDS] ''ImageCrop
-  , makePathInstances [FIELDS] ''ImageKey
-  , makePathInstances [] ''Units
-  , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
-  , derivePathInfo ''ImageKey
-  , derivePathInfo ''ImageCrop
-  , derivePathInfo ''ImageSize
-  , derivePathInfo ''ImageType
-  , derivePathInfo ''Dimension
-  , derivePathInfo ''Units
-  ])
-
-#if 0
--- Ultimately we will need a custom PathInfo instance
-
-pChecksum :: String.Parser Checksum
-pChecksum = pack <$> many (noneOf ['.'])
-
-pExtension :: String.Parser ImageType
-pExtension = testExtension <$> many anyChar
-  where
-    testExtension :: String -> ImageType
-    testExtension ".jpg" = JPEG
-    testExtension ".png" = PNG
-    testExtension ".pbm" = PPM
-    testExtension ".pgm" = PPM
-    testExtension ".ppm" = PPM
-    testExtension ".pnm" = PPM
-    testExtension ".gif" = GIF
-    testExtension s = error ("testExtension " <> show s)
-
-pImageKey :: String.Parser ImageKey
-pImageKey = ImageOriginal <$> pChecksum <*> pExtension
-
-instance HasImageType ImageKey => PathInfo ImageKey where
-  toPathSegments (ImageOriginal csum typ) = [csum <> fileExtension typ]
-  fromPathSegments = p2u pImageKey
-#endif
-
-{-
-λ> toPathInfo (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG)
-"/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
-λ> toPathInfo (ImageUpright (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG))
-"/image-upright/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
-λ> toPathInfo (ImageScaled (ImageSize TheWidth 3 Inches) (1 % 3) (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG))
-"/image-scaled/image-size/the-width/3/1/inches/1/3/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
--}
