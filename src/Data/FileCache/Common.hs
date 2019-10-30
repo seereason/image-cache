@@ -452,12 +452,6 @@ $(concat <$>
   [ makePathInstances [FIELDS] ''File
   , makePathInstances [FIELDS] ''FileSource ])
 
--- | The common suffix of the path to the image URI and its server
--- FilePath.
-class HasURIPath a where
-  toURIPath :: a -> FilePath
-  toURIDir :: a -> FilePath
-
 #if ARBITRARY
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
@@ -497,34 +491,6 @@ instance Pretty ImageFile where
     pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
 
 instance HasImageType ImageFile where imageType = _imageFileType
-
-#if 0
-instance HasURIPath (Checksum, ImageType) where
-  toURIDir (csum, _) =
-    take 2 $ unpack csum
-  toURIPath (csum, typ) =
-    toURIDir (csum, typ) </> makeRelative "" (unpack (csum <> fileExtension typ))
-
-instance HasURIPath File where
-  toURIDir =
-    take 2 . unpack . _fileChksum
-  toURIPath file =
-    toURIDir file </> makeRelative "" (unpack (_fileChksum file <> _fileExt file))
-
-instance HasURIPath ImageFile where
-  toURIDir = toURIDir @File . _imageFile
-  toURIPath = toURIPath @File . _imageFile
-#else
-instance HasURIPath ImagePath where
-  toURIDir (ImagePath (ImageOriginal csum _) _) = take 2 $ unpack csum
-  toURIDir (ImagePath (ImageUpright key) typ) = toURIDir (ImagePath key typ)
-  toURIDir (ImagePath (ImageScaled _ _ key) typ) = toURIDir (ImagePath key typ)
-  toURIDir (ImagePath (ImageCropped _ key) typ) = toURIDir (ImagePath key typ)
-  -- for backwards compatibility, special case ImageOriginal
-  toURIPath p@(ImagePath (ImageOriginal csum typ) _) =
-     toURIDir p </> makeRelative "" (unpack (csum <> fileExtension typ))
-  toURIPath p = toURIDir p </> makeRelative "" (unpack (toPathInfo p))
-#endif
 
 -- * ImageKey
 
@@ -540,14 +506,6 @@ data ImageKey
     | ImageUpright ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
     deriving (Generic, Eq, Ord)
-
-data ImagePath =
-  ImagePath { _imagePathKey :: ImageKey
-            , _imagePathType :: ImageType
-            } deriving (Generic, Eq, Ord)
-
-class HasImagePath a where imagePath :: a -> ImagePath
-instance HasImagePath ImagePath where imagePath = id
 
 instance Migrate ImageKey where
   type MigrateFrom ImageKey = ImageKey_3
@@ -783,6 +741,32 @@ deriving instance Show val => Show (CacheValue_1 val)
 
 $(deriveSafeCopy 1 'base ''CacheValue_1)
 
+-- * ImagePath
+
+data ImagePath =
+  ImagePath { _imagePathKey :: ImageKey
+            , _imagePathType :: ImageType
+            } deriving (Generic, Eq, Ord)
+
+class HasImagePath a where imagePath :: a -> ImagePath
+instance HasImagePath ImagePath where imagePath = id
+
+-- | The common suffix of the path to the image URI and its server
+-- FilePath.
+class HasURIPath a where
+  toURIPath :: a -> FilePath
+  toURIDir :: a -> FilePath
+
+instance HasURIPath ImagePath where
+  toURIDir (ImagePath (ImageOriginal csum _) _) = take 2 $ unpack csum
+  toURIDir (ImagePath (ImageUpright key) typ) = toURIDir (ImagePath key typ)
+  toURIDir (ImagePath (ImageScaled _ _ key) typ) = toURIDir (ImagePath key typ)
+  toURIDir (ImagePath (ImageCropped _ key) typ) = toURIDir (ImagePath key typ)
+  -- for backwards compatibility, special case ImageOriginal
+  toURIPath p@(ImagePath (ImageOriginal csum typ) _) =
+     toURIDir p </> makeRelative "/" (unpack (csum <> fileExtension typ))
+  toURIPath p = toURIDir p </> makeRelative "/" (unpack (toPathInfo p))
+
 -- * ImageCached
 
 -- | This is the information in one entry of CacheMap
@@ -804,6 +788,24 @@ instance HasImagePath ImageCached where
 instance HasURIPath ImageCached where
   toURIDir c = toURIDir (imagePath c)
   toURIPath c@(ImageCached key img) = toURIPath (imagePath c)
+
+#if 0
+instance HasURIPath ImageCached where
+  toURIDir (ImageCached (ImageOriginal csum _) _) = take 2 $ unpack csum
+  toURIDir (ImageCached (ImageUpright key) img) = toURIDir (ImagePath key img)
+  toURIDir (ImageCached (ImageScaled _ _ key) img) = toURIDir (ImagePath key img)
+  toURIDir (ImageCached (ImageCropped _ key) img) = toURIDir (ImagePath key img)
+  -- for backwards compatibility, special case ImageOriginal
+  toURIPath p@(ImageCached (ImageOriginal csum img) _) =
+     toURIDir p </> makeRelative "/" (unpack (csum <> fileExtension img))
+  toURIPath p = toURIDir p </> makeRelative "/" (unpack (toPathInfo p))
+#endif
+
+#if 0
+let file = ImageCached {_imageCachedKey = ImageScaled (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches}) (100 % 1) (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)), _imageCachedFile = ImageFile {_imageFile = File {_fileSource = Nothing, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"}, _imageFileType = JPEG, _imageFileWidth = 885, _imageFileHeight = 170, _imageFileMaxVal = 1}}
+toURIPath file
+"/image-path/image-scaled/image-size/the-area/15/1/inches/100/1/image-upright/image-original/c3bd1388b41fa5d956e4308ce518a8bd/i.png/i.jpg"
+#endif
 
 $(concat <$>
   sequence
