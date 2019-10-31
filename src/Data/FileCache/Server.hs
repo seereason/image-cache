@@ -509,14 +509,14 @@ editImage' crop bs typ shape =
 -- * FileCacheTop
 
 -- | The full path name for the local cache of the file.
-fileCachePath :: (HasURIPath a, HasFileCacheTop m, MonadIO m) => a -> m FilePath
+fileCachePath :: (HasURIPath a, HasFileCacheTop m) => a -> m FilePath
 fileCachePath file = do
   (FileCacheTop top) <- fileCacheTop
   let path = toURIPath file
   return $ top </> makeRelative "/" path
 
 -- | Create any missing directories and evaluate 'fileCachePath'
-fileCachePathIO :: (HasURIPath a, HasFileCacheTop m, MonadIO m, Show a) => a -> m FilePath
+fileCachePathIO :: (HasURIPath a, HasFileCacheTop m, MonadIO m) => a -> m FilePath
 fileCachePathIO file = do
   path <- fileCachePath file
   let dir = takeDirectory path
@@ -591,7 +591,7 @@ cacheMap = do
 
 cacheDelete ::
   forall key val m. (MonadFileCache key val m, MonadIO m)
-  => Proxy (val, FileError) -> Set key -> m ()
+  => Proxy val -> Set key -> m ()
 cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val)) <- askCacheAcid
   liftIO $ update st (DeleteValues keys)
@@ -685,7 +685,7 @@ buildImage (ImageCropped crop key) = do
   editImage' crop bs typ shape >>= maybe (return bs) return
 
 readBytes ::
-  (MonadIO m, MonadCatch m, HasIOException FileError)
+  (MonadIO m, MonadCatch m)
   => FilePath
   -> ExceptT FileError m BS.ByteString
 readBytes path = withExceptT fromIOException (try (liftIO $ BS.readFile path) >>= liftEither)

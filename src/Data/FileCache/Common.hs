@@ -387,6 +387,7 @@ instance HasFileExtension ImageType where
   fileExtension PPM = ".ppm"
   fileExtension GIF = ".gif"
   fileExtension PNG = ".png"
+  fileExtension Unknown = ".jpg"
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = Text
@@ -664,6 +665,7 @@ instance Loggable FileError where
   logit priority loc (ErrorCall e) = (logM (loc_module loc) priority (" - error call: " <> show e))
   logit priority loc (CommandFailure info) = (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
   logit priority loc (CacheDamage t) = logM (loc_module loc) priority (" - file cache is damaged: " <> unpack t)
+  logit priority loc NoShape = (logM (loc_module loc) priority (" - NoShape: file(1) output notparsed"))
 
 logCommandInfo :: Priority -> Loc -> CommandInfo -> IO ()
 logCommandInfo priority loc (Description s e) = logM (loc_module loc) priority (" - error description: " <> s) >> logCommandInfo priority loc e
