@@ -10,7 +10,7 @@ import Control.Monad.Catch as Catch (Exception, MonadCatch, try)
 import Control.Lens (_2, view)
 import Data.Maybe(catMaybes)
 import Data.ByteString as BS (ByteString)
-import Data.FileCache.Common (FileError(NoShape), fromFileError, HasFileError, ImageType(..))
+import Data.FileCache.Common (FileError(NoShape), fromFileError, HasFileError, ImageShape(..), ImageType(..))
 import Data.Text (pack)
 import Extra.Except (ExceptT, liftEither, liftIO, MonadIO, throwError)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
@@ -24,15 +24,15 @@ import Data.ByteString.UTF8 (toString)
 getFileInfo ::
   forall e m. (MonadIO m, MonadCatch m, Exception e, HasFileError e)
   => BS.ByteString
-  -> ExceptT e m (ImageType, (Int, Int))
+  -> ExceptT e m ImageShape
 getFileInfo bytes =
   Catch.try (liftIO (LL.readProcessWithExitCode cmd args bytes)) >>= liftEither >>= test . view _2
     where
       cmd = "file"
       args = ["-b", "-"]
-      test :: BS.ByteString -> ExceptT e m (ImageType, (Int, Int))
+      test :: BS.ByteString -> ExceptT e m ImageShape
       test s = case parse pFileOutput "<text>" (pack (toString s)) of
-                 Right (typ, [shape]) -> return (typ, shape)
+                 Right (typ, [(w, h)]) -> return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h}
                  _ -> throwError (fromFileError NoShape)
 #if 0
       test s = maybe (fail $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") return (foldr (testre (P.toString s)) Nothing reTests)

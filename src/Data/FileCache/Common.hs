@@ -16,8 +16,8 @@ module Data.FileCache.Common
   , saneSize
   , SaneSize(..) -- , unSaneSize
   , defaultSize
-    -- * PixmapShape
-  , PixmapShape(..)
+    -- * HasImageShape
+  , HasImageShape(..)
   , scaleFromDPI
   , widthInInches
   , widthInInches'
@@ -25,6 +25,7 @@ module Data.FileCache.Common
 
     -- * ImageCrop
   , ImageCrop(..)
+  , Rotation(..)
 
     -- * ImageType
   , ImageType(..)
@@ -41,8 +42,9 @@ module Data.FileCache.Common
   -- , addMessage
   , HasURIPath(toURIPath, toURIDir)
 
-    -- * ImageFile
+    -- * ImageFile, ImageShape
   , ImageFile(..)
+  , ImageShape(..)
 
     -- * ImageKey
   , ImageKey(..)
@@ -273,63 +275,57 @@ instance Pretty Units where
 instance Pretty ImageSize where
     pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> showRational sz <> " ") <> pPrint u
 
--- * PixmapShape
+-- * HasImageShape
 
 -- | A class whose primary (only?) instance is ImageFile.  Access to
 -- the original dimensions of the image, so we can compute the aspect
 -- ratio.
-class PixmapShape a where
-    pixmapHeight :: a -> Int
-    pixmapWidth :: a -> Int
-    -- pixmapMaxVal :: a -> Int
+class HasImageShape a where
+  imageShape :: a -> (Int, Int)  -- (w, h)
 
-pixmapArea :: PixmapShape a => a -> Int
-pixmapArea a = pixmapWidth a * pixmapHeight a
-
-instance PixmapShape (Int, Int) where
-  pixmapWidth (w, _) = w
-  pixmapHeight (_, h) = h
-  -- pixmapMaxVal _ = 255 -- whatever
+instance HasImageShape (Int, Int) where
+  imageShape = id
 
 -- |Given the desired DPI and image dimensions, return the factor by
 -- which an image should be scaled.  Result of Nothing means the scale
 -- is pathological.
-scaleFromDPI :: PixmapShape a => ImageSize -> Rational -> a -> Maybe Rational
+scaleFromDPI :: HasImageShape a => ImageSize -> Rational -> a -> Maybe Rational
 scaleFromDPI sz dpi file =
     case _dim sz of
       _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
-      TheHeight -> Just $ inches sz * dpi / h
-      TheWidth -> Just $ inches sz * dpi / w
+      TheHeight -> Just $ inches sz * dpi / fromIntegral h
+      TheWidth -> Just $ inches sz * dpi / fromIntegral w
       -- If we want an area of 9 square inches, and the dpi is 100, and the image
       -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
-      TheArea -> Just (rsqrt (inches sz * dpi * dpi / (w * h)))
+      TheArea -> Just (rsqrt (inches sz * dpi * dpi / (fromIntegral w * fromIntegral h)))
     where
-      w = fromIntegral (pixmapWidth file)
-      h = fromIntegral (pixmapHeight file)
+      (w, h) = imageShape file
 
-widthInInches :: PixmapShape a => a -> ImageSize -> Rational
+widthInInches :: HasImageShape a => a -> ImageSize -> Rational
 widthInInches p s =
     case _dim s of
       TheWidth -> toInches (_units s) (_size s)
       TheHeight -> widthInInches p (s {_dim = TheWidth, _size = approx (_size s / r)})
       TheArea -> widthInInches p (s {_dim = TheWidth, _size = approx (rsqrt (_size s / r))})
     where
+      (w, h) = imageShape p
       r :: Rational
-      r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
+      r = fromIntegral h % fromIntegral w
       toInches :: Units -> Rational -> Rational
       toInches Inches x = x
       toInches Cm x = x / (254 % 100)
       toInches Points x = x / (7227 % 100)
 
-heightInInches :: PixmapShape a => a -> ImageSize -> Rational
+heightInInches :: HasImageShape a => a -> ImageSize -> Rational
 heightInInches p s =
     case _dim s of
       TheHeight -> toInches (_units s) (_size s)
       TheWidth -> heightInInches p (s {_dim = TheHeight, _size = approx (_size s / r)})
       TheArea -> heightInInches p (s {_dim = TheHeight, _size = approx (rsqrt (_size s / r))})
     where
+      (w, h) = imageShape p
       r :: Rational
-      r = fromIntegral (pixmapHeight p) % fromIntegral (pixmapWidth p)
+      r = fromIntegral h % fromIntegral w
       toInches Inches x = x
       toInches Cm x = x / (254 % 100)
       toInches Points x = x / (7227 % 100)
@@ -337,7 +333,7 @@ heightInInches p s =
 -- |Modify an ImageSize so that the dimension is width and the units
 -- are inches.  This way we can figure out how many images fit across
 -- the page.
-widthInInches' :: PixmapShape a => a -> ImageSize -> ImageSize
+widthInInches' :: HasImageShape a => a -> ImageSize -> ImageSize
 widthInInches' p s = s {_units = Inches, _size = approx (widthInInches p s), _dim = TheWidth}
 
 -- * ImageCrop
@@ -349,16 +345,40 @@ data ImageCrop
       , bottomCrop :: Int
       , leftCrop :: Int
       , rightCrop :: Int
-      , rotation :: Int         -- 0, 90, 180, 270
+      , rotation :: Rotation
       } deriving (Generic, Eq, Ord)
 
-instance Default ImageCrop where def = ImageCrop 0 0 0 0 0
-instance SafeCopy ImageCrop where version = 0
+data Rotation = ZeroHr | ThreeHr | SixHr | NineHr deriving (Generic, Eq, Ord, Show, Read, Data, Typeable)
+
+data ImageCrop_0
+    = ImageCrop_0
+      { topCrop_0 :: Int
+      , bottomCrop_0 :: Int
+      , leftCrop_0 :: Int
+      , rightCrop_0 :: Int
+      , rotation_0 :: Int         -- 0, 90, 180, 270
+      } deriving (Generic, Eq, Ord)
+
+instance Migrate ImageCrop where
+  type MigrateFrom ImageCrop = ImageCrop_0
+  migrate (ImageCrop_0 t b l r rot) =
+    ImageCrop t b l r (case rot of
+                         90 -> ThreeHr
+                         180 -> SixHr
+                         270 -> NineHr
+                         _ -> ZeroHr)
+
+instance Default ImageCrop where def = ImageCrop 0 0 0 0 ZeroHr
 instance Serialize ImageCrop where get = safeGet; put = safePut
+instance SafeCopy ImageCrop_0 where version = 0
+instance SafeCopy ImageCrop where kind = extension; version = 1
 deriving instance Data ImageCrop
 deriving instance Read ImageCrop
 deriving instance Show ImageCrop
 deriving instance Typeable ImageCrop
+instance Default Rotation where def = ZeroHr
+instance SafeCopy Rotation where version = 0
+instance Serialize Rotation where get = safeGet; put = safePut
 
 instance Pretty ImageCrop where
     pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
@@ -467,10 +487,21 @@ instance Arbitrary FileSource where
 data ImageFile
     = ImageFile
       { _imageFile :: File
-      , _imageFileType :: ImageType
-      , _imageFileWidth :: Int
-      , _imageFileHeight :: Int
-      , _imageFileMaxVal :: Int
+      , _imageFileShape :: ImageShape
+      } deriving (Generic, Eq, Ord)
+
+-- 1 Nov 2019
+instance Migrate ImageFile where
+  type MigrateFrom ImageFile = ImageFile_1
+  migrate (ImageFile_1 f t w h _) = ImageFile f (ImageShape t w h)
+
+data ImageFile_1
+    = ImageFile_1
+      { _imageFile_1 :: File
+      , _imageFileType_1 :: ImageType
+      , _imageFileWidth_1 :: Int
+      , _imageFileHeight_1 :: Int
+      , _imageFileMaxVal_1 :: Int
       } deriving (Generic, Eq, Ord)
 
 deriving instance Data ImageFile
@@ -478,20 +509,44 @@ deriving instance Read ImageFile
 deriving instance Show ImageFile
 deriving instance Typeable ImageFile
 instance Serialize ImageFile where get = safeGet; put = safePut
-instance SafeCopy ImageFile where version = 1
+instance SafeCopy ImageFile where kind = extension; version = 2
+instance SafeCopy ImageFile_1 where version = 1
 instance View (Maybe ImageFile) where
   type ViewType (Maybe ImageFile) = String
   _View = iso (maybe "" show) readMaybe
 
-instance PixmapShape ImageFile where
-    pixmapHeight = _imageFileHeight
-    pixmapWidth = _imageFileWidth
-    -- pixmapMaxVal = _imageFileMaxVal
+instance HasImageShape ImageShape where
+  imageShape s = (_imageShapeWidth s, _imageShapeHeight s)
 
 instance Pretty ImageFile where
-    pPrint (ImageFile f typ w h _mx) = text "ImageFile(" <> pPrint f <> text (" " <> show w <> "x" <> show h <> " " <> show typ <> ")")
+    pPrint (ImageFile f s) =
+      text "ImageFile(" <> pPrint f <> text ",  " <> pPrint s <> text ")"
 
-instance HasImageType ImageFile where imageType = _imageFileType
+instance HasImageType ImageFile where imageType = imageType . _imageFileShape
+
+instance HasImageShape ImageFile where
+  imageShape = imageShape . _imageFileShape
+
+data ImageShape
+  = ImageShape
+      { _imageShapeType :: ImageType
+      , _imageShapeWidth :: Int
+      , _imageShapeHeight :: Int
+      -- , _imageFileMaxVal :: Int
+      } deriving (Generic, Eq, Ord)
+
+deriving instance Data ImageShape
+deriving instance Read ImageShape
+deriving instance Show ImageShape
+deriving instance Typeable ImageShape
+instance Serialize ImageShape where get = safeGet; put = safePut
+instance SafeCopy ImageShape
+
+instance Pretty ImageShape where
+  pPrint (ImageShape typ w h) =
+    text "ImageShape (" <> pPrint typ <> text (", " <> show w <> "x" <> show h <> ")")
+
+instance HasImageType ImageShape where imageType = _imageShapeType
 
 -- * ImageKey
 
@@ -563,13 +618,15 @@ instance Pretty ImageKey where
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
 
--- | This describes how the keys we use are constructed
+-- | Various ways to build an OriginalKey.
 class OriginalKey a where
   originalKey :: a -> ImageKey
 instance OriginalKey (Checksum, ImageType) where -- danger - Checksum is just String
   originalKey = uncurry ImageOriginal
 instance OriginalKey ImageFile where
-  originalKey i = originalKey (_imageFile i, _imageFileType i)
+  originalKey i = originalKey (_imageFile i, _imageFileShape i)
+instance OriginalKey (File, ImageShape) where
+  originalKey (f, shape) = originalKey (f, _imageShapeType shape)
 instance OriginalKey (File, ImageType) where
   originalKey (f, typ) = ImageOriginal (_fileChksum f) typ
 
@@ -780,12 +837,11 @@ data ImageCached =
 instance Serialize ImageCached where get = safeGet; put = safePut
 instance SafeCopy ImageCached
 
-instance PixmapShape ImageCached where
-  pixmapWidth = pixmapWidth . _imageCachedFile
-  pixmapHeight = pixmapHeight . _imageCachedFile
+instance HasImageShape ImageCached where
+  imageShape = imageShape . _imageCachedFile
 
 instance HasImagePath ImageCached where
-  imagePath (ImageCached key img) = ImagePath key (_imageFileType img)
+  imagePath (ImageCached key img) = ImagePath key (imageType img)
 
 instance HasURIPath ImageCached where
   toURIDir c = toURIDir (imagePath c)
@@ -804,7 +860,7 @@ instance HasURIPath ImageCached where
 #endif
 
 #if 0
-let file = ImageCached {_imageCachedKey = ImageScaled (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches}) (100 % 1) (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)), _imageCachedFile = ImageFile {_imageFile = File {_fileSource = Nothing, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"}, _imageFileType = JPEG, _imageFileWidth = 885, _imageFileHeight = 170, _imageFileMaxVal = 1}}
+let file = ImageCached {_imageCachedKey = ImageScaled (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches}) (100 % 1) (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)), _imageCachedFile = ImageFile {_imageFile = File {_fileSource = Nothing, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"}, _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170}}
 toURIPath file
 "/image-path/image-scaled/image-size/the-area/15/1/inches/100/1/image-upright/image-original/c3bd1388b41fa5d956e4308ce518a8bd/i.png/i.jpg"
 #endif
@@ -813,12 +869,14 @@ $(concat <$>
   sequence
   [ makeValueInstance [] [t|Rational|]
   , makePathInstances [FIELDS] ''ImageFile
+  , makePathInstances [FIELDS] ''ImageShape
   , makePathInstances [] ''ImageType
   , makePathInstances [FIELDS] ''ImageSize
   , makePathInstances [] ''Dimension
   , makePathInstances [FIELDS] ''ImageCrop
   , makePathInstances [FIELDS] ''ImageKey
   , makePathInstances [] ''Units
+  , makePathInstances [] ''Rotation
   , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
   , derivePathInfo ''ImagePath
   , derivePathInfo ''ImageKey
@@ -827,6 +885,7 @@ $(concat <$>
   -- , derivePathInfo ''ImageType
   , derivePathInfo ''Dimension
   , derivePathInfo ''Units
+  , derivePathInfo ''Rotation
   ])
 
 instance PathInfo ImageType where

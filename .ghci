@@ -1,0 +1,25 @@
+:set -XOverloadedStrings
+:set -XTemplateHaskell
+:set -XCPP
+
+:set -XConstraintKinds
+:set -XDataKinds
+:set -XDeriveDataTypeable
+:set -XDeriveFunctor
+:set -XDeriveGeneric
+:set -XFlexibleInstances
+:set -XFlexibleContexts
+:set -XMultiParamTypeClasses
+:set -XRankNTypes
+:set -XScopedTypeVariables
+:set -XStandaloneDeriving
+:set -XTypeApplications
+:set -XTypeFamilies
+
+:set -DGHCI
+:set -DLENS_PATH_TOP="../lens-path"
+:set -DUSE_FAKE_CLCKWRKS_TYPES=1
+:set -isrc:src-ghc:tools
+:set -Wall -Wredundant-constraints
+:m +Language.Haskell.TH
+:set prompt "λ> "
