@@ -19,8 +19,8 @@ module Data.FileCache.Server
   , fileCachePath
   , fileCachePathIO
   , FileCacheT
-  , runFileCacheT, evalFileCacheT, execFileCacheT -- , writeFileCacheT
-  , MonadFileCache(askCacheAcid, buildCacheValue)
+  , runFileCacheT, evalFileCacheT, execFileCacheT
+  , MonadFileCache
   , cacheLook, cacheDelete
   -- * Image Cache
   , ImageCacheT
@@ -98,7 +98,7 @@ instance Pretty CmdSpec where
     pPrint (ShellCommand s) = text s
     pPrint (RawCommand path args) = text (showCommandForUser path args)
 
--- * Processes
+-- * Processes and IO
 
 readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
 readCreateProcessWithExitCode' p s =
@@ -115,8 +115,17 @@ pipeline (p : ps) bytes =
       -- Is there any exception we should ignore here?
       doException message e = alog "Appraisal.ImageFile" ERROR message >> throw e
 
-pipe' :: [String] -> String
-pipe' = intercalate " | "
+lyftIO ::
+  forall e m a. (MonadIO m, MonadCatch m, HasIOException e)
+  => IO a
+  -> ExceptT e m a
+lyftIO io = lyftIO' (liftIO io)
+
+lyftIO' ::
+  forall e m a. (MonadIO m, MonadCatch m, HasIOException e)
+  => m a
+  -> ExceptT e m a
+lyftIO' io = withExceptT fromIOException (lift (try io) >>= liftEither)
 
 -- * Events
 
@@ -187,20 +196,20 @@ initCacheMap = CacheMap mempty
 -- * ByteString
 
 class MakeByteString a where
-  makeByteString :: (MonadIO m) => a -> ExceptT FileError m BS.ByteString
+  makeByteString :: (MonadIO m, MonadCatch m) => a -> ExceptT FileError m BS.ByteString
 
 instance MakeByteString BS.ByteString where
   makeByteString = return
 
 instance MakeByteString FilePath where
-  makeByteString path = liftIO $ BS.readFile path
+  makeByteString path = lyftIO $ BS.readFile path
 
 instance MakeByteString CreateProcess where
   makeByteString cmd = makeByteString (cmd, BS.empty)
 
 instance MakeByteString (CreateProcess, BS.ByteString) where
   makeByteString (cmd, input) = do
-    (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd input)
+    (code, bytes, _err) <- lyftIO (readCreateProcessWithExitCode' cmd input)
     case code of
       ExitSuccess -> return bytes
       ExitFailure _ ->
@@ -210,7 +219,7 @@ instance MakeByteString URI where
   makeByteString uri = do
     let cmd = proc "curl" ["-s", uriToString id uri ""]
     (code, bytes, _err) <-
-      liftIO $ readCreateProcessWithExitCode' cmd BS.empty
+      lyftIO $ readCreateProcessWithExitCode' cmd BS.empty
     case code of
       ExitSuccess -> return bytes
       _ -> throwError $ CommandFailure (FunctionName "MakeByteString URI" (Command (T.pack (show cmd)) (T.pack (show code))))
@@ -219,14 +228,17 @@ instance MakeByteString URI where
 
 -- | Try to create a version of an image with its orientation
 -- corrected based on the EXIF orientation flag.  If the image is
--- already upright this will return Left.
+-- already upright this will return Nothing.
 uprightImage' ::
-  (MonadIO m, MonadCatch m)
+  forall m. (MonadIO m, MonadCatch m)
   => BS.ByteString
-  -> ExceptT FileError m (Maybe BS.ByteString)
-uprightImage' bs = $logException ERROR $ do
-  runExceptT (try (normalizeOrientationCode (fromStrict bs)) >>= liftEither) >>=
-    either (const (return Nothing)) (return . Just . toStrict)
+  -> m (Maybe BS.ByteString)
+uprightImage' bs = -- $logException ERROR $ do
+  -- Use lyftIO' to turn the IOException into ExceptT FileError m,
+  -- then flatten the two layers of ExceptT FileError into one, then
+  -- turn the remaining one into a Maybe.
+  either (const Nothing) (Just . toStrict) <$>
+    runExceptT (runExceptT (lyftIO' (normalizeOrientationCode (fromStrict bs))) >>= liftEither)
 
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the
@@ -440,7 +452,7 @@ deriving instance Show Hires
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
 scaleImage' ::
-  MonadIO m
+  (MonadIO m, MonadCatch m)
   => Double
   -> BS.ByteString
   -> ImageType
@@ -461,7 +473,7 @@ scaleImage' scale bytes typ = do
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
                     Unknown -> error "scaleImage' unknown file type"
-        cmd = pipe' [decoder, scaler, encoder]
+        cmd = intercalate " | " [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
 
 editImage' ::
@@ -644,7 +656,7 @@ buildImage key@(ImageOriginal csum typ) = do
                 lift (cachePut key (Left e :: Either FileError ImageFile))
                 throwError e
               True -> do
-                bs <- readBytes path
+                bs <- lyftIO (BS.readFile path)
                 let csum' = T.pack $ show $ md5 $ fromStrict bs
                 case csum' == csum of
                   False -> do
@@ -663,7 +675,7 @@ buildImage key@(ImageOriginal csum typ) = do
             path <- fileCachePath (ImagePath key typ)
             -- This and other operations like it may throw an
             -- IOException - I need LyftIO to make sure this is caught.
-            bs <- readBytes path
+            bs <- lyftIO (BS.readFile path)
             cacheOriginalImage bs
             return bs
           retry e = do
@@ -671,7 +683,7 @@ buildImage key@(ImageOriginal csum typ) = do
             throwError e
           hit (img :: ImageFile) = do
             path <- fileCachePath (ImageCached key img)
-            readBytes path
+            lyftIO (BS.readFile path)
 buildImage (ImageUpright key) =
   buildImage key >>= \bs -> uprightImage' bs >>= maybe (return bs) return
 buildImage (ImageScaled sz dpi key) = do
@@ -685,12 +697,6 @@ buildImage (ImageCropped crop key) = do
   bs <- buildImage key
   shape@ImageShape {..} <- getFileInfo bs
   editImage' crop bs _imageShapeType (imageShape shape) >>= maybe (return bs) return
-
-readBytes ::
-  (MonadIO m, MonadCatch m)
-  => FilePath
-  -> ExceptT FileError m BS.ByteString
-readBytes path = withExceptT fromIOException (try (liftIO $ BS.readFile path) >>= liftEither)
 
 -- | We can infer the file type from the key using insider info on how
 -- the various IO operations work.
@@ -724,7 +730,7 @@ cacheOriginalImage ::
 cacheOriginalImage x = do
   bs <- makeByteString x
   let csum = T.pack $ show $ md5 $ fromStrict bs
-  shape@ImageShape {..} <- getFileInfo bs
+  ImageShape {..} <- getFileInfo bs
   let file = File { _fileSource = Nothing
                   , _fileChksum = csum
                   , _fileMessages = []
@@ -735,16 +741,9 @@ cacheOriginalImage x = do
                                                      , _imageShapeHeight = _imageShapeHeight } }
   path <- fileCachePathIO (ImageCached (ImageOriginal csum _imageShapeType) img)
   exists <- liftIO $ doesFileExist path
-  unless exists $ liftIO $ writeFileReadable path bs
+  unless exists $ lyftIO $ writeFileReadable path bs
   let key = originalKey img
   (key,) <$> (lift (cachePut key (Right img)) >>= liftEither)
-
--- | Build the image described by the 'ImageKey' if necessary, and
--- return its meta information as an 'ImageFile'.
-cacheDerivedImage :: forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
-  => ImageKey
-  -> ExceptT FileError m ImageFile
-cacheDerivedImage key = lift (cacheInsert key) >>= liftEither
 
 -- | Build an image map in the state monad
 cacheDerivedImages ::
@@ -754,6 +753,13 @@ cacheDerivedImages ::
   -> m ()
 cacheDerivedImages =
   mapM_ (\key -> runExceptT (cacheDerivedImage key) >>= modify . Map.insert key)
+
+-- | Build the image described by the 'ImageKey' if necessary, and
+-- return its meta information as an 'ImageFile'.
+cacheDerivedImage :: forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
+  => ImageKey
+  -> ExceptT FileError m ImageFile
+cacheDerivedImage key = lift (cacheInsert key) >>= liftEither
 
 -- | Integrity testing
 validateImageKey ::
@@ -774,13 +780,12 @@ validateImageFile key i@(ImageFile {..}) = do
     (liftIO (validateJPG path) >>=
      either (\e -> throwError (CacheDamage ("image " <> pack (show (fileChecksum _imageFile)) <> " not a valid jpeg: " <> pack (show e))))
             (\_ -> return ()))
-  bs <- try (liftIO (BS.readFile path) >>= checkFile _imageFile path)
-  case bs of
-    Left (e :: IOException) -> liftIO (putStrLn ("error loading " ++ show _imageFile ++ ": " ++ show e))
-    Right _ -> return ()
+  runExceptT (lyftIO (BS.readFile path)) >>= checkFile _imageFile path
   where
-    checkFile :: File -> FilePath -> BS.ByteString -> m ()
-    checkFile file _path bs
+    checkFile :: File -> FilePath -> Either FileError BS.ByteString -> m ()
+    checkFile _file _path (Left e) =
+      liftIO (putStrLn ("error loading " ++ show _imageFile ++ ": " ++ show e))
+    checkFile file _path (Right bs)
       | T.pack (show (md5 (fromStrict bs))) /= (_fileChksum file) =
           liftIO (putStrLn ("checksum mismatch in file " ++ show file))
     checkFile _file _path _bs = return ()
