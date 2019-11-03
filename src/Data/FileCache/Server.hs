@@ -97,6 +97,19 @@ instance Pretty CreateProcess where
 instance Pretty CmdSpec where
     pPrint (ShellCommand s) = text s
     pPrint (RawCommand path args) = text (showCommandForUser path args)
+
+-- | We can infer the file type from the key using insider info on how
+-- the various IO operations work.
+instance HasImageShape a => HasImageType (ImageKey, a) where
+  imageType (ImageOriginal _ typ, _) = typ
+  imageType (ImageUpright key, shape) = imageType (key, shape)
+  imageType (ImageCropped crop key, shape) =
+    if crop == def then imageType (key, shape) else JPEG
+  imageType (ImageScaled sz dpi key, shape) =
+    let scale' = scaleFromDPI sz dpi shape
+        scale :: Double
+        scale = fromRat (fromMaybe 1 scale') in
+      if approx (toRational scale) == 1 then imageType (key, shape) else JPEG
 
 -- * Processes and IO
 
@@ -569,7 +582,6 @@ class (HasFileCacheTop m,
        SafeCopy val, Typeable val)
   => MonadFileCache key val m where
   askCacheAcid :: m (AcidState (CacheMap key val))
-  buildCacheValue :: (MonadIO m, MonadCatch m) => key -> ExceptT FileError m val
 
 cachePut ::
   forall key val m. (MonadFileCache key val m, MonadIO m)
@@ -607,99 +619,10 @@ type ImageCacheT s m = FileCacheT ImageKey ImageFile s m
 type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
--- 'runFileCacheT'
+-- 'runFileCacheT'.
 instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
   => MonadFileCache ImageKey ImageFile (RWST (acid, top) () s m) where
     askCacheAcid = view _1
-    buildCacheValue key = do
-      bs <- buildImage key
-      ImageShape {..} <- getFileInfo bs
-      let file = File { _fileSource = Nothing
-                      , _fileChksum = T.pack $ show $ md5 $ fromStrict bs
-                      , _fileMessages = []
-                      , _fileExt = fileExtension _imageShapeType }
-      let img = ImageFile { _imageFile = file
-                          , _imageFileShape = ImageShape { _imageShapeType = _imageShapeType
-                                                         , _imageShapeWidth = _imageShapeWidth
-                                                         , _imageShapeHeight = _imageShapeHeight } }
-      path <- fileCachePathIO (ImageCached key img)
-      exists <- liftIO $ doesFileExist path
-      unless exists $ liftIO $ writeFileReadable path bs
-      return img
-
--- | Retrieve the 'ByteString' associated with an 'ImageKey'.
-buildImage ::
-  forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
-  => ImageKey
-  -> ExceptT FileError m BS.ByteString
-buildImage key@(ImageOriginal csum typ) = do
-  -- This should already be in the cache
-  lift (cacheLook key) >>= maybe missing (either retry hit)
-    where missing = do
-            -- If we get a cache miss for an ImageOriginal key something
-            -- has gone wrong.  Try to rebuild from the file if it exists.
-            path <- fileCachePath (ImagePath key typ)
-            exists <- liftIO $ doesFileExist path
-            case exists of
-              False -> do
-                let e = CacheDamage ("buildImage - missing original: " <> T.pack (show key <> " -> " <> path))
-                cachePut key (Left e :: Either FileError ImageFile)
-                throwError e
-              True -> do
-                bs <- lyftIO (BS.readFile path)
-                let csum' = T.pack $ show $ md5 $ fromStrict bs
-                case csum' == csum of
-                  False -> do
-                    let e = CacheDamage ("buildImage - original damaged: " <> T.pack (show key <> " -> " <> path))
-                    alog "Data.FileCache.Server" ERROR ("Checksum mismatch - " <> show e)
-                    cachePut key (Left e :: Either FileError ImageFile)
-                    throwError e
-                  True -> do
-                    alog "Data.FileCache.Server" ALERT ("recaching " ++ show key)
-                    cacheOriginalImage bs
-                    return bs
-          -- There is an error in the cache, maybe it can be repaired now?
-          retry :: FileError -> ExceptT FileError m BS.ByteString
-          retry e@(CacheDamage _) = do
-            alog "Data.FileCache.Server" ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
-            path <- fileCachePath (ImagePath key typ)
-            -- This and other operations like it may throw an
-            -- IOException - I need LyftIO to make sure this is caught.
-            bs <- lyftIO (BS.readFile path)
-            cacheOriginalImage bs
-            return bs
-          retry e = do
-            alog "Data.FileCache.Server" INFO ("Not retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
-            throwError e
-          hit (img :: ImageFile) = do
-            path <- fileCachePath (ImageCached key img)
-            lyftIO (BS.readFile path)
-buildImage (ImageUpright key) =
-  buildImage key >>= \bs -> uprightImage' bs >>= maybe (return bs) return
-buildImage (ImageScaled sz dpi key) = do
-  bs <- buildImage key
-  -- the buildImage that just ran might have this info
-  shape@ImageShape {..} <- getFileInfo bs
-  let scale' = scaleFromDPI sz dpi shape
-      scale = fromRat (fromMaybe 1 scale')
-  scaleImage' scale bs _imageShapeType >>= maybe (return bs) return
-buildImage (ImageCropped crop key) = do
-  bs <- buildImage key
-  shape@ImageShape {..} <- getFileInfo bs
-  editImage' crop bs _imageShapeType (imageShape shape) >>= maybe (return bs) return
-
--- | We can infer the file type from the key using insider info on how
--- the various IO operations work.
-instance HasImageShape a => HasImageType (ImageKey, a) where
-  imageType (ImageOriginal _ typ, _) = typ
-  imageType (ImageUpright key, shape) = imageType (key, shape)
-  imageType (ImageCropped crop key, shape) =
-    if crop == def then imageType (key, shape) else JPEG
-  imageType (ImageScaled sz dpi key, shape) =
-    let scale' = scaleFromDPI sz dpi shape
-        scale :: Double
-        scale = fromRat (fromMaybe 1 scale') in
-      if approx (toRational scale) == 1 then imageType (key, shape) else JPEG
 
 -- | Add some image files to an image repository - updates the acid
 -- state image map and copies the file to a location determined by the
@@ -751,14 +674,119 @@ cacheDerivedImage :: forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
   => Bool
   -> ImageKey
   -> ExceptT FileError m ImageFile
+cacheDerivedImage retry key@(ImageOriginal _ _) =
+  -- Not enough information to create the ByteString here.
+  throwError (ErrorCall "invalid argument")
 cacheDerivedImage retry key =
   lift (cacheLook key) >>= maybe (cacheMiss key) (either (cacheError retry key) return)
   where
-    cacheMiss key = tryError (buildCacheValue key) >>= cachePut key
+    cacheMiss key = tryError (buildImageFile key) >>= cachePut key
     -- A FileError is stored in the cache.  Should we try to build the
     -- image again?  Probably not always.
     cacheError True key _e = cacheMiss key
     cacheError False _key e = throwError e
+
+buildImageFile ::
+  (MonadCatch m, MonadIO m, MonadFileCache ImageKey ImageFile m)
+  => ImageKey -> ExceptT FileError m ImageFile
+buildImageFile key = do
+  bs <- buildImageBytes key
+  ImageShape {..} <- getFileInfo bs
+  let file = File { _fileSource = Nothing
+                  , _fileChksum = T.pack $ show $ md5 $ fromStrict bs
+                  , _fileMessages = []
+                  , _fileExt = fileExtension _imageShapeType }
+  let img = ImageFile { _imageFile = file
+                      , _imageFileShape = ImageShape { _imageShapeType = _imageShapeType
+                                                     , _imageShapeWidth = _imageShapeWidth
+                                                     , _imageShapeHeight = _imageShapeHeight } }
+  path <- fileCachePathIO (ImageCached key img)
+  exists <- liftIO $ doesFileExist path
+  unless exists $ liftIO $ writeFileReadable path bs
+  return img
+
+-- | Retrieve the 'ByteString' associated with an 'ImageKey'.
+buildImageBytes ::
+  forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
+  => ImageKey -> ExceptT FileError m BS.ByteString
+buildImageBytes key@(ImageOriginal csum typ) =
+  -- This should already be in the cache.
+  buildOriginalImageBytes csum typ
+buildImageBytes (ImageUpright key) =
+  buildImageBytes key >>= \bs -> uprightImage' bs >>= maybe (return bs) return
+buildImageBytes (ImageScaled sz dpi key) = do
+  bs <- buildImageBytes key
+  -- the buildImageBytes that just ran might have this info
+  shape@ImageShape {..} <- getFileInfo bs
+  let scale' = scaleFromDPI sz dpi shape
+      scale = fromRat (fromMaybe 1 scale')
+  scaleImage' scale bs _imageShapeType >>= maybe (return bs) return
+buildImageBytes (ImageCropped crop key) = do
+  bs <- buildImageBytes key
+  shape@ImageShape {..} <- getFileInfo bs
+  editImage' crop bs _imageShapeType (imageShape shape) >>= maybe (return bs) return
+
+buildOriginalImageBytes ::
+  (MonadFileCache ImageKey ImageFile m, MonadIO m, MonadCatch m)
+  => Checksum -> ImageType -> ExceptT FileError m BS.ByteString
+buildOriginalImageBytes csum typ =
+  lift (cacheLook key) >>=
+  maybe (buildImageBytesFromFile key csum typ)
+        (either (rebuildImageBytes False key typ) (lookImageBytes key))
+  where
+    key = ImageOriginal csum typ
+    -- There's a chance the file is just sitting on disk even though
+    -- it is not in the database - see if we can read it and verify
+    -- its checksum.
+    buildImageBytesFromFile key csum typ = do
+      -- If we get a cache miss for an ImageOriginal key something
+      -- has gone wrong.  Try to rebuild from the file if it exists.
+      path <- fileCachePath (ImagePath key typ)
+      exists <- liftIO $ doesFileExist path
+      case exists of
+        False -> do
+          let e = CacheDamage ("buildImageBytes - missing original: " <> T.pack (show key <> " -> " <> path))
+          cachePut key (Left e :: Either FileError ImageFile)
+          throwError e
+        True -> do
+          bs <- makeByteString path
+          let csum' = T.pack $ show $ md5 $ fromStrict bs
+          case csum' == csum of
+            False -> do
+              let e = CacheDamage ("buildImageBytes - original damaged: " <> T.pack (show key <> " -> " <> path))
+              alog "Data.FileCache.Server" ERROR ("Checksum mismatch - " <> show e)
+              cachePut key (Left e :: Either FileError ImageFile)
+              throwError e
+            True -> do
+              alog "Data.FileCache.Server" ALERT ("recaching " ++ show key)
+              cacheOriginalImage bs
+              return bs
+
+-- | Look up the image FilePath and read the ByteString it contains.
+lookImageBytes ::
+  (HasFileCacheTop m, MonadIO m, MonadCatch m, HasIOException e)
+  => ImageKey -> ImageFile -> ExceptT e m BS.ByteString
+lookImageBytes key img = do
+  path <- fileCachePath (ImageCached key img)
+  lyftIO (BS.readFile path)
+
+-- | There is an error stored in the cache, maybe it can be repaired
+-- now?  Be careful not to get into a loop doing this.
+rebuildImageBytes ::
+  (MonadIO m, MonadCatch m, MonadFileCache ImageKey ImageFile m)
+  => Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
+rebuildImageBytes False key typ e = throwError e
+rebuildImageBytes True key typ e@(CacheDamage _) = do
+  alog "Data.FileCache.Server" ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
+  path <- fileCachePath (ImagePath key typ)
+  -- This and other operations like it may throw an
+  -- IOException - I need LyftIO to make sure this is caught.
+  bs <- lyftIO (BS.readFile path)
+  cacheOriginalImage bs
+  return bs
+rebuildImageBytes True key typ e = do
+  alog "Data.FileCache.Server" INFO ("Not retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
+  throwError e
 
 -- | Integrity testing
 validateImageKey ::
