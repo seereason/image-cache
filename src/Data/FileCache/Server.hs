@@ -220,9 +220,12 @@ instance MakeByteString URI where
 -- | Try to create a version of an image with its orientation
 -- corrected based on the EXIF orientation flag.  If the image is
 -- already upright this will return Left.
-uprightImage' :: BS.ByteString -> IO (Maybe BS.ByteString)
+uprightImage' ::
+  (MonadIO m, MonadCatch m)
+  => BS.ByteString
+  -> ExceptT FileError m (Maybe BS.ByteString)
 uprightImage' bs = $logException ERROR $ do
-  normalizeOrientationCode (fromStrict bs) >>=
+  runExceptT (try (normalizeOrientationCode (fromStrict bs)) >>= liftEither) >>=
     either (const (return Nothing)) (return . Just . toStrict)
 
 -- | Given a bytestring containing a JPEG file, examine the EXIF
@@ -234,7 +237,7 @@ uprightImage' bs = $logException ERROR $ do
 --
 -- This is an IO operation because it runs jpegtran(1) to perform the
 -- transformation on the jpeg image.
-normalizeOrientationCode :: LBS.ByteString -> IO (Either String LBS.ByteString)
+normalizeOrientationCode :: forall m. MonadIO m => LBS.ByteString -> ExceptT FileError m LBS.ByteString
 normalizeOrientationCode bs = do
   let result = runGetOrFail getEXIFOrientationCode bs :: (Either (LBS.ByteString, Int64, String) (LBS.ByteString, Int64, (Int, Int64, Bool)))
   case result of
@@ -245,21 +248,22 @@ normalizeOrientationCode bs = do
     Right (_, _, (6, pos, flag)) -> transform ["-rotate", "90"] pos flag
     Right (_, _, (7, pos, flag)) -> transform ["-transverse"] pos flag
     Right (_, _, (8, pos, flag)) -> transform ["-rotate", "270"] pos flag
-    Right x -> return $ Left $ "Unexpected exif orientation code: " ++ show x
-    Left x -> return $ Left $ "Failure parsing exif orientation code: " ++ show x
+    Right x -> throwError $ ErrorCall ("Unexpected exif orientation code: " <> pack (show x))
+    Left x -> throwError $  ErrorCall ("Failure parsing exif orientation code: " <> pack (show x))
     where
-      transform :: [String] -> Int64 -> Bool -> IO (Either String LBS.ByteString)
+      transform :: [String] -> Int64 -> Bool -> ExceptT FileError m LBS.ByteString
       transform args pos isMotorola = do
-        let cmd = "jpegtran"
+        let cp = proc cmd args'
+            cmd = "jpegtran"
             args' = (["-copy", "all"] ++ args)
             hd = LBS.take pos bs            -- everything before the orientation code
             flag = LBS.pack (if isMotorola then [0x0, 0x1] else [0x1, 0x0]) -- orientation code 1
             tl = LBS.drop (pos + 2) bs      -- everything after the orientation code
             bs' = LBS.concat [hd, flag, tl]
-        (result, out, err) <- LBS.readCreateProcessWithExitCode (proc cmd args') bs'
+        (result, out, err) <- liftIO (LBS.readCreateProcessWithExitCode (proc cmd args') bs')
         case result of
-          ExitSuccess -> return $ Right out
-          ExitFailure n -> return $ Left $ showCommandForUser cmd args' ++ " -> " ++ show n ++ "\n error output: " ++ show err
+          ExitSuccess -> return out
+          ExitFailure n -> throwError $ CommandFailure $ CommandErr (toStrict err) $ Command (pack (show cp)) (pack (show result))
 
 -- | Read the orientation code of a JPEG file, returning its value,
 -- the offset of the two byte code in the file, and the "isMotorola"
@@ -669,7 +673,7 @@ buildImage key@(ImageOriginal csum typ) = do
             path <- fileCachePath (ImageCached key img)
             readBytes path
 buildImage (ImageUpright key) =
-  buildImage key >>= \bs -> liftIO (uprightImage' bs) >>= maybe (return bs) return
+  buildImage key >>= \bs -> uprightImage' bs >>= maybe (return bs) return
 buildImage (ImageScaled sz dpi key) = do
   bs <- buildImage key
   -- the buildImage that just ran might have this info
