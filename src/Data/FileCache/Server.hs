@@ -58,9 +58,10 @@ import Data.FileCache.Common
 import Data.FileCache.ImageType (getFileInfo)
 import Data.FileCache.LogException (logException)
 import Data.Typeable -- ( (:~:), eqT, Typeable )
+import Data.Generics (mkT, everywhere)
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
-import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, toList, union )
+import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
 import Data.Maybe ( mapMaybe, fromMaybe )
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
@@ -189,13 +190,19 @@ setImageFileTypes :: forall key val. (Typeable key, Typeable val) => Update (Cac
 setImageFileTypes =
   case eqT :: Maybe ((key, val) :~: (ImageKey, ImageFile)) of
     Nothing -> return ()
-    Just Refl ->
-      let fixType (ImageOriginal key Unknown) (Right img) =
-            Just (ImageOriginal key (imageType img), (Right img))
-          -- fixType key (Failed_1 img) = undefined
-          fixType _key _img =
-            Nothing in
-        modify (\(CacheMap mp) -> CacheMap (fromList (mapMaybe (uncurry fixType) (toList mp))))
+    Just Refl -> modify (\(CacheMap mp) -> CacheMap (fromList (fixOriginalKeys (changes mp) (toList mp))))
+
+changes :: Map ImageKey (Either FileError ImageFile) -> ImageKey -> ImageKey
+changes mp = \key -> maybe key id (Map.lookup key changeMap)
+  where
+    changeMap :: Map ImageKey ImageKey
+    changeMap = fromList (fmap (\(key, img) -> (key, fixOriginalKey key img)) (toList mp))
+    fixOriginalKey :: ImageKey -> (Either FileError ImageFile) -> ImageKey
+    fixOriginalKey key@(ImageOriginal csum Unknown) (Right img) = ImageOriginal csum (imageType img)
+    fixOriginalKey key img = key
+
+fixOriginalKeys :: (ImageKey -> ImageKey) -> [(ImageKey, Either FileError ImageFile)] -> [(ImageKey, Either FileError ImageFile)]
+fixOriginalKeys changes pairs = everywhere (mkT changes) pairs
 
 $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues, 'setImageFileTypes])
 
