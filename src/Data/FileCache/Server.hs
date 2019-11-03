@@ -680,26 +680,36 @@ cacheDerivedImage retry key@(ImageOriginal _ _) =
 cacheDerivedImage retry key =
   lift (cacheLook key) >>= maybe (cacheMiss key) (either (cacheError retry key) return)
   where
-    cacheMiss key = tryError (buildImageFile key) >>= cachePut key
+    cacheMiss key = tryError (cacheMiss' key) >>= cachePut key
+    cacheMiss' key = do
+      shape <- buildImageShape key
+      -- cachePut key (Right shape) -- Need to change the types for this to work
+      buildImageFile key shape
     -- A FileError is stored in the cache.  Should we try to build the
     -- image again?  Probably not always.
     cacheError True key _e = cacheMiss key
     cacheError False _key e = throwError e
 
+-- These currently don't buy us anything, we need functions that do
+-- less work than buildImageBytes
+buildImageShape ::
+  (MonadCatch m, MonadIO m, MonadFileCache ImageKey ImageFile m)
+  => ImageKey -> ExceptT FileError m ImageShape
+buildImageShape (ImageOriginal csum typ) = buildOriginalImageBytes csum typ >>= getFileInfo
+buildImageShape (ImageUpright key) = buildUprightImageBytes key >>= getFileInfo
+buildImageShape (ImageScaled sz dpi key) = buildScaledImageBytes sz dpi key >>= getFileInfo
+buildImageShape (ImageCropped crop key) = buildCroppedImageBytes crop key >>= getFileInfo
+
 buildImageFile ::
   (MonadCatch m, MonadIO m, MonadFileCache ImageKey ImageFile m)
-  => ImageKey -> ExceptT FileError m ImageFile
-buildImageFile key = do
+  => ImageKey -> ImageShape -> ExceptT FileError m ImageFile
+buildImageFile key shape = do
   bs <- buildImageBytes key
-  ImageShape {..} <- getFileInfo bs
   let file = File { _fileSource = Nothing
                   , _fileChksum = T.pack $ show $ md5 $ fromStrict bs
                   , _fileMessages = []
-                  , _fileExt = fileExtension _imageShapeType }
-  let img = ImageFile { _imageFile = file
-                      , _imageFileShape = ImageShape { _imageShapeType = _imageShapeType
-                                                     , _imageShapeWidth = _imageShapeWidth
-                                                     , _imageShapeHeight = _imageShapeHeight } }
+                  , _fileExt = fileExtension (_imageShapeType shape) }
+  let img = ImageFile { _imageFile = file, _imageFileShape = shape }
   path <- fileCachePathIO (ImageCached key img)
   exists <- liftIO $ doesFileExist path
   unless exists $ liftIO $ writeFileReadable path bs
@@ -709,22 +719,10 @@ buildImageFile key = do
 buildImageBytes ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
   => ImageKey -> ExceptT FileError m BS.ByteString
-buildImageBytes key@(ImageOriginal csum typ) =
-  -- This should already be in the cache.
-  buildOriginalImageBytes csum typ
-buildImageBytes (ImageUpright key) =
-  buildImageBytes key >>= \bs -> uprightImage' bs >>= maybe (return bs) return
-buildImageBytes (ImageScaled sz dpi key) = do
-  bs <- buildImageBytes key
-  -- the buildImageBytes that just ran might have this info
-  shape@ImageShape {..} <- getFileInfo bs
-  let scale' = scaleFromDPI sz dpi shape
-      scale = fromRat (fromMaybe 1 scale')
-  scaleImage' scale bs _imageShapeType >>= maybe (return bs) return
-buildImageBytes (ImageCropped crop key) = do
-  bs <- buildImageBytes key
-  shape@ImageShape {..} <- getFileInfo bs
-  editImage' crop bs _imageShapeType (imageShape shape) >>= maybe (return bs) return
+buildImageBytes (ImageOriginal csum typ) = buildOriginalImageBytes csum typ
+buildImageBytes (ImageUpright key) = buildUprightImageBytes key
+buildImageBytes (ImageScaled sz dpi key) = buildScaledImageBytes sz dpi key
+buildImageBytes (ImageCropped crop key) = buildCroppedImageBytes crop key
 
 buildOriginalImageBytes ::
   (MonadFileCache ImageKey ImageFile m, MonadIO m, MonadCatch m)
@@ -732,7 +730,7 @@ buildOriginalImageBytes ::
 buildOriginalImageBytes csum typ =
   lift (cacheLook key) >>=
   maybe (buildImageBytesFromFile key csum typ)
-        (either (rebuildImageBytes False key typ) (lookImageBytes key))
+        (either (rebuildImageBytes False key typ) (lookImageBytes . ImageCached key))
   where
     key = ImageOriginal csum typ
     -- There's a chance the file is just sitting on disk even though
@@ -762,13 +760,33 @@ buildOriginalImageBytes csum typ =
               cacheOriginalImage bs
               return bs
 
+buildUprightImageBytes ::
+  (MonadFileCache ImageKey ImageFile m, MonadIO m, MonadCatch m)
+  => ImageKey -> ExceptT FileError m BS.ByteString
+buildUprightImageBytes key =
+  buildImageBytes key >>= \bs -> uprightImage' bs >>= maybe (return bs) return
+
+buildScaledImageBytes ::
+  (MonadFileCache ImageKey ImageFile m, MonadIO m, MonadCatch m)
+  => ImageSize -> Rational -> ImageKey -> ExceptT FileError m BS.ByteString
+buildScaledImageBytes sz dpi key = do
+  bs <- buildImageBytes key
+  -- the buildImageBytes that just ran might have this info
+  shape@ImageShape {..} <- getFileInfo bs
+  let scale' = scaleFromDPI sz dpi shape
+      scale = fromRat (fromMaybe 1 scale')
+  scaleImage' scale bs _imageShapeType >>= maybe (return bs) return
+
+buildCroppedImageBytes crop key = do
+  bs <- buildImageBytes key
+  shape@ImageShape {..} <- getFileInfo bs
+  editImage' crop bs _imageShapeType (imageShape shape) >>= maybe (return bs) return
+
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
-  (HasFileCacheTop m, MonadIO m, MonadCatch m, HasIOException e)
-  => ImageKey -> ImageFile -> ExceptT e m BS.ByteString
-lookImageBytes key img = do
-  path <- fileCachePath (ImageCached key img)
-  lyftIO (BS.readFile path)
+  (HasFileCacheTop m, MonadIO m, MonadCatch m, HasIOException e, HasURIPath a)
+  => a -> ExceptT e m BS.ByteString
+lookImageBytes a = fileCachePath a >>= lyftIO . BS.readFile
 
 -- | There is an error stored in the cache, maybe it can be repaired
 -- now?  Be careful not to get into a loop doing this.
