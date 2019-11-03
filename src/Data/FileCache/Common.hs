@@ -483,17 +483,40 @@ instance Arbitrary FileSource where
 
 -- * ImageFile
 
--- | A file containing an image plus meta info.
 data ImageFile
-    = ImageFile
-      { _imageFile :: File
-      , _imageFileShape :: ImageShape
-      } deriving (Generic, Eq, Ord)
+  = ImageFileShape {_imageFileShape :: ImageShape}
+  | ImageFile {_imageFile :: File, _imageFileShape :: ImageShape}
+  deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance SafeCopy ImageFile where version = 3; kind = extension
+
+instance Migrate ImageFile where
+  type MigrateFrom ImageFile = ImageFile_2
+  migrate (ImageFile_2 f s) = ImageFile f s
+
+instance Serialize ImageFile where get = safeGet; put = safePut
+
+instance Pretty ImageFile where
+  pPrint (ImageFileShape s) = text "ImageFileShape (" <> pPrint s <> text ")"
+  pPrint (ImageFile f s) = text "ImageFile (" <> pPrint f <> text ") (" <> pPrint s <> text ")"
+instance HasImageType ImageFile where
+  imageType = imageType . _imageFileShape
+
+-- * ImageFile
+
+-- | A file containing an image plus meta info.
+data ImageFile_2
+    = ImageFile_2
+      { _imageFile_2 :: File
+      , _imageFileShape_2 :: ImageShape
+      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance SafeCopy ImageFile_2 where kind = extension; version = 2
 
 -- 1 Nov 2019
-instance Migrate ImageFile where
-  type MigrateFrom ImageFile = ImageFile_1
-  migrate (ImageFile_1 f t w h _) = ImageFile f (ImageShape t w h)
+instance Migrate ImageFile_2 where
+  type MigrateFrom ImageFile_2 = ImageFile_1
+  migrate (ImageFile_1 f t w h _) = ImageFile_2 f (ImageShape t w h)
 
 data ImageFile_1
     = ImageFile_1
@@ -504,28 +527,19 @@ data ImageFile_1
       , _imageFileMaxVal_1 :: Int
       } deriving (Generic, Eq, Ord)
 
-deriving instance Data ImageFile
-deriving instance Read ImageFile
-deriving instance Show ImageFile
-deriving instance Typeable ImageFile
-instance Serialize ImageFile where get = safeGet; put = safePut
-instance SafeCopy ImageFile where kind = extension; version = 2
 instance SafeCopy ImageFile_1 where version = 1
+
 instance View (Maybe ImageFile) where
   type ViewType (Maybe ImageFile) = String
   _View = iso (maybe "" show) readMaybe
 
-instance HasImageShape ImageShape where
-  imageShape s = (_imageShapeWidth s, _imageShapeHeight s)
-
-instance Pretty ImageFile where
-    pPrint (ImageFile f s) =
-      text "ImageFile(" <> pPrint f <> text ",  " <> pPrint s <> text ")"
-
-instance HasImageType ImageFile where imageType = imageType . _imageFileShape
-
 instance HasImageShape ImageFile where
   imageShape = imageShape . _imageFileShape
+
+-- * ImageShape
+
+instance HasImageShape ImageShape where
+  imageShape s = (_imageShapeWidth s, _imageShapeHeight s)
 
 data ImageShape
   = ImageShape
@@ -533,12 +547,8 @@ data ImageShape
       , _imageShapeWidth :: Int
       , _imageShapeHeight :: Int
       -- , _imageFileMaxVal :: Int
-      } deriving (Generic, Eq, Ord)
+      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
-deriving instance Data ImageShape
-deriving instance Read ImageShape
-deriving instance Show ImageShape
-deriving instance Typeable ImageShape
 instance Serialize ImageShape where get = safeGet; put = safePut
 instance SafeCopy ImageShape
 
@@ -644,7 +654,6 @@ class HasImageSize size => ScaledKey size a where
   scaledKey :: size -> Rational -> a -> ImageKey
 instance ScaledKey ImageSize ImageFile where
   scaledKey size dpi x = ImageScaled (imageSize size) dpi (editedKey x)
-
 
 -- * FileError, CommandInfo
 
