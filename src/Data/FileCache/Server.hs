@@ -571,23 +571,13 @@ class (HasFileCacheTop m,
   askCacheAcid :: m (AcidState (CacheMap key val))
   buildCacheValue :: (MonadIO m, MonadCatch m) => key -> ExceptT FileError m val
 
--- | Call the build function on cache miss to build the value.
-cacheInsert ::
-  forall key val m. (MonadFileCache key val m, MonadIO m, MonadCatch m)
-  => key -> m (Either FileError val)
-cacheInsert key = cacheLook key >>= maybe (cacheMiss key) return
-
-cacheMiss ::
-  forall key val m. (MonadFileCache key val m, MonadIO m, MonadCatch m)
-  => key -> m (Either FileError val)
-cacheMiss key = runExceptT (buildCacheValue key) >>= cachePut key
-
 cachePut ::
   forall key val m. (MonadFileCache key val m, MonadIO m)
-  => key -> Either FileError val -> m (Either FileError val)
+  => key -> Either FileError val -> ExceptT FileError m val
 cachePut key val = do
-  st <- askCacheAcid
+  st <- lift askCacheAcid
   liftIO (update st (PutValue key val))
+  liftEither val
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
@@ -653,7 +643,7 @@ buildImage key@(ImageOriginal csum typ) = do
             case exists of
               False -> do
                 let e = CacheDamage ("buildImage - missing original: " <> T.pack (show key <> " -> " <> path))
-                lift (cachePut key (Left e :: Either FileError ImageFile))
+                cachePut key (Left e :: Either FileError ImageFile)
                 throwError e
               True -> do
                 bs <- lyftIO (BS.readFile path)
@@ -662,7 +652,7 @@ buildImage key@(ImageOriginal csum typ) = do
                   False -> do
                     let e = CacheDamage ("buildImage - original damaged: " <> T.pack (show key <> " -> " <> path))
                     alog "Data.FileCache.Server" ERROR ("Checksum mismatch - " <> show e)
-                    lift (cachePut key (Left e :: Either FileError ImageFile))
+                    cachePut key (Left e :: Either FileError ImageFile)
                     throwError e
                   True -> do
                     alog "Data.FileCache.Server" ALERT ("recaching " ++ show key)
@@ -743,23 +733,32 @@ cacheOriginalImage x = do
   exists <- liftIO $ doesFileExist path
   unless exists $ lyftIO $ writeFileReadable path bs
   let key = originalKey img
-  (key,) <$> (lift (cachePut key (Right img)) >>= liftEither)
+  (key,) <$> cachePut key (Right img)
 
 -- | Build an image map in the state monad
 cacheDerivedImages ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m,
              MonadState (Map ImageKey (Either FileError ImageFile)) m)
-  => [ImageKey]
+  => Bool
+  -> [ImageKey]
   -> m ()
-cacheDerivedImages =
-  mapM_ (\key -> runExceptT (cacheDerivedImage key) >>= modify . Map.insert key)
+cacheDerivedImages retry =
+  mapM_ (\key -> runExceptT (cacheDerivedImage retry key) >>= modify . Map.insert key)
 
 -- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.
 cacheDerivedImage :: forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
-  => ImageKey
+  => Bool
+  -> ImageKey
   -> ExceptT FileError m ImageFile
-cacheDerivedImage key = lift (cacheInsert key) >>= liftEither
+cacheDerivedImage retry key =
+  lift (cacheLook key) >>= maybe (cacheMiss key) (either (cacheError retry key) return)
+  where
+    cacheMiss key = tryError (buildCacheValue key) >>= cachePut key
+    -- A FileError is stored in the cache.  Should we try to build the
+    -- image again?  Probably not always.
+    cacheError True key _e = cacheMiss key
+    cacheError False _key e = throwError e
 
 -- | Integrity testing
 validateImageKey ::
