@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveLift, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators, UndecidableInstances #-}
+{-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators, UndecidableInstances #-}
 
 module Data.FileCache.Server
   ( -- * Cache Events
@@ -37,6 +37,7 @@ module Data.FileCache.Server
   ) where
 
 -- import "regex-compat-tdfa" Text.Regex ( Regex, mkRegex, matchRegex )
+import Control.Concurrent (forkIO, ThreadId)
 import Control.Exception ( throw )
 import Control.Lens ( (%=), _1, _2, at, view )
 import Control.Monad ( unless, when )
@@ -678,7 +679,8 @@ cacheDerivedImages retry =
 
 -- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.
-cacheDerivedImage :: forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
+cacheDerivedImage ::
+  forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
   => Bool
   -> ImageKey
   -> ExceptT FileError m ImageFile
@@ -688,33 +690,51 @@ cacheDerivedImage retry key@(ImageOriginal _ _) =
 cacheDerivedImage retry key =
   lift (cacheLook key) >>= maybe (cacheMiss key) (either (cacheError retry key) return)
   where
+    cacheMiss :: ImageKey -> ExceptT FileError m ImageFile
     cacheMiss key = tryError (cacheMiss' key) >>= cachePut key
+    cacheMiss' :: ImageKey -> ExceptT FileError m ImageFile
     cacheMiss' key = do
-      alog "Data.FileCache.Server" DEBUG ("cacheMiss - buildImageShape key=" <> show key)
+      -- alog "Data.FileCache.Server" DEBUG ("cacheMiss - buildImageShape key=" <> show key)
       (shape, rot) <- buildImageShape key
       cachePut key (Right (ImageFileShape shape)) -- Save the shape while the image is building
-#if 0
-      alog "Data.FileCache.Server" DEBUG ("cacheMis - buildImageFile key=" <> show key)
-      tryError (buildImageFile key shape) >>= cachePut key
-#endif
+      acid <- lift askCacheAcid
+      top <- lift fileCacheTop
+      -- Fork the expensive image build into the background.  These
+      -- also need to be done in a queue to prevent the possibility of
+      -- a million simultaneous image builds starting all at once, but
+      -- for testing this is ok.
+      _ <- liftIO (forkIO (cacheImageFile acid top key shape))
+      return (ImageFileShape shape)
     -- A FileError is stored in the cache.  Should we try to build the
     -- image again?  Probably not always.
     cacheError True key _e = cacheMiss key
     cacheError False _key e = throwError e
 
--- These currently don't buy us anything, we need functions that do
--- less work than buildImageBytes
+cacheImageFile :: AcidState (CacheMap ImageKey ImageFile) -> FileCacheTop -> ImageKey -> ImageShape -> IO ()
+cacheImageFile acid top key shape = do
+  (r :: Either FileError ImageFile) <- evalFileCacheT acid top () (runExceptT (tryError (buildImageFile key shape) >>= cachePut key))
+  return ()
+
+-- | These are meant to be inexpensive operations that determine the
+-- shape of the desired image, with the actual work of building them
+-- deferred and forked into the background.  Are they actually
+-- inexpensive?  We read the original bytestring and call file(1) to
+-- get the shape and orientation of that image, and the other
+-- operations are pure.
 buildImageShape ::
-  (MonadCatch m, MonadIO m, MonadFileCache ImageKey ImageFile m)
+  (MonadFileCache ImageKey ImageFile m, MonadIO m)
   => ImageKey -> ExceptT FileError m (ImageShape, Rotation)
-buildImageShape (ImageOriginal csum typ) =
-  buildOriginalImageBytes csum typ >>= getFileInfo
+buildImageShape key@(ImageOriginal csum typ) =
+  lift (cacheLook @ImageKey @ImageFile key) >>=
+  maybe (throwError (CacheDamage "Original image not in cache"))
+        (either throwError
+                (\case ImageFileReady img -> return (_imageShape img, ZeroHr)
+                       ImageFileShape s -> return (s, ZeroHr)))
+  -- buildOriginalImageBytes csum typ >>= getFileInfo
 buildImageShape (ImageUpright key) =
   uprightImageShape <$> buildImageShape key
-  -- buildUprightImageBytes key >>= getFileInfo
 buildImageShape (ImageCropped crop key) =
   cropImageShape crop <$> buildImageShape key
-  -- buildCroppedImageBytes crop key >>= getFileInfo
 buildImageShape (ImageScaled sz dpi key) =
   scaleImageShape sz dpi <$> buildImageShape key
 
@@ -742,8 +762,6 @@ cropImageShape crop@(ImageCrop{..}) (shape, rot) =
              -- Is this right?  I have no idea.
              , _imageShapeWidth = _imageShapeHeight shape - (topCrop + bottomCrop)
              , _imageShapeHeight = _imageShapeWidth shape - (leftCrop + rightCrop) }, rot)
-
-
 
 -- This could go in common
 scaleImageShape :: ImageSize -> Rational -> (ImageShape, Rotation) -> (ImageShape, Rotation)
