@@ -254,7 +254,7 @@ uprightImage' ::
   forall m. (MonadIO m, MonadCatch m)
   => BS.ByteString
   -> m (Maybe BS.ByteString)
-uprightImage' bs = -- $logException ERROR $ do
+uprightImage' bs =
   -- Use lyftIO' to turn the IOException into ExceptT FileError m,
   -- then flatten the two layers of ExceptT FileError into one, then
   -- turn the remaining one into a Maybe.
