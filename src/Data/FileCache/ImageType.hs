@@ -8,9 +8,9 @@ module Data.FileCache.ImageType
 
 import Control.Monad.Catch as Catch (Exception, MonadCatch, try)
 import Control.Lens (_2, view)
-import Data.Maybe(catMaybes)
+import Data.Maybe(catMaybes, listToMaybe)
 import Data.ByteString as BS (ByteString)
-import Data.FileCache.Common (FileError(NoShape), fromFileError, HasFileError, ImageShape(..), ImageType(..))
+import Data.FileCache.Common (FileError(NoShape), fromFileError, HasFileError, ImageShape(..), ImageType(..), Rotation(..))
 import Data.Text (pack)
 import Extra.Except (ExceptT, liftEither, liftIO, MonadIO, throwError)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
@@ -24,16 +24,25 @@ import Data.ByteString.UTF8 (toString)
 getFileInfo ::
   forall e m. (MonadIO m, MonadCatch m, Exception e, HasFileError e)
   => BS.ByteString
-  -> ExceptT e m ImageShape
+  -> ExceptT e m (ImageShape, Rotation)
 getFileInfo bytes =
   Catch.try (liftIO (LL.readProcessWithExitCode cmd args bytes)) >>= liftEither >>= test . view _2
     where
       cmd = "file"
       args = ["-b", "-"]
-      test :: BS.ByteString -> ExceptT e m ImageShape
-      test s = case parse pFileOutput "<text>" (pack (toString s)) of
-                 Right (typ, [(w, h)]) -> return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h}
-                 _ -> throwError (fromFileError NoShape)
+      test :: BS.ByteString -> ExceptT e m (ImageShape, Rotation)
+      test s =
+        let (Right (typ, attrs)) = parse pFileOutput "<text>" (pack (toString s)) in
+        case (listToMaybe (catMaybes (fmap findShape attrs)), listToMaybe (catMaybes (fmap findRotation attrs))) of
+          (Just (w, h), Just rot) ->
+            return $ (ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h}, rot)
+          _ -> throwError (fromFileError NoShape)
+      findShape :: ImageAttribute -> Maybe (Int, Int)
+      findShape (Shape shape) = Just shape
+      findShape _ = Nothing
+      findRotation :: ImageAttribute -> Maybe Rotation
+      findRotation (Orientation rotation) = Just rotation
+      findRotation _ = Nothing
 #if 0
       test s = maybe (fail $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") return (foldr (testre (P.toString s)) Nothing reTests)
       testre :: String -> (Regex, ImageType) -> Maybe ImageType -> Maybe ImageType
@@ -47,22 +56,40 @@ getFileInfo bytes =
               ,(mkRegex "GIF image data", GIF)]
 #endif
 
-pFileOutput :: Parser (ImageType, [(Int, Int)])
+data ImageAttribute = Shape (Int, Int) | Orientation Rotation deriving Show
+
+pFileOutput :: Parser (ImageType, [ImageAttribute])
 pFileOutput =
   (,) <$> choice [pPPM, pJPEG, pPNG, pGIF]
-      <*> (catMaybes <$> (sepBy (Parsec.try pShape <|> pNotAShape) pSep))
+      <*> (catMaybes <$> (sepBy (Parsec.try pShape <|> pOrientation <|> pNotAShape) pSep))
 
 pSep :: Parser ()
 pSep = spaces >> char ',' >> spaces
 
-pShape :: Parser (Maybe (Int, Int))
+pShape :: Parser (Maybe ImageAttribute)
 pShape = do
   w <- read <$> many1 digit
   pBy
   h <- read <$> many1 digit
-  return $ Just (w, h)
+  return $ Just $ Shape (w, h)
 
-pNotAShape :: Parser (Maybe (Int, Int))
+pOrientation :: Parser (Maybe ImageAttribute)
+pOrientation = do
+  (Just . testOrientation) <$> (string "orientation=" *> many1 (noneOf [',', ' ']))
+  where
+    testOrientation :: String -> ImageAttribute
+    testOrientation "upper-left" = Orientation ZeroHr
+    testOrientation "upper-right" = Orientation ThreeHr
+    testOrientation "lower-left" = Orientation NineHr
+    testOrientation "lower-right" = Orientation SixHr
+    testOrientation s = Orientation ZeroHr
+
+{-
+Data.ByteString.readFile "/srv/appraisalscribe3-development/images/00/00314183eddf66b90c7e60cf7d88d993.jpg" >>= runExceptT @FileError . getFileInfo
+Data.ByteString.readFile "/srv/appraisalscribe3-development/images/00/00af3c5fc686cba7bacd6e9415308b66.jpg" >>= runExceptT @FileError . getFileInfo
+-}
+
+pNotAShape :: Parser (Maybe ImageAttribute)
 pNotAShape = many (noneOf [',']) >> pure Nothing
 
 pBy :: Parser ()

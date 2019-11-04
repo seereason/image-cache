@@ -650,7 +650,7 @@ cacheOriginalImage ::
 cacheOriginalImage x = do
   bs <- makeByteString x
   let csum = T.pack $ show $ md5 $ fromStrict bs
-  ImageShape {..} <- getFileInfo bs
+  (ImageShape {..}, rotation) <- getFileInfo bs
   let file = File { _fileSource = Nothing
                   , _fileChksum = csum
                   , _fileMessages = []
@@ -690,9 +690,13 @@ cacheDerivedImage retry key =
   where
     cacheMiss key = tryError (cacheMiss' key) >>= cachePut key
     cacheMiss' key = do
-      shape <- buildImageShape key
-      -- cachePut key (Right shape) -- Need to change the types for this to work
-      buildImageFile key shape
+      alog "Data.FileCache.Server" DEBUG ("cacheMiss - buildImageShape key=" <> show key)
+      (shape, rot) <- buildImageShape key
+      cachePut key (Right (ImageFileShape shape)) -- Save the shape while the image is building
+#if 0
+      alog "Data.FileCache.Server" DEBUG ("cacheMis - buildImageFile key=" <> show key)
+      tryError (buildImageFile key shape) >>= cachePut key
+#endif
     -- A FileError is stored in the cache.  Should we try to build the
     -- image again?  Probably not always.
     cacheError True key _e = cacheMiss key
@@ -702,11 +706,56 @@ cacheDerivedImage retry key =
 -- less work than buildImageBytes
 buildImageShape ::
   (MonadCatch m, MonadIO m, MonadFileCache ImageKey ImageFile m)
-  => ImageKey -> ExceptT FileError m ImageShape
-buildImageShape (ImageOriginal csum typ) = buildOriginalImageBytes csum typ >>= getFileInfo
-buildImageShape (ImageUpright key) = buildUprightImageBytes key >>= getFileInfo
-buildImageShape (ImageScaled sz dpi key) = buildScaledImageBytes sz dpi key >>= getFileInfo
-buildImageShape (ImageCropped crop key) = buildCroppedImageBytes crop key >>= getFileInfo
+  => ImageKey -> ExceptT FileError m (ImageShape, Rotation)
+buildImageShape (ImageOriginal csum typ) =
+  buildOriginalImageBytes csum typ >>= getFileInfo
+buildImageShape (ImageUpright key) =
+  uprightImageShape <$> buildImageShape key
+  -- buildUprightImageBytes key >>= getFileInfo
+buildImageShape (ImageCropped crop key) =
+  cropImageShape crop <$> buildImageShape key
+  -- buildCroppedImageBytes crop key >>= getFileInfo
+buildImageShape (ImageScaled sz dpi key) =
+  scaleImageShape sz dpi <$> buildImageShape key
+
+uprightImageShape :: (ImageShape, Rotation) -> (ImageShape, Rotation)
+uprightImageShape (shape, NineHr) = uprightImageShape (shape, ThreeHr)
+uprightImageShape (shape, ThreeHr) =
+     (shape { _imageShapeType = JPEG
+            , _imageShapeWidth = _imageShapeHeight shape
+            , _imageShapeHeight = _imageShapeWidth shape }, ZeroHr)
+uprightImageShape (shape, SixHr) = uprightImageShape (shape, ZeroHr)
+uprightImageShape (shape, ZeroHr) = (shape, ZeroHr)
+
+cropImageShape :: ImageCrop -> (ImageShape, Rotation) -> (ImageShape, Rotation)
+cropImageShape crop shape | crop == def = shape
+cropImageShape crop@(ImageCrop{..}) (shape, rot) =
+  case rotation of
+    SixHr -> cropImageShape (crop {rotation = ZeroHr}) (shape, rot)
+    NineHr -> cropImageShape (crop {rotation = ThreeHr}) (shape, rot)
+    ZeroHr ->
+      (shape { _imageShapeType = JPEG
+             , _imageShapeWidth = _imageShapeWidth shape - (leftCrop + rightCrop)
+             , _imageShapeHeight = _imageShapeHeight shape - (topCrop + bottomCrop) }, rot)
+    ThreeHr ->
+      (shape { _imageShapeType = JPEG
+             -- Is this right?  I have no idea.
+             , _imageShapeWidth = _imageShapeHeight shape - (topCrop + bottomCrop)
+             , _imageShapeHeight = _imageShapeWidth shape - (leftCrop + rightCrop) }, rot)
+
+
+
+-- This could go in common
+scaleImageShape :: ImageSize -> Rational -> (ImageShape, Rotation) -> (ImageShape, Rotation)
+scaleImageShape sz dpi (shape, rot) =
+  if approx (toRational scale) == 1
+  then (shape, rot)
+  else (shape { _imageShapeType = JPEG -- the scaling pipeline results in a jpeg file
+              , _imageShapeWidth = round (fromIntegral (_imageShapeWidth shape) * scale)
+              , _imageShapeHeight = round (fromIntegral (_imageShapeHeight shape) * scale) }, rot)
+  where
+    scale' = scaleFromDPI sz dpi shape
+    scale = fromRat (fromMaybe 1 scale')
 
 buildImageFile ::
   (MonadCatch m, MonadIO m, MonadFileCache ImageKey ImageFile m)
@@ -780,14 +829,14 @@ buildScaledImageBytes ::
 buildScaledImageBytes sz dpi key = do
   bs <- buildImageBytes key
   -- the buildImageBytes that just ran might have this info
-  shape@ImageShape {..} <- getFileInfo bs
+  (shape@ImageShape {..}, _) <- getFileInfo bs
   let scale' = scaleFromDPI sz dpi shape
       scale = fromRat (fromMaybe 1 scale')
   scaleImage' scale bs _imageShapeType >>= maybe (return bs) return
 
 buildCroppedImageBytes crop key = do
   bs <- buildImageBytes key
-  shape@ImageShape {..} <- getFileInfo bs
+  (shape@ImageShape {..}, rot) <- getFileInfo bs
   editImage' crop bs _imageShapeType (imageShape shape) >>= maybe (return bs) return
 
 -- | Look up the image FilePath and read the ByteString it contains.
