@@ -655,15 +655,16 @@ cacheOriginalImage x = do
                   , _fileChksum = csum
                   , _fileMessages = []
                   , _fileExt = fileExtension _imageShapeType }
-  let img = ImageFile { _imageFile = file
-                      , _imageFileShape = ImageShape { _imageShapeType = _imageShapeType
-                                                     , _imageShapeWidth = _imageShapeWidth
-                                                     , _imageShapeHeight = _imageShapeHeight } }
-  path <- fileCachePathIO (ImageCached (ImageOriginal csum _imageShapeType) img)
+  let img = ImageReady { _imageFile = file
+                       , _imageShape = ImageShape { _imageShapeType = _imageShapeType
+                                                  , _imageShapeWidth = _imageShapeWidth
+                                                  , _imageShapeHeight = _imageShapeHeight } }
+  path <- fileCachePathIO (ImageCached (ImageOriginal csum _imageShapeType) (ImageFileReady img))
   exists <- liftIO $ doesFileExist path
   unless exists $ lyftIO $ writeFileReadable path bs
   let key = originalKey img
-  (key,) <$> cachePut key (Right img)
+  alog "Data.FileCache.Server" DEBUG ("cachePut " ++ show key)
+  (key,) <$> cachePut key (Right (ImageFileReady img))
 
 -- | Build an image map in the state monad
 cacheDerivedImages ::
@@ -716,7 +717,7 @@ buildImageFile key shape = do
                   , _fileChksum = T.pack $ show $ md5 $ fromStrict bs
                   , _fileMessages = []
                   , _fileExt = fileExtension (_imageShapeType shape) }
-  let img = ImageFile { _imageFile = file, _imageFileShape = shape }
+  let img = ImageFileReady (ImageReady { _imageFile = file, _imageShape = shape })
   path <- fileCachePathIO (ImageCached key img)
   exists <- liftIO $ doesFileExist path
   unless exists $ liftIO $ writeFileReadable path bs
@@ -826,7 +827,8 @@ validateImageKey key = do
 validateImageFile ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m, MonadError FileError m)
   => ImageKey -> ImageFile -> m ()
-validateImageFile key i@(ImageFile {..}) = do
+validateImageFile key (ImageFileShape _) = return ()
+validateImageFile key (ImageFileReady i@(ImageReady {..})) = do
   path <- fileCachePath (ImagePath key (imageType i))
   when (imageType i == JPEG)
     (liftIO (validateJPG path) >>=

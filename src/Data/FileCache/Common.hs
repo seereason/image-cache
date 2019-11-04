@@ -44,6 +44,7 @@ module Data.FileCache.Common
 
     -- * ImageFile, ImageShape
   , ImageFile(..)
+  , ImageReady(..)
   , ImageShape(..)
 
     -- * ImageKey
@@ -484,23 +485,34 @@ instance Arbitrary FileSource where
 -- * ImageFile
 
 data ImageFile
-  = ImageFileShape {_imageFileShape :: ImageShape}
-  | ImageFile {_imageFile :: File, _imageFileShape :: ImageShape}
+  = ImageFileShape ImageShape
+  | ImageFileReady ImageReady
+  deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+data ImageReady
+  = ImageReady {_imageFile :: File, _imageShape :: ImageShape}
   deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
 instance SafeCopy ImageFile where version = 3; kind = extension
+instance SafeCopy ImageReady where version = 1
 
 instance Migrate ImageFile where
   type MigrateFrom ImageFile = ImageFile_2
-  migrate (ImageFile_2 f s) = ImageFile f s
+  migrate (ImageFile_2 f s) = ImageFileReady (ImageReady f s)
 
 instance Serialize ImageFile where get = safeGet; put = safePut
+instance Serialize ImageReady where get = safeGet; put = safePut
 
 instance Pretty ImageFile where
   pPrint (ImageFileShape s) = text "ImageFileShape (" <> pPrint s <> text ")"
-  pPrint (ImageFile f s) = text "ImageFile (" <> pPrint f <> text ") (" <> pPrint s <> text ")"
+  pPrint (ImageFileReady f) = text "ImageFileReady (" <> pPrint f <> text ")"
+instance Pretty ImageReady where
+  pPrint (ImageReady f s) = text "ImageReady (" <> pPrint f <> text ") (" <> pPrint s <> text ")"
 instance HasImageType ImageFile where
-  imageType = imageType . _imageFileShape
+  imageType (ImageFileReady f) = imageType f
+  imageType (ImageFileShape s) = imageType s
+instance HasImageType ImageReady where
+  imageType = imageType . _imageShape
 
 -- * ImageFile
 
@@ -534,7 +546,11 @@ instance View (Maybe ImageFile) where
   _View = iso (maybe "" show) readMaybe
 
 instance HasImageShape ImageFile where
-  imageShape = imageShape . _imageFileShape
+  imageShape (ImageFileReady f) = imageShape f
+  imageShape (ImageFileShape f) = imageShape f
+
+instance HasImageShape ImageReady where
+  imageShape = imageShape . _imageShape
 
 -- * ImageShape
 
@@ -599,7 +615,10 @@ instance Migrate ImageKey_3 where
   type MigrateFrom ImageKey_3 = ImageKey_2
   migrate (ImageOriginal_2 i) =
     -- We need to update the image original types with a migration of CacheMap
-    ImageOriginal_3 (_fileChksum f) where f = _imageFile i
+    ImageOriginal_3 (_fileChksum f)
+    where f = case i of
+                ImageFileShape s -> error "unexpected value during migration"
+                ImageFileReady f -> _imageFile f
   migrate (ImageCropped_2 crop key) = ImageCropped_3 crop key
   migrate (ImageScaled_2 size dpi key) = ImageScaled_3 size dpi key
   migrate (ImageUpright_2 key) = ImageUpright_3 key
@@ -633,8 +652,11 @@ class OriginalKey a where
   originalKey :: a -> ImageKey
 instance OriginalKey (Checksum, ImageType) where -- danger - Checksum is just String
   originalKey = uncurry ImageOriginal
-instance OriginalKey ImageFile where
-  originalKey i = originalKey (_imageFile i, _imageFileShape i)
+--instance OriginalKey ImageFile where
+--  originalKey (ImageFileReady i) = originalKey i
+--  originalKey (ImageFileShape i) = originalKey i
+instance OriginalKey ImageReady where
+  originalKey i = originalKey (_imageFile i, _imageShape i)
 instance OriginalKey (File, ImageShape) where
   originalKey (f, shape) = originalKey (f, _imageShapeType shape)
 instance OriginalKey (File, ImageType) where
@@ -642,17 +664,17 @@ instance OriginalKey (File, ImageType) where
 
 class UprightKey a where
   uprightKey :: a -> ImageKey
-instance UprightKey ImageFile where
+instance UprightKey ImageReady where
   uprightKey img = ImageUpright (originalKey img)
 
 class EditedKey a where
   editedKey :: a -> ImageKey
-instance EditedKey ImageFile where
+instance EditedKey ImageReady where
   editedKey img = uprightKey img
 
 class HasImageSize size => ScaledKey size a where
   scaledKey :: size -> Rational -> a -> ImageKey
-instance ScaledKey ImageSize ImageFile where
+instance ScaledKey ImageSize ImageReady where
   scaledKey size dpi x = ImageScaled (imageSize size) dpi (editedKey x)
 
 -- * FileError, CommandInfo
@@ -878,6 +900,7 @@ $(concat <$>
   sequence
   [ makeValueInstance [] [t|Rational|]
   , makePathInstances [FIELDS] ''ImageFile
+  , makePathInstances [FIELDS] ''ImageReady
   , makePathInstances [FIELDS] ''ImageShape
   , makePathInstances [] ''ImageType
   , makePathInstances [FIELDS] ''ImageSize
