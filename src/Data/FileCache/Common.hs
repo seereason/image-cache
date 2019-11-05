@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, TemplateHaskell, UndecidableInstances #-}
+{-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, RecordWildCards, TemplateHaskell, UndecidableInstances #-}
 
 module Data.FileCache.Common
   ( -- * Rational
@@ -23,10 +23,12 @@ module Data.FileCache.Common
   , widthInInches
   , widthInInches'
   , heightInInches
+  , scaleImageShape
 
     -- * ImageCrop
   , ImageCrop(..)
   , Rotation(..)
+  , cropImageShape
 
     -- * ImageType
   , ImageType(..)
@@ -77,7 +79,7 @@ import Control.Lens.Path.View ( viewIso )
 import qualified Data.ByteString as P ( ByteString{-, take-} )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
---import Data.Map ( Map )
+import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
 import Data.SafeCopy ( extension, Migrate(..), SafeCopy(..), safeGet, safePut )
@@ -276,6 +278,18 @@ instance Pretty ImageShape where
     text "ImageShape (" <> pPrint typ <> text (", " <> show w <> "x" <> show h <> ")")
 
 instance HasImageType ImageShape where imageType = _imageShapeType
+
+scaleImageShape :: ImageSize -> Rational -> ImageShape -> ImageShape
+scaleImageShape sz dpi shape =
+  if approx (toRational scale) == 1
+  then shape
+  else shape { _imageShapeType = JPEG -- the scaling pipeline results in a jpeg file
+             , _imageShapeWidth = round (fromIntegral (_imageShapeWidth shape) * scale)
+             , _imageShapeHeight = round (fromIntegral (_imageShapeHeight shape) * scale) }
+  where
+    scale' = scaleFromDPI sz dpi shape
+    scale :: Double
+    scale = fromRat (fromMaybe 1 scale')
 
 -- * HasImageShape
 
@@ -381,6 +395,22 @@ instance Serialize Rotation where get = safeGet; put = safePut
 
 instance Pretty ImageCrop where
     pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
+
+cropImageShape :: ImageCrop -> (ImageShape, Rotation) -> (ImageShape, Rotation)
+cropImageShape crop shape | crop == def = shape
+cropImageShape crop@(ImageCrop{..}) (shape, rot) =
+  case rotation of
+    SixHr -> cropImageShape (crop {rotation = ZeroHr}) (shape, rot)
+    NineHr -> cropImageShape (crop {rotation = ThreeHr}) (shape, rot)
+    ZeroHr ->
+      (shape { _imageShapeType = JPEG
+             , _imageShapeWidth = _imageShapeWidth shape - (leftCrop + rightCrop)
+             , _imageShapeHeight = _imageShapeHeight shape - (topCrop + bottomCrop) }, rot)
+    ThreeHr ->
+      (shape { _imageShapeType = JPEG
+             -- Is this right?  I have no idea.
+             , _imageShapeWidth = _imageShapeHeight shape - (topCrop + bottomCrop)
+             , _imageShapeHeight = _imageShapeWidth shape - (leftCrop + rightCrop) }, rot)
 
 -- * ImageType and Checksum
 

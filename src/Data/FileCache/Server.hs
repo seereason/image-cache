@@ -821,35 +821,6 @@ uprightImageShape (shape, ThreeHr) =
 uprightImageShape (shape, SixHr) = uprightImageShape (shape, ZeroHr)
 uprightImageShape (shape, ZeroHr) = (shape, ZeroHr)
 
-cropImageShape :: ImageCrop -> (ImageShape, Rotation) -> (ImageShape, Rotation)
-cropImageShape crop shape | crop == def = shape
-cropImageShape crop@(ImageCrop{..}) (shape, rot) =
-  case rotation of
-    SixHr -> cropImageShape (crop {rotation = ZeroHr}) (shape, rot)
-    NineHr -> cropImageShape (crop {rotation = ThreeHr}) (shape, rot)
-    ZeroHr ->
-      (shape { _imageShapeType = JPEG
-             , _imageShapeWidth = _imageShapeWidth shape - (leftCrop + rightCrop)
-             , _imageShapeHeight = _imageShapeHeight shape - (topCrop + bottomCrop) }, rot)
-    ThreeHr ->
-      (shape { _imageShapeType = JPEG
-             -- Is this right?  I have no idea.
-             , _imageShapeWidth = _imageShapeHeight shape - (topCrop + bottomCrop)
-             , _imageShapeHeight = _imageShapeWidth shape - (leftCrop + rightCrop) }, rot)
-
--- This could go in common
-scaleImageShape :: ImageSize -> Rational -> (ImageShape, Rotation) -> (ImageShape, Rotation)
-scaleImageShape sz dpi (shape, rot) =
-  if approx (toRational scale) == 1
-  then (shape, rot)
-  else (shape { _imageShapeType = JPEG -- the scaling pipeline results in a jpeg file
-              , _imageShapeWidth = round (fromIntegral (_imageShapeWidth shape) * scale)
-              , _imageShapeHeight = round (fromIntegral (_imageShapeHeight shape) * scale) }, rot)
-  where
-    scale' = scaleFromDPI sz dpi shape
-    scale :: Double
-    scale = fromRat (fromMaybe 1 scale')
-
 buildImageFile ::
   (MonadCatch m, MonadIO m, MonadFileCache ImageKey ImageFile m)
   => ImageKey -> ImageShape -> ExceptT FileError m ImageFile
