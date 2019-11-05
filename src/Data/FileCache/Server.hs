@@ -590,7 +590,7 @@ editImage' crop bs typ shape =
                  SixHr -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
                  NineHr -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
                  ZeroHr -> Nothing
-      (w, h) = imageShape shape
+      ImageShape {_imageShapeWidth = w, _imageShapeHeight = h} = imageShape shape
       buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
       buildPipeline start [] end = convert start end
       buildPipeline start (Nothing : ops) end = buildPipeline start ops end

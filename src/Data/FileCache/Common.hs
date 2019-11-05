@@ -16,7 +16,8 @@ module Data.FileCache.Common
   , saneSize
   , SaneSize(..) -- , unSaneSize
   , defaultSize
-    -- * HasImageShape
+    -- * ImageShape, HasImageShape
+  , ImageShape(..)
   , HasImageShape(..)
   , scaleFromDPI
   , widthInInches
@@ -42,10 +43,9 @@ module Data.FileCache.Common
   -- , addMessage
   , HasURIPath(toURIPath, toURIDir)
 
-    -- * ImageFile, ImageShape
+    -- * ImageFile, ImageReady
   , ImageFile(..)
   , ImageReady(..)
-  , ImageShape(..)
 
     -- * ImageKey
   , ImageKey(..)
@@ -255,16 +255,35 @@ inches sz =
                 (_, Cm) -> 254 % 100
                 (_, Points) -> 7227 % 100
 
+-- * ImageShape
+
+instance HasImageShape ImageShape where
+  imageShape s = s
+
+data ImageShape
+  = ImageShape
+      { _imageShapeType :: ImageType
+      , _imageShapeWidth :: Int
+      , _imageShapeHeight :: Int
+      -- , _imageFileMaxVal :: Int
+      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance Serialize ImageShape where get = safeGet; put = safePut
+instance SafeCopy ImageShape
+
+instance Pretty ImageShape where
+  pPrint (ImageShape typ w h) =
+    text "ImageShape (" <> pPrint typ <> text (", " <> show w <> "x" <> show h <> ")")
+
+instance HasImageType ImageShape where imageType = _imageShapeType
+
 -- * HasImageShape
 
 -- | A class whose primary (only?) instance is ImageFile.  Access to
 -- the original dimensions of the image, so we can compute the aspect
 -- ratio.
 class HasImageShape a where
-  imageShape :: a -> (Int, Int)  -- (w, h)
-
-instance HasImageShape (Int, Int) where
-  imageShape = id
+  imageShape :: a -> ImageShape
 
 -- |Given the desired DPI and image dimensions, return the factor by
 -- which an image should be scaled.  Result of Nothing means the scale
@@ -279,18 +298,18 @@ scaleFromDPI sz dpi file =
       -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
       TheArea -> Just (rsqrt (inches sz * dpi * dpi / (fromIntegral w * fromIntegral h)))
     where
-      (w, h) = imageShape file
+      ImageShape {_imageShapeHeight = h, _imageShapeWidth = w} = imageShape file
 
 widthInInches :: HasImageShape a => a -> ImageSize -> Rational
 widthInInches p s =
     case _dim s of
       TheWidth -> toInches (_units s) (_size s)
-      TheHeight -> widthInInches p (s {_dim = TheWidth, _size = approx (_size s / r)})
-      TheArea -> widthInInches p (s {_dim = TheWidth, _size = approx (rsqrt (_size s / r))})
+      TheHeight -> widthInInches p (s {_dim = TheWidth, _size = approx (_size s / aspect)})
+      TheArea -> widthInInches p (s {_dim = TheWidth, _size = approx (rsqrt (_size s / aspect))})
     where
-      (w, h) = imageShape p
-      r :: Rational
-      r = fromIntegral h % fromIntegral w
+      ImageShape {_imageShapeWidth = w, _imageShapeHeight = h} = imageShape p
+      aspect :: Rational
+      aspect = fromIntegral h % fromIntegral w
       toInches :: Units -> Rational -> Rational
       toInches Inches x = x
       toInches Cm x = x / (254 % 100)
@@ -300,12 +319,12 @@ heightInInches :: HasImageShape a => a -> ImageSize -> Rational
 heightInInches p s =
     case _dim s of
       TheHeight -> toInches (_units s) (_size s)
-      TheWidth -> heightInInches p (s {_dim = TheHeight, _size = approx (_size s / r)})
-      TheArea -> heightInInches p (s {_dim = TheHeight, _size = approx (rsqrt (_size s / r))})
+      TheWidth -> heightInInches p (s {_dim = TheHeight, _size = approx (_size s / aspect)})
+      TheArea -> heightInInches p (s {_dim = TheHeight, _size = approx (rsqrt (_size s / aspect))})
     where
-      (w, h) = imageShape p
-      r :: Rational
-      r = fromIntegral h % fromIntegral w
+      ImageShape {_imageShapeWidth = w, _imageShapeHeight = h} = imageShape p
+      aspect :: Rational
+      aspect = fromIntegral h % fromIntegral w
       toInches Inches x = x
       toInches Cm x = x / (254 % 100)
       toInches Points x = x / (7227 % 100)
@@ -530,28 +549,6 @@ instance HasImageShape ImageFile where
 
 instance HasImageShape ImageReady where
   imageShape = imageShape . _imageShape
-
--- * ImageShape
-
-instance HasImageShape ImageShape where
-  imageShape s = (_imageShapeWidth s, _imageShapeHeight s)
-
-data ImageShape
-  = ImageShape
-      { _imageShapeType :: ImageType
-      , _imageShapeWidth :: Int
-      , _imageShapeHeight :: Int
-      -- , _imageFileMaxVal :: Int
-      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
-
-instance Serialize ImageShape where get = safeGet; put = safePut
-instance SafeCopy ImageShape
-
-instance Pretty ImageShape where
-  pPrint (ImageShape typ w h) =
-    text "ImageShape (" <> pPrint typ <> text (", " <> show w <> "x" <> show h <> ")")
-
-instance HasImageType ImageShape where imageType = _imageShapeType
 
 -- * ImageKey
 
