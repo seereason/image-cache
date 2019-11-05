@@ -1,8 +1,12 @@
 {-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators, UndecidableInstances #-}
 
 module Data.FileCache.Server
-  ( -- * Cache Events
-    initCacheMap
+  ( -- * FileCacheTop
+    FileCacheTop(..)
+  , HasFileCacheTop(fileCacheTop)
+  , CacheMap(..)
+    -- * Cache Events
+  , initCacheMap
   , openCache
   , PutValue(..)
   , PutValues(..)
@@ -12,17 +16,16 @@ module Data.FileCache.Server
   , DeleteValue(..)
   , DeleteValues(..)
   , SetImageFileTypes(..)
-  -- * Image IO
+    -- * Image IO
   , validateJPG
-  -- * File Cache
-  -- , fileCacheDir
+    -- * File Cache
   , fileCachePath
   , fileCachePathIO
   , FileCacheT
   , runFileCacheT, evalFileCacheT, execFileCacheT
   , MonadFileCache
   , cacheLook, cacheDelete, cacheMap
-  -- * Image Cache
+    -- * Image Cache
   , ImageCacheT
   , MonadImageCache
   , cacheOriginalImage
@@ -43,7 +46,7 @@ import Control.Lens ( (%=), _1, _2, at, view )
 import Control.Monad ( unless, when )
 import Control.Monad.Catch ( MonadCatch, try )
 import Control.Monad.RWS ( modify, MonadState, RWST(runRWST) )
-import Control.Monad.Reader ( MonadReader(ask) )
+import Control.Monad.Reader ( MonadReader(ask), ReaderT )
 import Control.Monad.Trans ( MonadTrans(lift), liftIO )
 import Control.Monad.Trans.Except ( ExceptT, runExceptT )
 import Data.Acid ( AcidState, makeAcidic, openLocalStateFrom, Query, Update, query, update )
@@ -66,13 +69,14 @@ import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, inse
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
-import Data.SafeCopy ( SafeCopy )
+import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..), SafeCopy(..), SafeCopy' )
 import Data.Set as Set ( Set )
 import Data.Text as T ( pack, Text )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
 import Extra.Except ( catchError, HasIOException(fromIOException), liftEither, logIOError, MonadError, MonadIO, throwError, tryError, withExceptT )
 import Extra.Log ( alog )
+import GHC.Generics (Generic)
 import GHC.IO.Exception ( IOException )
 import GHC.Int ( Int64 )
 import Language.Haskell.TH.Instances ()
@@ -141,6 +145,67 @@ lyftIO' ::
   => m a
   -> ExceptT e m a
 lyftIO' io = withExceptT fromIOException (lift (try io) >>= liftEither)
+
+-- * FileCacheTop
+
+newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
+
+-- | Class of monads with a 'FilePath' value containing the top
+-- directory of a file cache.
+class Monad m => HasFileCacheTop m where
+    fileCacheTop :: m FileCacheTop
+
+instance (Monad m, Monoid w) => HasFileCacheTop (RWST (acid, FileCacheTop) w s m) where
+    fileCacheTop = view _2
+
+instance Monad m => HasFileCacheTop (ReaderT (acid, FileCacheTop) m) where
+    fileCacheTop = view _2
+
+instance HasFileCacheTop m => HasFileCacheTop (ExceptT e m) where
+    fileCacheTop = lift fileCacheTop
+
+-- * CacheMap
+
+-- Later we could make FileError a type parameter, but right now its
+-- tangled with the MonadError type.
+data CacheMap key val =
+    CacheMap {_unCacheMap :: Map key (Either FileError val)}
+    deriving (Generic, Eq, Ord)
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap key val) where
+  version = 3
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap"
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => Migrate (CacheMap key val) where
+  type MigrateFrom (CacheMap key val) = CacheMap_2 key val
+  migrate (CacheMap_2 mp) =
+    CacheMap (fmap (\case Value_1 a -> Right a; Failed_1 e -> Left e; _ -> error "Migrate CacheMap") mp)
+
+data CacheMap_2 key val =
+    CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
+    deriving (Generic, Eq, Ord)
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
+  version = 2
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
+
+deriving instance (Show key, Show val) => Show (CacheMap key val)
+
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
+    type MigrateFrom (CacheMap_2 key val) = Map key val
+    migrate mp = CacheMap_2 (fmap Value_1 mp)
+
+data CacheValue_1 val
+    = InProgress_1
+    | Value_1 val
+    | Failed_1 FileError
+    deriving (Generic, Eq, Ord, Functor)
+
+deriving instance Show val => Show (CacheValue_1 val)
+
+$(deriveSafeCopy 1 'base ''CacheValue_1)
 
 -- * Events
 
