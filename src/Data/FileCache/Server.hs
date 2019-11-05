@@ -15,7 +15,6 @@ module Data.FileCache.Server
   , LookMap(..)
   , DeleteValue(..)
   , DeleteValues(..)
-  , SetImageFileTypes(..)
     -- * Image IO
   , validateJPG
     -- * File Cache
@@ -33,7 +32,7 @@ module Data.FileCache.Server
   , cacheDerivedImages
   , cacheDerivedImage
 
-  , setImageFileTypes
+  , fixImageShapes
   , validateImageKey
   , validateImageFile
   , tests
@@ -59,7 +58,7 @@ import Data.Char ( isSpace )
 import Data.Default (def)
 import Data.Digest.Pure.MD5 (md5)
 import Data.FileCache.Common
-import Data.FileCache.ImageType (getFileInfo)
+import Data.FileCache.ImageType ()
 import Data.FileCache.LogException (logException)
 import Data.Typeable -- ( (:~:), eqT, Typeable )
 import Data.Generics (mkT, everywhere)
@@ -219,10 +218,9 @@ putValue key img = do
   field @"_unCacheMap" %= Map.insert key img
 
 -- | Install several key/value pairs into the cache.
-putValues :: Ord key => Map key (Either FileError val) -> Update (CacheMap key val) (Map key (Either FileError val))
+putValues :: Ord key => Map key (Either FileError val) -> Update (CacheMap key val) ()
 putValues pairs = do
   field @"_unCacheMap" %= Map.union pairs
-  return pairs
 
 -- | Look up a key.
 lookValue :: Ord key => key -> Query (CacheMap key val) (Maybe (Either FileError val))
@@ -251,15 +249,18 @@ deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (cons
 -- do this in the CacheMap migration above because the types are too
 -- specific.  But this should be removed when 'ImageKey' version 2 is
 -- removed.
-setImageFileTypes :: forall key val. (Typeable key, Typeable val) => Update (CacheMap key val) ()
-setImageFileTypes =
-  case eqT :: Maybe ((key, val) :~: (ImageKey, ImageFile)) of
-    Nothing -> return ()
-    Just Refl -> modify (\(CacheMap mp) -> CacheMap (fromList (fixOriginalKeys (changes mp) (toList mp))))
+fixImageShapes ::
+     Map ImageKey (Either FileError ImageFile)
+  -> IO (Map ImageKey (Either FileError ImageFile))
+fixImageShapes mp =
+  return $ fromList (fixOriginalKeys (changes mp) (toList mp))
 
 -- | The repairs we need to perform on the original keys during 'setImageFileTypes'.
-changes :: Map ImageKey (Either FileError ImageFile) -> ImageKey -> ImageKey
-changes mp = \key -> maybe key id (Map.lookup key changeMap)
+changes ::
+     Map ImageKey (Either FileError ImageFile)
+  -> (ImageKey, Either FileError ImageFile)
+  -> (ImageKey, Either FileError ImageFile)
+changes mp = \(key, file) -> (maybe key id (Map.lookup key changeMap), file)
   where
     changeMap :: Map ImageKey ImageKey
     changeMap = fromList (fmap (\(key, img) -> (key, fixOriginalKey key img)) (toList mp))
@@ -267,13 +268,16 @@ changes mp = \key -> maybe key id (Map.lookup key changeMap)
     fixOriginalKey (ImageOriginal csum Unknown) (Right img) = ImageOriginal csum (imageType img)
     fixOriginalKey key _img = key
 
-fixOriginalKeys :: (ImageKey -> ImageKey) -> [(ImageKey, Either FileError ImageFile)] -> [(ImageKey, Either FileError ImageFile)]
+fixOriginalKeys ::
+     ((ImageKey, Either FileError ImageFile) -> (ImageKey, Either FileError ImageFile))
+  -> [(ImageKey, Either FileError ImageFile)]
+  -> [(ImageKey, Either FileError ImageFile)]
 fixOriginalKeys f pairs = everywhere (mkT f) pairs
 
-$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues, 'setImageFileTypes])
+$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
-openCache :: (SafeCopy key, Typeable key, Ord key,
-              SafeCopy val, Typeable val) => FilePath -> IO (AcidState (CacheMap key val))
+openCache :: (key ~ ImageKey, SafeCopy key, Typeable key,
+              val ~ ImageFile, SafeCopy val, Typeable val) => FilePath -> IO (AcidState (CacheMap key val))
 openCache path = openLocalStateFrom path initCacheMap
 
 initCacheMap :: Ord key => CacheMap key val
@@ -725,15 +729,12 @@ cacheOriginalImage ::
 cacheOriginalImage x = do
   bs <- makeByteString x
   let csum = T.pack $ show $ md5 $ fromStrict bs
-  (ImageShape {..}, rotation) <- getFileInfo bs
+  shape@ImageShape {..} <- imageShapeM bs
   let file = File { _fileSource = Nothing
                   , _fileChksum = csum
                   , _fileMessages = []
-                  , _fileExt = fileExtension _imageShapeType }
-  let img = ImageReady { _imageFile = file
-                       , _imageShape = ImageShape { _imageShapeType = _imageShapeType
-                                                  , _imageShapeWidth = _imageShapeWidth
-                                                  , _imageShapeHeight = _imageShapeHeight } }
+                  , _fileExt = fileExtension (imageType shape) }
+  let img = ImageReady { _imageFile = file, _imageShape = shape }
   path <- fileCachePathIO (ImageCached (ImageOriginal csum _imageShapeType) (ImageFileReady img))
   exists <- liftIO $ doesFileExist path
   unless exists $ lyftIO $ writeFileReadable path bs
@@ -769,7 +770,7 @@ cacheDerivedImage retry key =
     cacheMiss' :: ExceptT FileError m ImageFile
     cacheMiss' = do
       -- alog "Data.FileCache.Server" DEBUG ("cacheMiss - buildImageShape key=" <> show key)
-      (shape, rot) <- buildImageShape key
+      shape <- buildImageShape key
       cachePut' key (Right (ImageFileShape shape)) -- Save the shape while the image is building
       acid <- lift askCacheAcid
       top <- lift fileCacheTop
@@ -797,13 +798,13 @@ cacheImageFile acid top key shape = do
 -- operations are pure.
 buildImageShape ::
   (MonadFileCache ImageKey ImageFile m, MonadIO m)
-  => ImageKey -> ExceptT FileError m (ImageShape, Rotation)
+  => ImageKey -> ExceptT FileError m ImageShape
 buildImageShape key@(ImageOriginal _csum _typ) =
   lift (cacheLook @ImageKey @ImageFile key) >>=
   maybe (throwError (CacheDamage "Original image not in cache"))
         (either throwError
-                (\case ImageFileReady img -> return (_imageShape img, ZeroHr)
-                       ImageFileShape s -> return (s, ZeroHr)))
+                (\case ImageFileReady img -> return (_imageShape img)
+                       ImageFileShape s -> return s))
   -- buildOriginalImageBytes csum typ >>= getFileInfo
 buildImageShape (ImageUpright key) =
   uprightImageShape <$> buildImageShape key
@@ -812,14 +813,13 @@ buildImageShape (ImageCropped crop key) =
 buildImageShape (ImageScaled sz dpi key) =
   scaleImageShape sz dpi <$> buildImageShape key
 
-uprightImageShape :: (ImageShape, Rotation) -> (ImageShape, Rotation)
-uprightImageShape (shape, NineHr) = uprightImageShape (shape, ThreeHr)
-uprightImageShape (shape, ThreeHr) =
-     (shape { _imageShapeType = JPEG
-            , _imageShapeWidth = _imageShapeHeight shape
-            , _imageShapeHeight = _imageShapeWidth shape }, ZeroHr)
-uprightImageShape (shape, SixHr) = uprightImageShape (shape, ZeroHr)
-uprightImageShape (shape, ZeroHr) = (shape, ZeroHr)
+uprightImageShape :: ImageShape -> ImageShape
+uprightImageShape shape@(ImageShape {_imageFileOrientation = rot}) =
+  case rot of
+    ZeroHr -> shape
+    SixHr -> shape
+    ThreeHr -> shape
+    NineHr -> shape
 
 buildImageFile ::
   (MonadCatch m, MonadIO m, MonadFileCache ImageKey ImageFile m)
@@ -897,18 +897,18 @@ buildScaledImageBytes ::
 buildScaledImageBytes sz dpi key = do
   bs <- buildImageBytes key
   -- the buildImageBytes that just ran might have this info
-  (shape@ImageShape {..}, _) <- getFileInfo bs
+  shape <- imageShapeM bs
   let scale' = scaleFromDPI sz dpi shape
       scale = fromRat (fromMaybe 1 scale')
-  scaleImage' scale bs _imageShapeType >>= maybe (return bs) return
+  scaleImage' scale bs (imageType shape) >>= maybe (return bs) return
 
 buildCroppedImageBytes ::
   (MonadFileCache ImageKey ImageFile m, MonadIO m, MonadCatch m)
   => ImageCrop -> ImageKey -> ExceptT FileError m BS.ByteString
 buildCroppedImageBytes crop key = do
   bs <- buildImageBytes key
-  (shape@ImageShape {..}, rot) <- getFileInfo bs
-  editImage' crop bs _imageShapeType (imageShape shape) >>= maybe (return bs) return
+  shape <- imageShapeM bs
+  editImage' crop bs (imageType shape) (imageShape shape) >>= maybe (return bs) return
 
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::

@@ -18,7 +18,8 @@ module Data.FileCache.Common
   , defaultSize
     -- * ImageShape, HasImageShape
   , ImageShape(..)
-  , HasImageShape(..)
+  , HasImageShapeM(imageShapeM)
+  , HasImageShape, imageShape
   , scaleFromDPI
   , widthInInches
   , widthInInches'
@@ -27,8 +28,9 @@ module Data.FileCache.Common
 
     -- * ImageCrop
   , ImageCrop(..)
-  , Rotation(..)
   , cropImageShape
+  , Rotation(..)
+  , rotateImageShape
 
     -- * ImageType
   , ImageType(..)
@@ -69,7 +71,7 @@ module Data.FileCache.Common
   ) where
 
 import Control.Exception as E (Exception{-, ErrorCall(ErrorCallWithLocation), fromException, SomeException-} )
-import Control.Lens ( Iso', iso, Lens', lens, _Show, {-_2, view,-} preview, Prism', review )
+import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show, {-_2, view,-} preview, Prism', review )
 import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 --import Control.Monad.Except ( ExceptT, lift )
@@ -259,23 +261,32 @@ inches sz =
 
 -- * ImageShape
 
-instance HasImageShape ImageShape where
-  imageShape s = s
+instance HasImageShapeM Identity ImageShape where
+  imageShapeM s = pure s
 
 data ImageShape
   = ImageShape
       { _imageShapeType :: ImageType
       , _imageShapeWidth :: Int
       , _imageShapeHeight :: Int
-      -- , _imageFileMaxVal :: Int
+      , _imageFileOrientation :: Rotation
       } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
+instance Migrate ImageShape where
+  type MigrateFrom ImageShape = ImageShape_0
+  -- We need to go through and repair the _imageFileOrientation field
+  -- after this migration occurs, probably in SetImageFileTypes.
+  migrate (ImageShape_0 typ w h) = ImageShape typ w h ZeroHr
+
+data ImageShape_0 = ImageShape_0 ImageType Int Int deriving Generic
+
 instance Serialize ImageShape where get = safeGet; put = safePut
-instance SafeCopy ImageShape
+instance SafeCopy ImageShape where version = 1; kind = extension
+instance SafeCopy ImageShape_0
 
 instance Pretty ImageShape where
-  pPrint (ImageShape typ w h) =
-    text "ImageShape (" <> pPrint typ <> text (", " <> show w <> "x" <> show h <> ")")
+  pPrint (ImageShape typ w h rot) =
+    text "ImageShape (" <> pPrint typ <> text (", " <> show w <> "x" <> show h <> ") " <> show rot)
 
 instance HasImageType ImageShape where imageType = _imageShapeType
 
@@ -296,8 +307,12 @@ scaleImageShape sz dpi shape =
 -- | A class whose primary (only?) instance is ImageFile.  Access to
 -- the original dimensions of the image, so we can compute the aspect
 -- ratio.
-class HasImageShape a where
-  imageShape :: a -> ImageShape
+class HasImageShapeM m a where
+  imageShapeM :: a -> m ImageShape
+
+type HasImageShape a = HasImageShapeM Identity a
+imageShape :: HasImageShape a => a -> ImageShape
+imageShape = runIdentity . imageShapeM
 
 -- |Given the desired DPI and image dimensions, return the factor by
 -- which an image should be scaled.  Result of Nothing means the scale
@@ -396,21 +411,23 @@ instance Serialize Rotation where get = safeGet; put = safePut
 instance Pretty ImageCrop where
     pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
 
-cropImageShape :: ImageCrop -> (ImageShape, Rotation) -> (ImageShape, Rotation)
+rotateImageShape :: Rotation -> ImageShape -> ImageShape
+rotateImageShape ZeroHr shape = shape
+rotateImageShape SixHr shape =
+  -- Note that the image type is changed to JPEG because the tool we
+  -- currently use to rotate images returns a JPEG image.
+  shape {_imageShapeType = JPEG}
+rotateImageShape ThreeHr shape =
+  shape { _imageShapeType = JPEG
+        , _imageShapeWidth = _imageShapeHeight shape
+        , _imageShapeHeight = _imageShapeWidth shape }
+rotateImageShape NineHr shape = rotateImageShape ThreeHr shape
+
+cropImageShape :: ImageCrop -> ImageShape -> ImageShape
 cropImageShape crop shape | crop == def = shape
-cropImageShape crop@(ImageCrop{..}) (shape, rot) =
-  case rotation of
-    SixHr -> cropImageShape (crop {rotation = ZeroHr}) (shape, rot)
-    NineHr -> cropImageShape (crop {rotation = ThreeHr}) (shape, rot)
-    ZeroHr ->
-      (shape { _imageShapeType = JPEG
-             , _imageShapeWidth = _imageShapeWidth shape - (leftCrop + rightCrop)
-             , _imageShapeHeight = _imageShapeHeight shape - (topCrop + bottomCrop) }, rot)
-    ThreeHr ->
-      (shape { _imageShapeType = JPEG
-             -- Is this right?  I have no idea.
-             , _imageShapeWidth = _imageShapeHeight shape - (topCrop + bottomCrop)
-             , _imageShapeHeight = _imageShapeWidth shape - (leftCrop + rightCrop) }, rot)
+cropImageShape crop@(ImageCrop{..}) shape =
+  shape { _imageShapeWidth = _imageShapeWidth shape - (leftCrop + rightCrop)
+        , _imageShapeHeight = _imageShapeHeight shape - (topCrop + bottomCrop) }
 
 -- * ImageType and Checksum
 
@@ -556,7 +573,7 @@ instance SafeCopy ImageFile_2 where kind = extension; version = 2
 -- 1 Nov 2019
 instance Migrate ImageFile_2 where
   type MigrateFrom ImageFile_2 = ImageFile_1
-  migrate (ImageFile_1 f t w h _) = ImageFile_2 f (ImageShape t w h)
+  migrate (ImageFile_1 f t w h _) = ImageFile_2 f (migrate (ImageShape_0 t w h))
 
 data ImageFile_1
     = ImageFile_1
@@ -573,12 +590,12 @@ instance View (Maybe ImageFile) where
   type ViewType (Maybe ImageFile) = String
   _View = iso (maybe "" show) readMaybe
 
-instance HasImageShape ImageFile where
-  imageShape (ImageFileReady f) = imageShape f
-  imageShape (ImageFileShape f) = imageShape f
+instance HasImageShapeM Identity ImageFile where
+  imageShapeM (ImageFileReady f) = imageShapeM f
+  imageShapeM (ImageFileShape f) = imageShapeM f
 
-instance HasImageShape ImageReady where
-  imageShape = imageShape . _imageShape
+instance HasImageShapeM Identity ImageReady where
+  imageShapeM = imageShapeM . _imageShape
 
 -- * ImageKey
 
@@ -815,8 +832,8 @@ data ImageCached =
 instance Serialize ImageCached where get = safeGet; put = safePut
 instance SafeCopy ImageCached
 
-instance HasImageShape ImageCached where
-  imageShape = imageShape . _imageCachedFile
+instance HasImageShapeM Identity ImageCached where
+  imageShapeM = imageShapeM . _imageCachedFile
 
 instance HasImagePath ImageCached where
   imagePath (ImageCached key img) = ImagePath key (imageType img)
@@ -916,47 +933,4 @@ pImageKey = ImageOriginal <$> pChecksum <*> pExtension
 instance HasImageType ImageKey => PathInfo ImageKey where
   toPathSegments (ImageOriginal csum typ) = [csum <> fileExtension typ]
   fromPathSegments = p2u pImageKey
-#endif
-
-#if 0
-
-__LOC__ :: Q Exp
-__LOC__ = TH.lift =<< location
-
-logAndThrow :: (MonadError e m, MonadIO m, Show e) => String -> Priority -> e -> m b
-logAndThrow m p e = liftIO (logM m p ("logAndThrow - " ++ show e)) >> throwError e
-
--- | Create an expression of type (MonadIO m => Priority -> m a -> m a) that we can
--- apply to an expression so that it catches, logs, and rethrows any
--- exception.
-logException :: ExpQ
-logException =
-    [| \priority action ->
-         action `catchError` (\e -> do
-                                liftIO (logM (loc_module $__LOC__)
-                                             priority
-                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show e))
-                                throwError e) |]
-
-logExceptionV :: ExpQ
-logExceptionV =
-    [| \priority action ->
-         action `catchError` (\e -> do
-                                liftIO (logM (loc_module $__LOC__)
-                                             priority
-                                             ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show (V e)))
-                                throwError e) |]
-
-type CacheValue val = Either FileError val
-
-type CacheImage = CacheValue ImageFile
-type ImageCacheMap = Map ImageKey ImageFile
-
--- | Remove null crops
-fixKey :: ImageKey -> ImageKey
-fixKey key@(ImageOriginal _) = key
-fixKey (ImageCropped crop key) | crop == def = fixKey key
-fixKey (ImageCropped crop key) = ImageCropped crop (fixKey key)
-fixKey (ImageScaled sz dpi key) = ImageScaled sz dpi (fixKey key)
-fixKey (ImageUpright key) = ImageUpright (fixKey key)
 #endif

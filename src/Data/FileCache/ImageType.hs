@@ -2,15 +2,15 @@
 
 {-# OPTIONS -Wall -Wredundant-constraints #-}
 
-module Data.FileCache.ImageType
-  ( getFileInfo
-  ) where
+module Data.FileCache.ImageType ({-instance HasImageShapeM Bytestring-}) where
 
 import Control.Monad.Catch as Catch (Exception, MonadCatch, try)
 import Control.Lens (_2, view)
 import Data.Maybe(catMaybes, listToMaybe)
 import Data.ByteString as BS (ByteString)
-import Data.FileCache.Common (FileError(NoShape), fromFileError, HasFileError, ImageShape(..), ImageType(..), Rotation(..))
+import Data.FileCache.Common
+  (FileError(NoShape), fromFileError, HasFileError,
+   HasImageShapeM(imageShapeM), ImageShape(..), ImageType(..), Rotation(..))
 import Data.Text (pack)
 import Extra.Except (ExceptT, liftEither, liftIO, MonadIO, throwError)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
@@ -19,23 +19,27 @@ import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
 import Text.Parsec.Text (Parser)
 import Data.ByteString.UTF8 (toString)
 
+instance (MonadIO m, MonadCatch m, Exception e, HasFileError e) => HasImageShapeM (ExceptT e m) BS.ByteString where
+  imageShapeM = getFileInfo
+
 -- | Helper function to learn the 'ImageType' of a file by running
 -- @file -b@.
 getFileInfo ::
   forall e m. (MonadIO m, MonadCatch m, Exception e, HasFileError e)
   => BS.ByteString
-  -> ExceptT e m (ImageShape, Rotation)
+  -> ExceptT e m ImageShape
 getFileInfo bytes =
   Catch.try (liftIO (LL.readProcessWithExitCode cmd args bytes)) >>= liftEither >>= test . view _2
     where
       cmd = "file"
       args = ["-b", "-"]
-      test :: BS.ByteString -> ExceptT e m (ImageShape, Rotation)
+      test :: BS.ByteString -> ExceptT e m ImageShape
       test s =
         let (Right (typ, attrs)) = parse pFileOutput "<text>" (pack (toString s)) in
-        case (listToMaybe (catMaybes (fmap findShape attrs)), listToMaybe (catMaybes (fmap findRotation attrs))) of
+        case (listToMaybe (catMaybes (fmap findShape attrs)),
+              listToMaybe (catMaybes (fmap findRotation attrs))) of
           (Just (w, h), Just rot) ->
-            return $ (ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h}, rot)
+            return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
           _ -> throwError (fromFileError NoShape)
       findShape :: ImageAttribute -> Maybe (Int, Int)
       findShape (Shape shape) = Just shape
@@ -82,7 +86,7 @@ pOrientation = do
     testOrientation "upper-right" = Orientation ThreeHr
     testOrientation "lower-left" = Orientation NineHr
     testOrientation "lower-right" = Orientation SixHr
-    testOrientation s = Orientation ZeroHr
+    testOrientation _ = Orientation ZeroHr
 
 {-
 Data.ByteString.readFile "/srv/appraisalscribe3-development/images/00/00314183eddf66b90c7e60cf7d88d993.jpg" >>= runExceptT @FileError . getFileInfo
