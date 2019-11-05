@@ -1,16 +1,20 @@
 -- | Beginning of a parser for the output of file(1).
 
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS -Wall -Wredundant-constraints #-}
 
-module Data.FileCache.ImageType ({-instance HasImageShapeM Bytestring-}) where
+module Data.FileCache.ImageType
+  ( fileInfoFromBytes
+  , fileInfoFromPath
+  ) where
 
 import Control.Monad.Catch as Catch (Exception, MonadCatch, try)
 import Control.Lens (_2, view)
 import Data.Maybe(catMaybes, listToMaybe)
 import Data.ByteString as BS (ByteString)
 import Data.FileCache.Common
-  (FileError(NoShape), fromFileError, HasFileError,
-   HasImageShapeM(imageShapeM), ImageShape(..), ImageType(..), Rotation(..))
+  (FileError(ErrorCall, NoShape), fromFileError, HasFileError, HasImageShapeM(..),
+   ImageShape(..), ImageType(..), Rotation(..))
 import Data.Text (pack)
 import Extra.Except (ExceptT, liftEither, liftIO, MonadIO, throwError)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
@@ -19,34 +23,52 @@ import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
 import Text.Parsec.Text (Parser)
 import Data.ByteString.UTF8 (toString)
 
-instance (MonadIO m, MonadCatch m, Exception e, HasFileError e) => HasImageShapeM (ExceptT e m) BS.ByteString where
-  imageShapeM = getFileInfo
+instance (MonadIO m, MonadCatch m) => HasImageShapeM (ExceptT FileError m) BS.ByteString where
+  imageShapeM bytes = fileInfoFromPath ("-", bytes)
+instance (MonadIO m, MonadCatch m) => HasImageShapeM (ExceptT FileError m) (FilePath, BS.ByteString) where
+  imageShapeM (path, input) = fileInfoFromPath (path, input)
 
 -- | Helper function to learn the 'ImageType' of a file by running
 -- @file -b@.
-getFileInfo ::
+fileInfoFromBytes ::
   forall e m. (MonadIO m, MonadCatch m, Exception e, HasFileError e)
   => BS.ByteString
   -> ExceptT e m ImageShape
-getFileInfo bytes =
-  Catch.try (liftIO (LL.readProcessWithExitCode cmd args bytes)) >>= liftEither >>= test . view _2
+fileInfoFromBytes bytes = fileInfoFromPath ("-", bytes)
+
+fileInfoFromPath ::
+  forall e m. (MonadIO m, MonadCatch m, Exception e, HasFileError e)
+  => (FilePath, BS.ByteString)
+  -> ExceptT e m ImageShape
+fileInfoFromPath (path, input) =
+  Catch.try (liftIO (LL.readProcessWithExitCode cmd args input)) >>= liftEither >>= fileInfoFromOutput path . view _2
     where
       cmd = "file"
-      args = ["-b", "-"]
-      test :: BS.ByteString -> ExceptT e m ImageShape
-      test s =
-        let (Right (typ, attrs)) = parse pFileOutput "<text>" (pack (toString s)) in
-        case (listToMaybe (catMaybes (fmap findShape attrs)),
-              listToMaybe (catMaybes (fmap findRotation attrs))) of
-          (Just (w, h), Just rot) ->
-            return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
-          _ -> throwError (fromFileError NoShape)
-      findShape :: ImageAttribute -> Maybe (Int, Int)
-      findShape (Shape shape) = Just shape
-      findShape _ = Nothing
-      findRotation :: ImageAttribute -> Maybe Rotation
-      findRotation (Orientation rotation) = Just rotation
-      findRotation _ = Nothing
+      args = ["-b", path]
+
+fileInfoFromOutput ::
+  forall e m. (MonadIO m, HasFileError e)
+  => FilePath
+  -> BS.ByteString
+  -> ExceptT e m ImageShape
+fileInfoFromOutput path output =
+  case parse pFileOutput path (pack (toString output)) of
+    Left e -> throwError $ fromFileError $ ErrorCall $ pack $ "Failuring parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
+    Right (typ, attrs) ->
+      case (listToMaybe (catMaybes (fmap findShape attrs)),
+            listToMaybe (catMaybes (fmap findRotation attrs))) of
+        (Just (w, h), Just rot) ->
+          return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
+        (Just (w, h), Nothing) ->
+          return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}
+        _ -> throwError (fromFileError NoShape)
+  where
+    findShape :: ImageAttribute -> Maybe (Int, Int)
+    findShape (Shape shape) = Just shape
+    findShape _ = Nothing
+    findRotation :: ImageAttribute -> Maybe Rotation
+    findRotation (Orientation rotation) = Just rotation
+    findRotation _ = Nothing
 #if 0
       test s = maybe (fail $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") return (foldr (testre (P.toString s)) Nothing reTests)
       testre :: String -> (Regex, ImageType) -> Maybe ImageType -> Maybe ImageType

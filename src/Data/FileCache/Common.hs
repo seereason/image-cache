@@ -811,14 +811,18 @@ class HasURIPath a where
   toURIPath :: a -> FilePath
   toURIDir :: a -> FilePath
 
+instance HasURIPath (Checksum, ImageType) where
+  toURIDir (csum, typ) = take 2 $ unpack csum
+  toURIPath p@(csum, typ) =
+     toURIDir p </> makeRelative "/" (unpack (csum <> fileExtension typ))
+
 instance HasURIPath ImagePath where
-  toURIDir (ImagePath (ImageOriginal csum _) _) = take 2 $ unpack csum
+  toURIDir (ImagePath (ImageOriginal csum typ) _) = toURIDir (csum, typ)
   toURIDir (ImagePath (ImageUpright key) typ) = toURIDir (ImagePath key typ)
   toURIDir (ImagePath (ImageScaled _ _ key) typ) = toURIDir (ImagePath key typ)
   toURIDir (ImagePath (ImageCropped _ key) typ) = toURIDir (ImagePath key typ)
   -- for backwards compatibility, special case ImageOriginal
-  toURIPath p@(ImagePath (ImageOriginal csum typ) _) =
-     toURIDir p </> makeRelative "/" (unpack (csum <> fileExtension typ))
+  toURIPath p@(ImagePath (ImageOriginal csum typ) _) = toURIPath (csum, typ)
   toURIPath p = toURIDir p </> makeRelative "/" (unpack (toPathInfo p))
 
 -- * ImageCached

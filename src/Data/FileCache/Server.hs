@@ -58,7 +58,7 @@ import Data.Char ( isSpace )
 import Data.Default (def)
 import Data.Digest.Pure.MD5 (md5)
 import Data.FileCache.Common
-import Data.FileCache.ImageType ()
+import Data.FileCache.ImageType (fileInfoFromPath)
 import Data.FileCache.LogException (logException)
 import Data.Typeable -- ( (:~:), eqT, Typeable )
 import Data.Generics (mkT, everywhere)
@@ -242,37 +242,6 @@ deleteValue key = field @"_unCacheMap" %= Map.delete key
 
 deleteValues :: Ord key => Set key -> Update (CacheMap key val) ()
 deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (const ()) keys))
-
--- | The migration of 'ImageKey' sets the 'ImageType' field to
--- 'Unknown' everywhere, this looks at the pairs in the cache map and
--- copies the 'ImageType' of the 'ImageFile' into the keys.  We can't
--- do this in the CacheMap migration above because the types are too
--- specific.  But this should be removed when 'ImageKey' version 2 is
--- removed.
-fixImageShapes ::
-     Map ImageKey (Either FileError ImageFile)
-  -> IO (Map ImageKey (Either FileError ImageFile))
-fixImageShapes mp =
-  return $ fromList (fixOriginalKeys (changes mp) (toList mp))
-
--- | The repairs we need to perform on the original keys during 'setImageFileTypes'.
-changes ::
-     Map ImageKey (Either FileError ImageFile)
-  -> (ImageKey, Either FileError ImageFile)
-  -> (ImageKey, Either FileError ImageFile)
-changes mp = \(key, file) -> (maybe key id (Map.lookup key changeMap), file)
-  where
-    changeMap :: Map ImageKey ImageKey
-    changeMap = fromList (fmap (\(key, img) -> (key, fixOriginalKey key img)) (toList mp))
-    fixOriginalKey :: ImageKey -> (Either FileError ImageFile) -> ImageKey
-    fixOriginalKey (ImageOriginal csum Unknown) (Right img) = ImageOriginal csum (imageType img)
-    fixOriginalKey key _img = key
-
-fixOriginalKeys ::
-     ((ImageKey, Either FileError ImageFile) -> (ImageKey, Either FileError ImageFile))
-  -> [(ImageKey, Either FileError ImageFile)]
-  -> [(ImageKey, Either FileError ImageFile)]
-fixOriginalKeys f pairs = everywhere (mkT f) pairs
 
 $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
@@ -969,3 +938,56 @@ tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
                                (SaneSize (ImageSize {_dim = TheHeight, _size = 0.25, _units = Inches}))
                                (saneSize (ImageSize {_dim = TheHeight, _size = 0.0, _units = Inches})))
                  ]
+
+-- | The migration of 'ImageKey' sets the 'ImageType' field to
+-- 'Unknown' everywhere, this looks at the pairs in the cache map and
+-- copies the 'ImageType' of the 'ImageFile' into the keys.  We can't
+-- do this in the CacheMap migration above because the types are too
+-- specific.  But this should be removed when 'ImageKey' version 2 is
+-- removed.
+--
+-- Also recomputes the orientation field of ImageShape.
+fixImageShapes ::
+  forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
+  => Map ImageKey (Either FileError ImageFile)
+  -> m (Map ImageKey (Either FileError ImageFile))
+fixImageShapes mp =
+  let mp' = fromList (fixOriginalKeys (changes mp) (toList mp)) in
+    fromList <$> mapM fixPair (toList mp')
+  where
+    fixPair :: (ImageKey, Either FileError ImageFile) -> m (ImageKey, Either FileError ImageFile)
+    -- If already damaged use the result
+    fixPair (key, Left e) = either ((key,) . Left) id <$> runExceptT (fixImageCached (key, Left e))
+    -- If not damaged only use the result if it succeeds
+    fixPair (key, Right val) = either (\_ -> (key, Right val)) id <$> runExceptT (fixImageCached (key, Right val))
+    fixImageCached :: (ImageKey, Either FileError ImageFile) -> ExceptT FileError m (ImageKey, Either FileError ImageFile)
+    fixImageCached (key@(ImageOriginal csum typ), Right (ImageFileShape _s)) =
+      fixImageShape (csum, typ) >>= \s' -> return (key, Right (ImageFileShape s'))
+    fixImageCached (key@(ImageOriginal csum typ), Right (ImageFileReady (ImageReady f _s))) =
+      fixImageShape (csum, typ) >>= \s' -> return (key, Right (ImageFileReady (ImageReady f s')))
+    fixImageCached x = return x
+    -- Actually we just compute it from scratch
+    fixImageShape :: HasURIPath a => a -> ExceptT FileError m ImageShape
+    fixImageShape a = fileCachePath a >>= imageShapeM . (, BS.empty)
+
+instance (MonadImageCache m, MonadIO m, MonadCatch m) => HasImageShapeM (ExceptT FileError m) (Checksum, ImageType) where
+  imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath . (, BS.empty)
+
+-- | The repairs we need to perform on the original keys during 'setImageFileTypes'.
+changes ::
+     Map ImageKey (Either FileError ImageFile)
+  -> (ImageKey, Either FileError ImageFile)
+  -> (ImageKey, Either FileError ImageFile)
+changes mp = \(key, file) -> (maybe key id (Map.lookup key changeMap), file)
+  where
+    changeMap :: Map ImageKey ImageKey
+    changeMap = fromList (fmap (\(key, img) -> (key, fixOriginalKey key img)) (toList mp))
+    fixOriginalKey :: ImageKey -> (Either FileError ImageFile) -> ImageKey
+    fixOriginalKey (ImageOriginal csum Unknown) (Right img) = ImageOriginal csum (imageType img)
+    fixOriginalKey key _img = key
+
+fixOriginalKeys ::
+     ((ImageKey, Either FileError ImageFile) -> (ImageKey, Either FileError ImageFile))
+  -> [(ImageKey, Either FileError ImageFile)]
+  -> [(ImageKey, Either FileError ImageFile)]
+fixOriginalKeys f pairs = everywhere (mkT f) pairs
