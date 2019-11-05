@@ -71,15 +71,15 @@ module Data.FileCache.Common
   , CacheMap(..)
   ) where
 
-import Control.Exception as E ( ErrorCall(ErrorCallWithLocation), Exception, fromException, SomeException )
+import Control.Exception as E (Exception{-, ErrorCall(ErrorCallWithLocation), fromException, SomeException-} )
 import Control.Lens ( Iso', iso, Lens', lens, _Show, _2, view, preview, Prism', review )
 import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Control.Monad.Except ( ExceptT, lift )
 import Control.Monad.RWS ( RWST )
 import Control.Monad.Reader ( ReaderT )
-import Control.Monad.Trans ( MonadIO(liftIO) )
-import qualified Data.ByteString as P ( ByteString, take )
+--import Control.Monad.Trans ( MonadIO(liftIO) )
+import qualified Data.ByteString as P ( ByteString{-, take-} )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.Map ( Map )
@@ -92,14 +92,14 @@ import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
 import Extra.Except ( HasIOException(..) )
 import GHC.Generics ( Generic, M1(M1) )
-import Language.Haskell.TH ( Loc(..) )
+--import Language.Haskell.TH ( Loc(..) )
 import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ( Lift )
-import Language.Haskell.TH.Syntax ( Loc(loc_module) )
+--import Language.Haskell.TH.Syntax ( Loc(loc_module) )
 --import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
 import System.FilePath ( makeRelative, (</>) )
-import System.Log.Logger ( Priority(ERROR), logM )
+--import System.Log.Logger ( Priority(ERROR), logM )
 import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)-}
 --import Text.Parsec.String as String (Parser)
@@ -173,58 +173,55 @@ data ImageSize
       { _dim :: Dimension
       , _size :: Rational
       , _units :: Units
-      } deriving (Generic, Eq, Ord)
+      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
 instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
 instance SafeCopy ImageSize where version = 2
 instance Serialize ImageSize where get = safeGet; put = safePut
-deriving instance Data ImageSize
-deriving instance Read ImageSize
-deriving instance Show ImageSize
-deriving instance Typeable ImageSize
+
+instance Pretty ImageSize where
+    pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> showRational sz <> " ") <> pPrint u
 
 data Dimension
     = TheHeight
     | TheWidth
     | TheArea
-    deriving (Generic, Eq, Ord, Enum, Bounded)
+    deriving (Generic, Eq, Ord, Enum, Bounded, Data, Typeable, Read, Show)
 
 instance View Dimension where type ViewType Dimension = Text; _View = viewIso _Show TheHeight . iso pack unpack
 instance SafeCopy Dimension where version = 1
 instance Serialize Dimension where get = safeGet; put = safePut
-deriving instance Data Dimension
-deriving instance Read Dimension
-deriving instance Show Dimension
-deriving instance Typeable Dimension
+
+instance Pretty Dimension where
+    pPrint TheHeight = text "height"
+    pPrint TheWidth = text "width"
+    pPrint TheArea = text "area"
 
 data Units
     = Inches
     | Cm
     | Points
-    deriving (Generic, Eq, Ord, Enum, Bounded)
+    deriving (Generic, Eq, Ord, Enum, Bounded, Data, Typeable, Read, Show)
 
 instance View Units where type ViewType Units = Text; _View = viewIso _Show Inches . iso pack unpack
 instance SafeCopy Units where version = 0
 instance Serialize Units where get = safeGet; put = safePut
-deriving instance Data Units
-deriving instance Read Units
-deriving instance Show Units
-deriving instance Typeable Units
+
+instance Pretty Units where
+    pPrint Inches = text "in"
+    pPrint Cm = text "cm"
+    pPrint Points = text "pt"
 
 class HasImageSize a where imageSize :: a -> ImageSize
 instance HasImageSize ImageSize where imageSize = id
 
 -- | A wrapper type to suggest that lens_saneSize has been applied to
 -- the ImageSize within.
-newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Generic, Eq, Ord)
+newtype SaneSize a = SaneSize {_unSaneSize :: a} deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
 instance (SafeCopy a, Typeable a) => SafeCopy (SaneSize a) where version = 1
 instance (SafeCopy a, Typeable a) => Serialize (SaneSize a) where get = safeGet; put = safePut
-deriving instance Data a => Data (SaneSize a)
-deriving instance Read a => Read (SaneSize a)
-deriving instance Show a => Show (SaneSize a)
-deriving instance Typeable (SaneSize a)
 
 instance View (SaneSize ImageSize) where
     type ViewType (SaneSize ImageSize) = ImageSize
@@ -262,19 +259,6 @@ inches sz =
                 (TheArea, Points) -> (7227 % 100) * (7227 % 100)
                 (_, Cm) -> 254 % 100
                 (_, Points) -> 7227 % 100
-
-instance Pretty Dimension where
-    pPrint TheHeight = text "height"
-    pPrint TheWidth = text "width"
-    pPrint TheArea = text "area"
-
-instance Pretty Units where
-    pPrint Inches = text "in"
-    pPrint Cm = text "cm"
-    pPrint Points = text "pt"
-
-instance Pretty ImageSize where
-    pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> showRational sz <> " ") <> pPrint u
 
 -- * HasImageShape
 
@@ -617,8 +601,8 @@ instance Migrate ImageKey_3 where
     -- We need to update the image original types with a migration of CacheMap
     ImageOriginal_3 (_fileChksum f)
     where f = case i of
-                ImageFileShape s -> error "unexpected value during migration"
-                ImageFileReady f -> _imageFile f
+                ImageFileShape _ -> error "unexpected value during migration"
+                ImageFileReady file -> _imageFile file
   migrate (ImageCropped_2 crop key) = ImageCropped_3 crop key
   migrate (ImageScaled_2 size dpi key) = ImageScaled_3 size dpi key
   migrate (ImageUpright_2 key) = ImageUpright_3 key
@@ -745,6 +729,7 @@ data CommandInfo
     | Description String CommandInfo -- ^ free form description of what happened
     deriving (Eq, Ord, Generic)
 
+#if 0
 class Loggable a where
   logit :: Priority -> Loc -> a -> IO ()
 
@@ -769,6 +754,7 @@ logErrorCall x =
                           Just (ErrorCallWithLocation msg loc) ->
                               liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
                           _ -> return (Left e)) (return . Right)
+#endif
 
 -- * FileCacheTop
 
@@ -876,7 +862,7 @@ instance HasImagePath ImageCached where
 
 instance HasURIPath ImageCached where
   toURIDir c = toURIDir (imagePath c)
-  toURIPath c@(ImageCached key img) = toURIPath (imagePath c)
+  toURIPath c@(ImageCached _ _) = toURIPath (imagePath c)
 
 #if 0
 instance HasURIPath ImageCached where

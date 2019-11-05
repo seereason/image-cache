@@ -21,7 +21,7 @@ module Data.FileCache.Server
   , FileCacheT
   , runFileCacheT, evalFileCacheT, execFileCacheT
   , MonadFileCache
-  , cacheLook, cacheDelete
+  , cacheLook, cacheDelete, cacheMap
   -- * Image Cache
   , ImageCacheT
   , MonadImageCache
@@ -37,7 +37,7 @@ module Data.FileCache.Server
   ) where
 
 -- import "regex-compat-tdfa" Text.Regex ( Regex, mkRegex, matchRegex )
-import Control.Concurrent (forkIO, ThreadId)
+import Control.Concurrent (forkIO{-, ThreadId-})
 import Control.Exception ( throw )
 import Control.Lens ( (%=), _1, _2, at, view )
 import Control.Monad ( unless, when )
@@ -63,7 +63,7 @@ import Data.Generics (mkT, everywhere)
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
 import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
-import Data.Maybe ( mapMaybe, fromMaybe )
+import Data.Maybe ( fromMaybe )
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( SafeCopy )
@@ -149,10 +149,9 @@ putValue ::
   Ord key
   => key
   -> Either FileError val
-  -> Update (CacheMap key val) (Either FileError val)
+  -> Update (CacheMap key val) ()
 putValue key img = do
   field @"_unCacheMap" %= Map.insert key img
-  return img
 
 -- | Install several key/value pairs into the cache.
 putValues :: Ord key => Map key (Either FileError val) -> Update (CacheMap key val) (Map key (Either FileError val))
@@ -193,17 +192,18 @@ setImageFileTypes =
     Nothing -> return ()
     Just Refl -> modify (\(CacheMap mp) -> CacheMap (fromList (fixOriginalKeys (changes mp) (toList mp))))
 
+-- | The repairs we need to perform on the original keys during 'setImageFileTypes'.
 changes :: Map ImageKey (Either FileError ImageFile) -> ImageKey -> ImageKey
 changes mp = \key -> maybe key id (Map.lookup key changeMap)
   where
     changeMap :: Map ImageKey ImageKey
     changeMap = fromList (fmap (\(key, img) -> (key, fixOriginalKey key img)) (toList mp))
     fixOriginalKey :: ImageKey -> (Either FileError ImageFile) -> ImageKey
-    fixOriginalKey key@(ImageOriginal csum Unknown) (Right img) = ImageOriginal csum (imageType img)
-    fixOriginalKey key img = key
+    fixOriginalKey (ImageOriginal csum Unknown) (Right img) = ImageOriginal csum (imageType img)
+    fixOriginalKey key _img = key
 
 fixOriginalKeys :: (ImageKey -> ImageKey) -> [(ImageKey, Either FileError ImageFile)] -> [(ImageKey, Either FileError ImageFile)]
-fixOriginalKeys changes pairs = everywhere (mkT changes) pairs
+fixOriginalKeys f pairs = everywhere (mkT f) pairs
 
 $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues, 'setImageFileTypes])
 
@@ -296,7 +296,7 @@ normalizeOrientationCode bs = do
         (result, out, err) <- liftIO (LBS.readCreateProcessWithExitCode (proc cmd args') bs')
         case result of
           ExitSuccess -> return out
-          ExitFailure n -> throwError $ CommandFailure $ CommandErr (toStrict err) $ Command (pack (show cp)) (pack (show result))
+          ExitFailure _ -> throwError $ CommandFailure $ CommandErr (toStrict err) $ Command (pack (show cp)) (pack (show result))
 
 -- | Read the orientation code of a JPEG file, returning its value,
 -- the offset of the two byte code in the file, and the "isMotorola"
@@ -599,6 +599,15 @@ cachePut key val = do
   liftIO (update st (PutValue key val))
   liftEither val
 
+-- | Same as 'cachePut' but returns ()
+cachePut' ::
+  forall key val m. (MonadFileCache key val m, MonadIO m)
+  => key -> Either FileError val -> ExceptT FileError m ()
+cachePut' key val = do
+  st <- lift askCacheAcid
+  liftIO (update st (PutValue key val))
+  either throwError (const (return ())) val
+
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
   (MonadFileCache key val m, MonadIO m)
@@ -669,7 +678,7 @@ cacheOriginalImage x = do
 
 -- | Build an image map in the state monad
 cacheDerivedImages ::
-  forall m. (MonadImageCache m, MonadIO m, MonadCatch m,
+  forall m. (MonadImageCache m, MonadIO m,
              MonadState (Map ImageKey (Either FileError ImageFile)) m)
   => Bool
   -> [ImageKey]
@@ -680,23 +689,23 @@ cacheDerivedImages retry =
 -- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.
 cacheDerivedImage ::
-  forall m. (MonadImageCache m, MonadIO m, MonadCatch m)
+  forall m. (MonadImageCache m, MonadIO m)
   => Bool
   -> ImageKey
   -> ExceptT FileError m ImageFile
-cacheDerivedImage retry key@(ImageOriginal _ _) =
+cacheDerivedImage _ (ImageOriginal _ _) =
   -- Not enough information to create the ByteString here.
   throwError (ErrorCall "invalid argument")
 cacheDerivedImage retry key =
-  lift (cacheLook key) >>= maybe (cacheMiss key) (either (cacheError retry key) return)
+  lift (cacheLook key) >>= maybe cacheMiss (either (cacheError retry) return)
   where
-    cacheMiss :: ImageKey -> ExceptT FileError m ImageFile
-    cacheMiss key = tryError (cacheMiss' key) >>= cachePut key
-    cacheMiss' :: ImageKey -> ExceptT FileError m ImageFile
-    cacheMiss' key = do
+    cacheMiss :: ExceptT FileError m ImageFile
+    cacheMiss = tryError cacheMiss' >>= cachePut key
+    cacheMiss' :: ExceptT FileError m ImageFile
+    cacheMiss' = do
       -- alog "Data.FileCache.Server" DEBUG ("cacheMiss - buildImageShape key=" <> show key)
       (shape, rot) <- buildImageShape key
-      cachePut key (Right (ImageFileShape shape)) -- Save the shape while the image is building
+      cachePut' key (Right (ImageFileShape shape)) -- Save the shape while the image is building
       acid <- lift askCacheAcid
       top <- lift fileCacheTop
       -- Fork the expensive image build into the background.  These
@@ -707,12 +716,12 @@ cacheDerivedImage retry key =
       return (ImageFileShape shape)
     -- A FileError is stored in the cache.  Should we try to build the
     -- image again?  Probably not always.
-    cacheError True key _e = cacheMiss key
-    cacheError False _key e = throwError e
+    cacheError True _e = cacheMiss
+    cacheError False e = throwError e
 
 cacheImageFile :: AcidState (CacheMap ImageKey ImageFile) -> FileCacheTop -> ImageKey -> ImageShape -> IO ()
 cacheImageFile acid top key shape = do
-  (r :: Either FileError ImageFile) <- evalFileCacheT acid top () (runExceptT (tryError (buildImageFile key shape) >>= cachePut key))
+  execFileCacheT acid top () (runExceptT (tryError (buildImageFile key shape) >>= cachePut key))
   return ()
 
 -- | These are meant to be inexpensive operations that determine the
@@ -724,7 +733,7 @@ cacheImageFile acid top key shape = do
 buildImageShape ::
   (MonadFileCache ImageKey ImageFile m, MonadIO m)
   => ImageKey -> ExceptT FileError m (ImageShape, Rotation)
-buildImageShape key@(ImageOriginal csum typ) =
+buildImageShape key@(ImageOriginal _csum _typ) =
   lift (cacheLook @ImageKey @ImageFile key) >>=
   maybe (throwError (CacheDamage "Original image not in cache"))
         (either throwError
@@ -773,6 +782,7 @@ scaleImageShape sz dpi (shape, rot) =
               , _imageShapeHeight = round (fromIntegral (_imageShapeHeight shape) * scale) }, rot)
   where
     scale' = scaleFromDPI sz dpi shape
+    scale :: Double
     scale = fromRat (fromMaybe 1 scale')
 
 buildImageFile ::
@@ -808,32 +818,36 @@ buildOriginalImageBytes csum typ =
         (either (rebuildImageBytes False key typ) (lookImageBytes . ImageCached key))
   where
     key = ImageOriginal csum typ
-    -- There's a chance the file is just sitting on disk even though
-    -- it is not in the database - see if we can read it and verify
-    -- its checksum.
-    buildImageBytesFromFile key csum typ = do
-      -- If we get a cache miss for an ImageOriginal key something
-      -- has gone wrong.  Try to rebuild from the file if it exists.
-      path <- fileCachePath (ImagePath key typ)
-      exists <- liftIO $ doesFileExist path
-      case exists of
+
+-- There's a chance the file is just sitting on disk even though
+-- it is not in the database - see if we can read it and verify
+-- its checksum.
+buildImageBytesFromFile ::
+  (MonadIO m, MonadFileCache ImageKey ImageFile m, MonadCatch m)
+  => ImageKey -> Text -> ImageType -> ExceptT FileError m BS.ByteString
+buildImageBytesFromFile key csum typ = do
+  -- If we get a cache miss for an ImageOriginal key something
+  -- has gone wrong.  Try to rebuild from the file if it exists.
+  path <- fileCachePath (ImagePath key typ)
+  exists <- liftIO $ doesFileExist path
+  case exists of
+    False -> do
+      let e = CacheDamage ("buildImageBytes - missing original: " <> T.pack (show key <> " -> " <> path))
+      cachePut' key (Left e :: Either FileError ImageFile)
+      throwError e
+    True -> do
+      bs <- makeByteString path
+      let csum' = T.pack $ show $ md5 $ fromStrict bs
+      case csum' == csum of
         False -> do
-          let e = CacheDamage ("buildImageBytes - missing original: " <> T.pack (show key <> " -> " <> path))
-          cachePut key (Left e :: Either FileError ImageFile)
+          let e = CacheDamage ("buildImageBytes - original damaged: " <> T.pack (show key <> " -> " <> path))
+          alog "Data.FileCache.Server" ERROR ("Checksum mismatch - " <> show e)
+          cachePut' key (Left e :: Either FileError ImageFile)
           throwError e
         True -> do
-          bs <- makeByteString path
-          let csum' = T.pack $ show $ md5 $ fromStrict bs
-          case csum' == csum of
-            False -> do
-              let e = CacheDamage ("buildImageBytes - original damaged: " <> T.pack (show key <> " -> " <> path))
-              alog "Data.FileCache.Server" ERROR ("Checksum mismatch - " <> show e)
-              cachePut key (Left e :: Either FileError ImageFile)
-              throwError e
-            True -> do
-              alog "Data.FileCache.Server" ALERT ("recaching " ++ show key)
-              cacheOriginalImage bs
-              return bs
+          alog "Data.FileCache.Server" ALERT ("recaching " ++ show key)
+          _cached <- cacheOriginalImage bs
+          return bs
 
 buildUprightImageBytes ::
   (MonadFileCache ImageKey ImageFile m, MonadIO m, MonadCatch m)
@@ -852,6 +866,9 @@ buildScaledImageBytes sz dpi key = do
       scale = fromRat (fromMaybe 1 scale')
   scaleImage' scale bs _imageShapeType >>= maybe (return bs) return
 
+buildCroppedImageBytes ::
+  (MonadFileCache ImageKey ImageFile m, MonadIO m, MonadCatch m)
+  => ImageCrop -> ImageKey -> ExceptT FileError m BS.ByteString
 buildCroppedImageBytes crop key = do
   bs <- buildImageBytes key
   (shape@ImageShape {..}, rot) <- getFileInfo bs
@@ -868,16 +885,16 @@ lookImageBytes a = fileCachePath a >>= lyftIO . BS.readFile
 rebuildImageBytes ::
   (MonadIO m, MonadCatch m, MonadFileCache ImageKey ImageFile m)
   => Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
-rebuildImageBytes False key typ e = throwError e
+rebuildImageBytes False _key _typ e = throwError e
 rebuildImageBytes True key typ e@(CacheDamage _) = do
   alog "Data.FileCache.Server" ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
   path <- fileCachePath (ImagePath key typ)
   -- This and other operations like it may throw an
   -- IOException - I need LyftIO to make sure this is caught.
   bs <- lyftIO (BS.readFile path)
-  cacheOriginalImage bs
+  _cached <- cacheOriginalImage bs
   return bs
-rebuildImageBytes True key typ e = do
+rebuildImageBytes True key _typ e = do
   alog "Data.FileCache.Server" INFO ("Not retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
   throwError e
 
@@ -894,7 +911,7 @@ validateImageKey key = do
 validateImageFile ::
   forall m. (MonadImageCache m, MonadIO m, MonadCatch m, MonadError FileError m)
   => ImageKey -> ImageFile -> m ()
-validateImageFile key (ImageFileShape _) = return ()
+validateImageFile _key (ImageFileShape _) = return ()
 validateImageFile key (ImageFileReady i@(ImageReady {..})) = do
   path <- fileCachePath (ImagePath key (imageType i))
   when (imageType i == JPEG)
