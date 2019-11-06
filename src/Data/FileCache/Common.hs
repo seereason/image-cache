@@ -74,10 +74,6 @@ import Control.Exception as E (Exception{-, ErrorCall(ErrorCallWithLocation), fr
 import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show, {-_2, view,-} preview, Prism', review )
 import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
---import Control.Monad.Except ( ExceptT, lift )
---import Control.Monad.RWS ( RWST )
---import Control.Monad.Reader ( ReaderT )
---import Control.Monad.Trans ( MonadIO(liftIO) )
 import qualified Data.ByteString as P ( ByteString{-, take-} )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
@@ -89,7 +85,7 @@ import Data.Serialize ( Serialize(..) )
 import Data.String (IsString(fromString))
 import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
-import Extra.Except ( HasIOException(..) )
+import Extra.Except (HasIOException(..), HasSomeNonPseudoException(fromSomeNonPseudoException))
 import GHC.Generics ( Generic, M1(M1) )
 --import Language.Haskell.TH ( Loc(..) )
 import Language.Haskell.TH.Instances ()
@@ -705,7 +701,7 @@ instance ScaledKey ImageSize ImageReady where
 -- | It would be nice to store the actual IOException and E.ErrorCall,
 -- but then the FileError type wouldn't be serializable.
 data FileError
-    = IOException {-IOException-} Text -- ^ Caught an IOException
+    = IOException {-IOException-} Text -- ^ Caught an IOException, or SomeNonPseudoException
     | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
     | CommandFailure CommandInfo -- ^ A shell command failed
     | CacheDamage Text -- ^ The contents of the cache is wrong
@@ -751,6 +747,9 @@ instance HasIOException FileError where fromIOException = IOException . pack . s
 class HasIOException e => HasFileError e where fileErrorPrism :: Prism' e FileError
 instance HasFileError FileError where fileErrorPrism = id
 
+instance HasSomeNonPseudoException FileError where
+  fromSomeNonPseudoException = IOException . pack . show
+
 fromFileError :: HasFileError e => FileError -> e
 fromFileError = review fileErrorPrism
 
@@ -787,7 +786,7 @@ logCommandInfo priority loc (CommandInput bs e) = logM (loc_module loc) priority
 logCommandInfo priority loc (CommandOut bs e) = logM (loc_module loc) priority (" - command stdout: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
 logCommandInfo priority loc (CommandErr bs e) = logM (loc_module loc) priority (" - command stderr: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
 
-logErrorCall :: MonadIO m => m (Either SomeException a) -> m (Either SomeException a)
+logErrorCall :: Unexceptional m => m (Either SomeException a) -> m (Either SomeException a)
 logErrorCall x =
     x >>= either (\e -> case fromException e :: Maybe E.ErrorCall of
                           Just (ErrorCallWithLocation msg loc) ->

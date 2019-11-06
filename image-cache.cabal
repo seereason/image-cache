@@ -55,6 +55,7 @@ Library
     th-lift,
     th-orphans >= 0.9,
     transformers,
+    unexceptionalio,
     web-routes,
     web-routes-th
   if !impl(ghcjs)
