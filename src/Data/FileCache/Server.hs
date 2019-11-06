@@ -73,7 +73,7 @@ import Data.Text as T ( pack, Text )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
 import Extra.Except ( HasSomeNonPseudoException(..), liftEither, {-logIOError,-} lyftIO,
-                      MonadError, throwError, tryError, withExceptT )
+                      MonadError, throwError, tryError)
 import Extra.Log ( alog )
 import GHC.Generics (Generic)
 import GHC.Int ( Int64 )
@@ -130,16 +130,16 @@ pipeline ::
   -> ExceptT FileError m BS.ByteString
 pipeline [] bytes = return bytes
 pipeline (p : ps) bytes =
-    (fromIO (LL.readCreateProcessWithExitCode p bytes) >>= doResult)
-    where
-      doResult :: Either SomeNonPseudoException (ExitCode, BS.ByteString, BS.ByteString) -> ExceptT FileError m BS.ByteString
-      doResult (Left e) = unsafeFromIO (alog "Appraisal.ImageFile" ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e)) >> throwError (IOException (pack (show e)))
-      doResult (Right (ExitSuccess, out, _)) = pipeline ps out
-      doResult (Right (code, _, err)) =
-        let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
-          unsafeFromIO (alog "Appraisal.ImageFile" ERROR message) >>
-            -- Not actually an IOExeption, this is a process error exit
-            (throwError (IOException (pack (show (userError message)))))
+  tryError (lyftIO (LL.readCreateProcessWithExitCode p bytes)) >>= doResult
+  where
+    doResult :: Either FileError (ExitCode, BS.ByteString, BS.ByteString) -> ExceptT FileError m BS.ByteString
+    doResult (Left e) = unsafeFromIO (alog "Appraisal.ImageFile" ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e)) >> throwError (IOException (pack (show e)))
+    doResult (Right (ExitSuccess, out, _)) = pipeline ps out
+    doResult (Right (code, _, err)) =
+      let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
+        unsafeFromIO (alog "Appraisal.ImageFile" ERROR message) >>
+        -- Not actually an IOExeption, this is a process error exit
+        (throwError (IOException (pack (show (userError message)))))
 
 
 -- * FileCacheTop
@@ -668,14 +668,14 @@ cacheMap ::
   => m (CacheMap key val)
 cacheMap = do
   st <- askCacheAcid
-  fromIO (query st LookMap) >>= liftEither
+  lyftIO (query st LookMap)
 
 cacheDelete ::
   forall key val m. (MonadFileCache key val m, Unexceptional m, MonadError SomeNonPseudoException m)
   => Proxy val -> Set key -> m ()
 cacheDelete _ keys = do
   (st :: AcidState (CacheMap key val)) <- askCacheAcid
-  fromIO (update st (DeleteValues keys)) >>= liftEither
+  lyftIO (update st (DeleteValues keys))
 
 -- * ImageCache
 
@@ -843,7 +843,7 @@ buildImageBytesFromFile key csum typ = do
   -- If we get a cache miss for an ImageOriginal key something
   -- has gone wrong.  Try to rebuild from the file if it exists.
   path <- fileCachePath (ImagePath key typ)
-  exists <- withExceptT fromSomeNonPseudoException (fromIO (doesFileExist path) >>= liftEither)
+  exists <- lyftIO (doesFileExist path)
   case exists of
     False -> do
       let e = CacheDamage ("buildImageBytes - missing original: " <> T.pack (show key <> " -> " <> path))
