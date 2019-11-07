@@ -684,7 +684,7 @@ type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 
 -- | 'MonadFileCache' instance for images on top of the 'RWST' monad run by
 -- 'runFileCacheT'.
-instance (MonadError e m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
+instance (Monad m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
   => MonadFileCache ImageKey ImageFile (RWST (acid, top) () s m) where
     askCacheAcid = view _1
 
