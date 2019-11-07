@@ -38,8 +38,6 @@ module Data.FileCache.Server
   , tests
   ) where
 
--- import "regex-compat-tdfa" Text.Regex ( Regex, mkRegex, matchRegex )
-import Control.Concurrent (forkIO{-, ThreadId-})
 import Control.Lens ( (%=), _1, _2, at, view )
 import Control.Monad ( unless, when )
 import Control.Monad.Catch (MonadCatch)
@@ -756,14 +754,14 @@ cacheDerivedImage retry key =
       -- also need to be done in a queue to prevent the possibility of
       -- a million simultaneous image builds starting all at once, but
       -- for testing this is ok.
-      _ <- lyftIO (forkIO (cacheImageFile acid top key shape))
+      _ <- fork (cacheImageFile acid top key shape)
       return (ImageFileShape shape)
     -- A FileError is stored in the cache.  Should we try to build the
     -- image again?  Probably not always.
     cacheError True _e = cacheMiss
     cacheError False e = throwError e
 
-cacheImageFile :: AcidState (CacheMap ImageKey ImageFile) -> FileCacheTop -> ImageKey -> ImageShape -> IO ()
+cacheImageFile :: AcidState (CacheMap ImageKey ImageFile) -> FileCacheTop -> ImageKey -> ImageShape -> UIO ()
 cacheImageFile acid top key shape = do
   execFileCacheT acid top () (runExceptT (tryError (buildImageFile key shape) >>= cachePut key))
   return ()
