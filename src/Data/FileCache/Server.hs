@@ -22,11 +22,13 @@ module Data.FileCache.Server
   , fileCachePathIO
   , FileCacheT
   , runFileCacheT, evalFileCacheT, execFileCacheT
-  , MonadFileCache
+  , MonadFileCache(askCacheAcid)
   , cacheLook, cacheDelete, cacheMap
     -- * Image Cache
   , ImageCacheT
   , MonadImageCache
+  , evalImageCacheUIO
+    -- * Create original and derived images
   , cacheOriginalImage
   , cacheOriginalImages
   , cacheDerivedImages
@@ -41,7 +43,7 @@ module Data.FileCache.Server
 import Control.Lens ( (%=), _1, _2, at, view )
 import Control.Monad ( unless, when )
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.RWS ( modify, MonadState, RWST(runRWST) )
+import Control.Monad.RWS ( get, modify, MonadIO(liftIO), MonadState, put, RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask), ReaderT )
 import Control.Monad.Trans (MonadTrans(lift))
 import Control.Monad.Trans.Except ( ExceptT, runExceptT )
@@ -71,7 +73,7 @@ import Data.Text as T ( pack, Text )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
 import Extra.Except ( HasSomeNonPseudoException(..), liftEither, {-logIOError,-} lyftIO,
-                      MonadError, throwError, tryError)
+                      MonadError, throwError, tryError, withExceptT)
 import Extra.Log ( alog )
 import GHC.Generics (Generic)
 import GHC.Int ( Int64 )
@@ -627,6 +629,8 @@ class (HasFileCacheTop m,
   => MonadFileCache key val m where
   askCacheAcid :: m (AcidState (CacheMap key val))
 
+-- FIXME - the result should be (Either FileError val), the FileError
+-- is part of the cached value now, its not an exception.
 cachePut ::
   forall key val m. (MonadFileCache key val m, Unexceptional m)
   => key -> Either FileError val -> ExceptT FileError m val
@@ -635,7 +639,7 @@ cachePut key val = do
   lyftIO (update st (PutValue key val))
   liftEither val
 
--- | Same as 'cachePut' but returns ()
+-- | Same as 'cachePut' but returns ().  Same FIXME applies.
 cachePut' ::
   forall key val m. (MonadFileCache key val m, Unexceptional m)
   => key -> Either FileError val -> ExceptT FileError m ()
@@ -685,6 +689,23 @@ type MonadImageCache m = MonadFileCache ImageKey ImageFile m
 instance (Monad m, acid ~ AcidState (CacheMap ImageKey ImageFile), top ~ FileCacheTop)
   => MonadFileCache ImageKey ImageFile (RWST (acid, top) () s m) where
     askCacheAcid = view _1
+
+-- | Run some 'Unexceptional' image cache IO in a a MonadIO instance.
+evalImageCacheUIO ::
+  (MonadImageCache m, MonadIO m, MonadState s m)
+  => ImageCacheT s UIO a
+  -> m a
+evalImageCacheUIO io = do
+  s0 <- get
+  acid <- askCacheAcid
+  top <- fileCacheTop
+  -- FIXME the ExceptT in FileCacheT should go away, the FileError is
+  -- just part of the result, its not an exception.
+  ~(Right (a, s', ())) <- liftIO (run (runExceptT ({-withExceptT fromFileError-} (runFileCacheT acid top s0 io))))
+  put s'
+  return a
+
+-- * Create original and derived images
 
 -- | Add some image files to an image repository - updates the acid
 -- state image map and copies the file to a location determined by the
