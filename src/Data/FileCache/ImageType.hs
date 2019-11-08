@@ -22,7 +22,7 @@ import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)
 import Text.Parsec.Text (Parser)
 import Data.ByteString.UTF8 (toString)
-import UnexceptionalIO (Unexceptional)
+import UnexceptionalIO.Trans (Unexceptional)
 
 instance Unexceptional m => HasImageShapeM (ExceptT FileError m) BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)

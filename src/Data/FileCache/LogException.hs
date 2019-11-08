@@ -8,12 +8,11 @@ module Data.FileCache.LogException
     ) where
 
 import Control.Monad.Except (MonadError(catchError, throwError))
-import UnexceptionalIO (unsafeFromIO)
 import Language.Haskell.TH (ExpQ, Exp, Loc(..), location, pprint, Q)
 import Language.Haskell.TH.Instances ()
 import qualified Language.Haskell.TH.Lift as TH (Lift(lift))
 import System.Log.Logger (Priority, logM)
-import UnexceptionalIO (Unexceptional)
+import UnexceptionalIO.Trans (Unexceptional, unsafeFromIO)
 
 __LOC__ :: Q Exp
 __LOC__ = TH.lift =<< location
