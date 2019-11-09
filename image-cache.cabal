@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.14
+Version:        0.15
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -48,7 +48,7 @@ Library
     pretty >= 1.1.2,
     pureMD5,
     safecopy >= 0.9.4.4,
-    sr-extra >= 1.64,
+    sr-extra >= 1.65,
     syb,
     template-haskell,
     text,
