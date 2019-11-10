@@ -38,9 +38,10 @@ module Data.FileCache.Server
   , cacheDerivedImages
   , cacheDerivedImage
 
+  , ImageChan
   , HasImageBuilder(imageBuilder)
   , startImageBuilder
-  , queueImageBuild
+  -- , queueImageBuild
 
   , fixImageShapes
   , validateImageKey
@@ -48,7 +49,7 @@ module Data.FileCache.Server
   , tests
   ) where
 
-import Control.Concurrent (ThreadId)
+import Control.Concurrent (ThreadId, threadDelay)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (Exception)
 import Control.Lens ( (%=), _1, _2, _3, at, view )
@@ -94,7 +95,7 @@ import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( (</>), makeRelative, takeDirectory )
 import System.FilePath.Extra ( writeFileReadable )
-import System.IO (hFlush, hPutStrLn, stderr, stdout)
+import System.IO (hFlush, stdout)
 import System.Log.Logger ( Priority(..) )
 import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
 import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser, shell )
@@ -758,9 +759,10 @@ buildOriginalImage x = do
   unless exists $ lyftIO $ writeFileReadable path bs
   return img
 
-class HasImageBuilder a where imageBuilder :: a -> Chan (ImageKey, ImageFile)
-instance HasImageBuilder (Chan (ImageKey, ImageFile)) where imageBuilder = id
-instance HasImageBuilder (a, b, Chan (ImageKey, ImageFile)) where imageBuilder = view _3
+type ImageChan = Chan [(ImageKey, ImageShape)]
+class HasImageBuilder a where imageBuilder :: a -> ImageChan
+instance HasImageBuilder ImageChan where imageBuilder = id
+instance HasImageBuilder (a, b, ImageChan) where imageBuilder = view _3
 
 -- | Build an image map in the state monad
 cacheDerivedImages ::
@@ -796,7 +798,7 @@ cacheDerivedImage retry key =
       case shape of
         Left e -> return (Left e)
         Right shape' -> do
-          runExceptT (queueImageBuild key shape') >>=
+          runExceptT (queueImageBuild [(key, shape')]) >>=
             either (\(e :: e) -> unsafeFromIO (alog "Data.FileCache.Server" DEBUG ("queueCacheImageFile failed: " ++ show e))) return
           -- The image builder proceeds in the background, return
           -- shape for now.
@@ -806,39 +808,41 @@ cacheDerivedImage retry key =
     cacheError True _e = cacheMiss
     cacheError False e = return $ Left e
 
+-- | Insert an image build request into the channel that is being polled
+-- by the thread launched in startCacheImageFileQueue.
+queueImageBuild ::
+  (Unexceptional m, HasSomeNonPseudoException e, Exception e, MonadReader r m, HasImageBuilder r)
+  => [(ImageKey, ImageShape)]
+  -> ExceptT e m ()
+queueImageBuild pairs = do
+  -- unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requesting: " ++ show (pPrint pairs))
+  chan <- lift (imageBuilder <$> ask)
+  lyftIO (writeChan chan pairs)
+  -- unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requested: " ++ show (pPrint pairs))
+
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startImageBuilder ::
   forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
-                 MonadReader r m, HasImageAcid r, HasFileCacheTop r{-, HasImageBuilder r-})
-  => m (Chan (ImageKey, ImageFile), ThreadId)
+                 MonadReader r m, HasImageAcid r, HasFileCacheTop r)
+  => m (ImageChan, ThreadId)
 startImageBuilder = do
   r <- ask
-  (chan :: Chan (ImageKey, ImageFile)) <- lyftIO newChan
-  (,) <$> pure chan <*> fork (forever (runExceptT (fromIO' (readChan chan)) >>= either doError (doImage r)))
+  (chan :: ImageChan) <- lyftIO newChan
+  (,) <$> pure chan <*> fork (forever (runExceptT (fromIO' (readChan chan)) >>= either doError (doImages r)))
   where
     doError (e :: SomeNonPseudoException) =
       unsafeFromIO $ alog "Data.FileCache.Server" ERROR ("Failure reading image cache request channel: " ++ show e)
-    doImage :: r -> (ImageKey, ImageFile) -> UIO ()
-    doImage r (key, (ImageFileShape shape)) = do
-      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("Image requested: " ++ show (key, shape))
-      cacheImageFile r key shape
-      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("Image completed: " ++ show (key, shape))
-
--- | Insert an image build request into the channel that is being polled
--- by the thread launched in startCacheImageFileQueue.
-queueImageBuild ::
-  (Unexceptional m, {-MonadError e m, HasSomeNonPseudoException e,-} Exception e, MonadReader r m, HasImageBuilder r)
-  => ImageKey
-  -> ImageShape
-  -> ExceptT e m ()
-queueImageBuild key shape =
-  lift (imageBuilder <$> ask) >>= \chan ->
-  fromIO' (unsafeFromIO (writeChan chan (key, ImageFileShape shape)))
+    doImages :: r -> [(ImageKey, ImageShape)] -> UIO ()
+    doImages r pairs = do
+      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - received request: " ++ show (pPrint pairs))
+      -- the threadDelay is to test the behavior of the server for lengthy image builds
+      mapM_ (\(key, shape) -> cacheImageFile r key shape {- >> unsafeFromIO (threadDelay 5000000)-}) pairs
+      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImage2 - completed request: " ++ show (pPrint pairs))
 
 cacheImageFile ::
-  forall r. (HasImageAcid r, HasFileCacheTop r{-, HasImageBuilder r-})
+  forall r. (HasImageAcid r, HasFileCacheTop r)
   => r
   -> ImageKey
   -> ImageShape
