@@ -94,6 +94,7 @@ import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( (</>), makeRelative, takeDirectory )
 import System.FilePath.Extra ( writeFileReadable )
+import System.IO (hFlush, hPutStrLn, stderr, stdout)
 import System.Log.Logger ( Priority(..) )
 import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
 import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser, shell )
@@ -1039,6 +1040,11 @@ tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
                                (saneSize (ImageSize {_dim = TheHeight, _size = 0.0, _units = Inches})))
                  ]
 
+-- splits (splitAt 3) [1,2,3,4,5,6,7] -> [[1,2,3],[4,5,6],[7]]
+splits :: ([a] -> ([a], [a])) -> [a] -> [[a]]
+splits f [] = []
+splits f xs = let (lhs, rhs) = f xs in (lhs : splits f rhs)
+
 -- | The migration of 'ImageKey' sets the 'ImageType' field to
 -- 'Unknown' everywhere, this looks at the pairs in the cache map and
 -- copies the 'ImageType' of the 'ImageFile' into the keys.  We can't
@@ -1053,8 +1059,10 @@ fixImageShapes ::
   -> m (Map ImageKey (Either FileError ImageFile))
 fixImageShapes mp =
   let mp' = fromList (fixOriginalKeys (changes mp) (toList mp)) in
-    fromList <$> mapM fixPair (toList mp')
+    (fromList . concat) <$> mapM fixPairs (splits (splitAt 100) (toList mp'))
   where
+    fixPairs :: [(ImageKey, Either FileError ImageFile)] -> m [(ImageKey, Either FileError ImageFile)]
+    fixPairs pairs = unsafeFromIO (putStr "." >> hFlush stdout) >> mapM fixPair pairs
     fixPair :: (ImageKey, Either FileError ImageFile) -> m (ImageKey, Either FileError ImageFile)
     -- If already damaged use the result
     fixPair (key, Left e) = either ((key,) . Left) id <$> runExceptT (fixImageCached (key, Left e))
