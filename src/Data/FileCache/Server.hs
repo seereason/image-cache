@@ -37,7 +37,7 @@ module Data.FileCache.Server
   , cacheOriginalImage
   , cacheOriginalImages
   , cacheDerivedImages
-  , cacheDerivedImage
+  -- , cacheDerivedImage
 
   , ImageChan
   , HasImageBuilder(imageBuilder)
@@ -50,7 +50,7 @@ module Data.FileCache.Server
   , tests
   ) where
 
-import Control.Concurrent (ThreadId, threadDelay)
+import Control.Concurrent (ThreadId{-, threadDelay-})
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (Exception)
 import Control.Lens ( (%=), _1, _2, _3, at, view )
@@ -58,6 +58,7 @@ import Control.Monad (forever, unless, when)
 import Control.Monad.Catch (MonadCatch)
 import Control.Monad.RWS ( get, modify, MonadIO(liftIO), MonadState, put, RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask), ReaderT, runReaderT )
+import Control.Monad.State (execStateT)
 import Control.Monad.Trans (MonadTrans(lift))
 import Control.Monad.Trans.Except ( ExceptT, runExceptT )
 import Data.Acid ( AcidState, makeAcidic, openLocalStateFrom, Query, Update, query, update )
@@ -81,7 +82,7 @@ import Data.Maybe ( fromMaybe )
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..), SafeCopy(..), SafeCopy' )
-import Data.Set as Set ( Set )
+import Data.Set as Set (insert, Set)
 import Data.Text as T ( pack, Text )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
@@ -766,51 +767,115 @@ class HasImageBuilder a where imageBuilder :: a -> ImageChan
 instance HasImageBuilder ImageChan where imageBuilder = id
 instance HasImageBuilder (a, b, ImageChan) where imageBuilder = view _3
 
+data Results
+  = Results
+    { _badKeys :: Set ImageKey
+    , _shapeErrors :: Map ImageKey FileError
+    , _cacheMisses :: Map ImageKey ImageShape
+    , _cachedErrors :: Map ImageKey FileError
+    , _cachedReady :: Map ImageKey ImageReady
+    , _cachedShapes :: Map ImageKey ImageShape
+    } deriving (Generic)
+
+instance Semigroup Results where
+  Results a1 a2 a3 a4 a5 a6 <> Results b1 b2 b3 b4 b5 b6 =
+    Results (a1 <> b1) (a2 <> b2) (a3 <> b3) (a4 <> b4) (a5 <> b5) (a6 <> b6)
+
+instance Monoid Results where
+  mappend = (<>)
+  mempty = Results mempty mempty mempty mempty mempty mempty
+
 -- | Build an image map in the state monad
 cacheDerivedImages ::
   forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e, Exception e,
-                 MonadState (Map ImageKey (Either FileError ImageFile)) m,
                  MonadReader r m, HasCacheAcid ImageKey ImageFile r, HasImageBuilder r)
   => Bool
+  -- ^ Should we send _cachedErrors to the builder again?
+  -- This sounds dangerous for normal operation, but useful
+  -- for appraisalscope.
   -> [ImageKey]
-  -> m ()
-cacheDerivedImages retry =
-  mapM_ (\key -> cacheDerivedImage retry key >>= modify . Map.insert key)
+  -> m (Map ImageKey (Either FileError ImageFile))
+cacheDerivedImages retry keys = do
+  Results{..} <- execStateT (mapM_ cacheDerivedImage keys) mempty
+  -- Send all cacheMisses to the builder.  It will update the
+  -- cache as things complete.
+  runExceptT (queueImageBuild (Map.toList _cacheMisses)) >>= either buildQueueFailure return
+  return (fmap Left _shapeErrors <>
+          fmap (Right . ImageFileShape) _cacheMisses <>
+          fmap Left _cachedErrors <>
+          fmap (Right . ImageFileReady) _cachedReady <>
+          fmap (Right . ImageFileShape) _cachedShapes)
+  where
+      buildQueueFailure (e :: e) =
+        unsafeFromIO (alog "Data.FileCache.Server" DEBUG
+                       ("queueCacheImageFile failed: " ++ show e))
+
+#if 0
+      -- alog "Data.FileCache.Server" DEBUG ("cacheMiss - buildImageShape key=" <> show key)
+      case shape of
+        Left e -> modify (insert key (Left e))
+        Right shape' -> do
+          modify (insert key (Right (ImageFileShape shape')))
+          -- We could collect these and send them all at once
+          runExceptT (queueImageBuild [(key, shape')]) >>= handleQueueFailure
+          -- modify (insert key (Right (ImageFileBuilding shape')))
+
+#endif
 
 -- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.
 cacheDerivedImage ::
-  forall r e m. (Unexceptional m,
-                 MonadError e m, HasSomeNonPseudoException e, {-Show e,-} Exception e,
-                 MonadReader r m, HasImageAcid r, HasImageBuilder r)
-  => Bool
-  -> ImageKey
-  -> m (Either FileError ImageFile)
-cacheDerivedImage _ (ImageOriginal _ _) =
-  -- Not enough information to create the ByteString here.
-  return $ Left $ ErrorCall "cacheDerivedImage - invalid argument"
-cacheDerivedImage retry key =
-  cacheLook key >>= maybe cacheMiss (either (cacheError retry) (return . Right))
+  forall r e m. (Unexceptional m, MonadState Results m,
+                 MonadError e m, HasSomeNonPseudoException e,
+                 MonadReader r m, HasImageAcid r)
+  => ImageKey
+  -> m ()
+cacheDerivedImage key@(ImageOriginal _ _) = do
+  -- Not enough information to create a ByteString
+  unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("cacheDerivedImage - invalid argument: " ++ show key)
+  field @"_badKeys" %= Set.insert key
+cacheDerivedImage key =
+  cacheLook key >>= maybe cacheMiss cacheHit
   where
-    cacheMiss :: m (Either FileError ImageFile)
-    cacheMiss = cacheMiss' >>= cachePut key
-    cacheMiss' :: m (Either FileError ImageFile)
-    cacheMiss' = do
-      -- alog "Data.FileCache.Server" DEBUG ("cacheMiss - buildImageShape key=" <> show key)
-      (shape :: Either FileError ImageShape) <- runExceptT (buildImageShape key)
-      cachePut' key (fmap ImageFileShape shape) -- Save the shape while the image is building
-      case shape of
-        Left e -> return (Left e)
-        Right shape' -> do
-          runExceptT (queueImageBuild [(key, shape')]) >>=
-            either (\(e :: e) -> unsafeFromIO (alog "Data.FileCache.Server" DEBUG ("queueCacheImageFile failed: " ++ show e))) return
-          -- The image builder proceeds in the background, return
-          -- shape for now.
-          return (Right (ImageFileShape shape'))
-    -- A FileError is stored in the cache.  Should we try to build the
-    -- image again?  Probably not always.
-    cacheError True _e = cacheMiss
-    cacheError False e = return $ Left e
+    cacheHit :: Either FileError ImageFile -> m () -- The cache has a recorded error
+    cacheHit (Left e) = do
+      field @"_cachedErrors" %= Map.insert key e
+    cacheHit (Right (ImageFileReady img)) =
+      field @"_cachedReady" %= Map.insert key img
+    -- We need to distinguish which images returned by this function
+    -- should be added to the build queue.  Th
+    -- ImageFileShape means an image was requested and it was not in
+    -- the cache.  Therefore ImageFileShape is never inserted into the
+    -- acid cache.  Instead we insert ImageFileBuilding.
+    cacheHit (Right (ImageFileShape shape)) =
+      field @"_cachedShapes" %= Map.insert key shape
+    -- ImageFileBuilding should mean the image is under construction,
+    -- and will eventually appear as ImageFileReady or a FileError.
+    -- FIXME: It might be that the server dies and leaves it in this
+    -- state.  For this reason we should have a record of what images
+    -- are currently in the ImageFileBuilding state and re-queue them
+    -- when the server starts.
+    cacheMiss :: m ()
+    cacheMiss = do
+      -- Its not in the cache, lets fix that immediately.
+      cachePut' key noShape
+      field @"_shapeErrors" %= Map.insert key NoShape
+      -- Compute and save the shape of the requested image from its
+      -- key.  This is not an expensive operation, but it does involve
+      -- running file(1).
+      runExceptT (buildImageShape key) >>= either shapeError shapeReady
+    shapeError :: FileError -> m ()
+    shapeError e = do
+      field @"_shapeErrors" %= Map.insert key e
+      cachePut' key (Left e :: Either FileError ImageFile)
+    shapeReady :: ImageShape -> m ()
+    shapeReady shape = do
+      field @"_shapeErrors" %= Map.delete key
+      field @"_cacheMisses" %= Map.insert key shape
+      cachePut' key (Right (ImageFileShape shape))
+
+    noShape :: Either FileError ImageFile
+    noShape = Left NoShape
 
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
@@ -819,10 +884,10 @@ queueImageBuild ::
   => [(ImageKey, ImageShape)]
   -> ExceptT e m ()
 queueImageBuild pairs = do
-  -- unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requesting: " ++ show (pPrint pairs))
+  unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
   chan <- lift (imageBuilder <$> ask)
   lyftIO (writeChan chan pairs)
-  -- unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requested: " ++ show (pPrint pairs))
+  unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
@@ -840,10 +905,10 @@ startImageBuilder = do
       unsafeFromIO $ alog "Data.FileCache.Server" ERROR ("Failure reading image cache request channel: " ++ show e)
     doImages :: r -> [(ImageKey, ImageShape)] -> UIO ()
     doImages r pairs = do
-      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - received request: " ++ show (pPrint pairs))
+      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
       -- the threadDelay is to test the behavior of the server for lengthy image builds
       mapM_ (\(key, shape) -> cacheImageFile r key shape {- >> unsafeFromIO (threadDelay 5000000)-}) pairs
-      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImage2 - completed request: " ++ show (pPrint pairs))
+      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - completed " ++ show (length pairs) ++ " images")
 
 cacheImageFile ::
   forall r. (HasImageAcid r, HasFileCacheTop r)
