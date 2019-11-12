@@ -53,6 +53,7 @@ module Data.FileCache.Common
 
     -- * ImageKey
   , ImageKey(..)
+  , ImageKey_2(..)
   , HasImageKey(imageKey)
   , OriginalKey(originalKey)
   , UprightKey(uprightKey)
@@ -609,6 +610,7 @@ data ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
     deriving (Generic, Eq, Ord)
 
+{-
 instance Migrate ImageKey where
   type MigrateFrom ImageKey = ImageKey_3
   migrate (ImageOriginal_3 csum) =
@@ -642,14 +644,15 @@ instance Migrate ImageKey_3 where
   migrate (ImageCropped_2 crop key) = ImageCropped_3 crop key
   migrate (ImageScaled_2 size dpi key) = ImageScaled_3 size dpi key
   migrate (ImageUpright_2 key) = ImageUpright_3 key
+-}
 
 -- When this is removed the 'setImageFileTypes' function should also
 -- be removed.
 data ImageKey_2
     = ImageOriginal_2 ImageFile
-    | ImageCropped_2 ImageCrop ImageKey
-    | ImageScaled_2 ImageSize Rational ImageKey
-    | ImageUpright_2 ImageKey
+    | ImageCropped_2 ImageCrop ImageKey_2
+    | ImageScaled_2 ImageSize Rational ImageKey_2
+    | ImageUpright_2 ImageKey_2
     deriving (Generic, Eq, Ord)
 
 deriving instance Data ImageKey
@@ -658,8 +661,10 @@ deriving instance Show ImageKey
 deriving instance Typeable ImageKey
 instance Serialize ImageKey where get = safeGet; put = safePut
 instance SafeCopy ImageKey_2 where version = 2
-instance SafeCopy ImageKey_3 where kind = extension; version = 3
-instance SafeCopy ImageKey where version = 4; kind = extension
+-- instance SafeCopy ImageKey_3 where kind = extension; version = 3
+-- This is not an extension of ImageKey_2, it is a new type
+-- created by the migration of ImageCache.
+instance SafeCopy ImageKey where version = 4
 
 instance Pretty ImageKey where
     pPrint (ImageOriginal csum typ) = text ("ImageOriginal " <> show csum <> " ") <> pPrint typ

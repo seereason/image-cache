@@ -74,7 +74,6 @@ import Data.Digest.Pure.MD5 (md5)
 import Data.FileCache.Common
 import Data.FileCache.ImageType (fileInfoFromPath)
 import Data.FileCache.LogException (logException)
-import Data.Typeable -- ( (:~:), eqT, Typeable )
 import Data.Generics (mkT, everywhere)
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
@@ -167,29 +166,41 @@ instance HasFileCacheTop FileCacheTop where fileCacheTop = id
 -- instance HasFileCacheTop (ImageAcid, FileCacheTop) where fileCacheTop = snd
 -- instance HasFileCacheTop (ImageAcid, FileCacheTop, c) where fileCacheTop = view _2
 
-type CacheAcid key val = AcidState (CacheMap key val)
-class HasCacheAcid key val a where cacheAcid :: a -> AcidState (CacheMap key val)
-instance  HasCacheAcid key val (CacheAcid key val) where cacheAcid = id
-instance  HasCacheAcid key val (CacheAcid key val, top) where cacheAcid = fst
-instance  HasCacheAcid key val (CacheAcid key val, a, b) where cacheAcid = view _1
+type CacheAcid = AcidState CacheMap
+class HasCacheAcid a where cacheAcid :: a -> AcidState CacheMap
+instance  HasCacheAcid CacheAcid where cacheAcid = id
+instance  HasCacheAcid (CacheAcid, top) where cacheAcid = fst
+instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
 
 -- * CacheMap
 
 -- Later we could make FileError a type parameter, but right now its
 -- tangled with the MonadError type.
-data CacheMap key val =
-    CacheMap {_unCacheMap :: Map key (Either FileError val)}
+data CacheMap =
+    CacheMap {_unCacheMap :: Map ImageKey (Either FileError ImageFile)}
     deriving (Generic, Eq, Ord)
 
-instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap key val) where
+instance SafeCopy CacheMap where
   version = 3
   kind = extension
   errorTypeName _ = "Data.FileCache.Types.CacheMap"
 
-instance (Ord key, SafeCopy' key, SafeCopy' val) => Migrate (CacheMap key val) where
-  type MigrateFrom (CacheMap key val) = CacheMap_2 key val
+instance Migrate CacheMap where
+  type MigrateFrom CacheMap = CacheMap_2 ImageKey_2 ImageFile
+  -- This is delicate - know before you edit!
   migrate (CacheMap_2 mp) =
-    CacheMap (fmap (\case Value_1 a -> Right a; Failed_1 e -> Left e; _ -> error "Migrate CacheMap") mp)
+    CacheMap (fromList $ fmap migratePair $ toList mp)
+    where
+      migratePair :: (ImageKey_2, CacheValue_1 ImageFile) -> (ImageKey, Either FileError ImageFile)
+      migratePair (key, Value_1 img) = (migrateKey img key, Right img)
+      migratePair (_, Failed_1 _) = error "unexpected"
+      migratePair (_, InProgress_1) = error "unexpected"
+      migrateKey :: ImageFile -> ImageKey_2 -> ImageKey
+      migrateKey (ImageFileReady img) (ImageOriginal_2 _) =
+        ImageOriginal (_fileChksum (_imageFile img)) (imageType img)
+      migrateKey (ImageFileReady img) (ImageCropped_2 crop key) = ImageCropped crop (migrateKey (ImageFileReady img) key)
+      migrateKey (ImageFileReady img) (ImageScaled_2 sz dpi key) = ImageScaled sz dpi (migrateKey (ImageFileReady img) key)
+      migrateKey (ImageFileReady img) (ImageUpright_2 key) = ImageUpright (migrateKey (ImageFileReady img) key)
 
 data CacheMap_2 key val =
     CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
@@ -200,7 +211,7 @@ instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val
   kind = extension
   errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
 
-deriving instance (Show key, Show val) => Show (CacheMap key val)
+deriving instance Show CacheMap
 
 instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
     type MigrateFrom (CacheMap_2 key val) = Map key val
@@ -220,46 +231,44 @@ $(deriveSafeCopy 1 'base ''CacheValue_1)
 
 -- | Install a key/value pair into the cache.
 putValue ::
-  Ord key
-  => key
-  -> Either FileError val
-  -> Update (CacheMap key val) ()
+     ImageKey
+  -> Either FileError ImageFile
+  -> Update CacheMap ()
 putValue key img = do
   field @"_unCacheMap" %= Map.insert key img
 
 -- | Install several key/value pairs into the cache.
-putValues :: Ord key => Map key (Either FileError val) -> Update (CacheMap key val) ()
+putValues :: Map ImageKey (Either FileError ImageFile) -> Update CacheMap ()
 putValues pairs = do
   field @"_unCacheMap" %= Map.union pairs
 
 -- | Look up a key.
-lookValue :: Ord key => key -> Query (CacheMap key val) (Maybe (Either FileError val))
+lookValue :: ImageKey -> Query CacheMap (Maybe (Either FileError ImageFile))
 lookValue key = view (field @"_unCacheMap" . at key)
 
 -- | Look up several keys.
-lookValues :: Ord key => Set key -> Query (CacheMap key val) (Map key (Either FileError val))
+lookValues :: Set ImageKey -> Query CacheMap (Map ImageKey (Either FileError ImageFile))
 lookValues keys = Map.intersection <$> view (field @"_unCacheMap") <*> pure (Map.fromSet (const ()) keys)
 
 -- | Return the entire cache.  (Despite what ghc says, this constraint
 -- isn't redundant, without it the makeAcidic call has a missing Ord
 -- key instance.)
-lookMap :: Query (CacheMap key val) (CacheMap key val)
+lookMap :: Query CacheMap CacheMap
 lookMap = ask
 
 -- | Remove values from the database.
-deleteValue :: (Ord key{-, Serialize key, Serialize val, Serialize e-}) => key -> Update (CacheMap key val) ()
+deleteValue :: ImageKey -> Update CacheMap ()
 deleteValue key = field @"_unCacheMap" %= Map.delete key
 
-deleteValues :: Ord key => Set key -> Update (CacheMap key val) ()
+deleteValues :: Set ImageKey -> Update CacheMap ()
 deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (const ()) keys))
 
 $(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
 
-openCache :: (key ~ ImageKey, SafeCopy key, Typeable key,
-              val ~ ImageFile, SafeCopy val, Typeable val) => FilePath -> IO (AcidState (CacheMap key val))
+openCache :: FilePath -> IO (AcidState CacheMap)
 openCache path = openLocalStateFrom path initCacheMap
 
-initCacheMap :: Ord key => CacheMap key val
+initCacheMap :: CacheMap
 initCacheMap = CacheMap mempty
 
 -- * ByteString
@@ -624,17 +633,16 @@ evalFileCacheT r s0 action = view _1 <$> runFileCacheT r s0 action
 execFileCacheT :: Functor m => r -> s -> FileCacheT r s m a-> m s
 execFileCacheT r s0 action = view _2 <$> runFileCacheT r s0 action
 
-askCacheAcid :: (MonadReader r m, HasCacheAcid key val r) => m (CacheAcid key val)
+askCacheAcid :: (MonadReader r m, HasCacheAcid r) => m CacheAcid
 askCacheAcid = cacheAcid <$> ask
 
 -- FIXME - the result should be (Either FileError val), the FileError
 -- is part of the cached value now, its not an exception.
 cachePut ::
-  forall key val r e m. (Unexceptional m,
-                         MonadError e m, HasSomeNonPseudoException e,
-                         MonadReader r m, HasCacheAcid key val r,
-                         Ord key, Typeable key, Typeable val)
-  => key -> Either FileError val -> m (Either FileError val)
+  forall r e m. (Unexceptional m,
+                 MonadError e m, HasSomeNonPseudoException e,
+                 MonadReader r m, HasCacheAcid r)
+  => ImageKey -> Either FileError ImageFile -> m (Either FileError ImageFile)
 cachePut key val = do
   st <- askCacheAcid
   lyftIO (update st (PutValue key val))
@@ -642,17 +650,17 @@ cachePut key val = do
 
 -- | Same as 'cachePut' but returns ().  Same FIXME applies.
 cachePut' ::
-  forall e key val r m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
-                         MonadReader r m, HasCacheAcid key val r, Ord key, Typeable key, Typeable val)
-  => key -> Either FileError val -> m ()
+  forall e r m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
+                 MonadReader r m, HasCacheAcid r)
+  => ImageKey -> Either FileError ImageFile -> m ()
 cachePut' key val = do
   st <- askCacheAcid
   lyftIO (update st (PutValue key val))
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
-  forall key val r m. (Unexceptional m, MonadReader r m, HasCacheAcid key val r, Ord key, Typeable key, Typeable val)
-  => key -> m (Maybe (Either FileError val))
+  forall r m. (Unexceptional m, MonadReader r m, HasCacheAcid r)
+  => ImageKey -> m (Maybe (Either FileError ImageFile))
 cacheLook key = do
   st <- askCacheAcid
   handleQueryException <$> runExceptT (lyftIO $ query st (LookValue key))
@@ -661,31 +669,31 @@ cacheLook key = do
     -- image file and error that occurred during the query?  The
     -- correct answer is usually yes, and soon I will get to that.
     -- But at the moment this code merges those errors into the result.
-    handleQueryException :: Either FileError (Maybe (Either FileError val)) ->  Maybe (Either FileError val)
+    handleQueryException :: Either FileError (Maybe (Either FileError ImageFile)) ->  Maybe (Either FileError ImageFile)
     handleQueryException (Left e) = Just (Left e)
     handleQueryException (Right (Just r)) = Just r
     handleQueryException (Right Nothing) = Nothing
 
 cacheMap ::
-  (Unexceptional m, MonadError e m, HasSomeNonPseudoException e, MonadReader r m, HasCacheAcid key val r, Typeable key, Typeable val)
-  => m (CacheMap key val)
+  (Unexceptional m, MonadError e m, HasSomeNonPseudoException e, MonadReader r m, HasCacheAcid r)
+  => m CacheMap
 cacheMap = do
   st <- askCacheAcid
   lyftIO (query st LookMap)
 
 cacheDelete ::
-  forall key val e r m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
-                         MonadReader r m, HasCacheAcid key val r, Ord key, Typeable key, Typeable val)
-  => Proxy val -> Set key -> m ()
+  forall e r m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
+                 MonadReader r m, HasCacheAcid r)
+  => Proxy ImageFile -> Set ImageKey -> m ()
 cacheDelete _ keys = do
-  (st :: AcidState (CacheMap key val)) <- cacheAcid <$> ask
+  (st :: AcidState CacheMap) <- cacheAcid <$> ask
   lyftIO (update st (DeleteValues keys))
 
 -- * ImageCache
 
 type ImageCacheT r s m = FileCacheT r s m
-type HasImageAcid r = HasCacheAcid ImageKey ImageFile r
-type ImageAcid = CacheAcid ImageKey ImageFile
+type HasImageAcid r = HasCacheAcid r
+type ImageAcid = CacheAcid
 imageAcid :: HasImageAcid a => a -> ImageAcid
 imageAcid = cacheAcid
 
@@ -789,7 +797,7 @@ instance Monoid Results where
 -- | Build an image map in the state monad
 cacheDerivedImages ::
   forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e, Exception e,
-                 MonadReader r m, HasCacheAcid ImageKey ImageFile r, HasImageBuilder r)
+                 MonadReader r m, HasCacheAcid r, HasImageBuilder r)
   => Bool
   -- ^ Should we send _cachedErrors to the builder again?
   -- This sounds dangerous for normal operation, but useful
@@ -931,7 +939,7 @@ buildImageShape ::
   (Unexceptional m, MonadReader r m, HasImageAcid r)
   => ImageKey -> ExceptT FileError m ImageShape
 buildImageShape key@(ImageOriginal _csum _typ) =
-  lift (cacheLook @ImageKey @ImageFile key) >>=
+  lift (cacheLook key) >>=
   maybe (throwError (CacheDamage "Original image not in cache"))
         (either throwError
                 (\case ImageFileReady img -> return (_imageShape img)
