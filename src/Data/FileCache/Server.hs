@@ -38,6 +38,7 @@ module Data.FileCache.Server
   , cacheOriginalImages
   , cacheDerivedImages
   -- , cacheDerivedImage
+  , buildImageShape
 
   , ImageChan
   , HasImageBuilder(imageBuilder)

@@ -421,7 +421,7 @@ rotateImageShape NineHr shape = rotateImageShape ThreeHr shape
 
 cropImageShape :: ImageCrop -> ImageShape -> ImageShape
 cropImageShape crop shape | crop == def = shape
-cropImageShape crop@(ImageCrop{..}) shape =
+cropImageShape (ImageCrop{..}) shape =
   shape { _imageShapeWidth = _imageShapeWidth shape - (leftCrop + rightCrop)
         , _imageShapeHeight = _imageShapeHeight shape - (topCrop + bottomCrop) }
 
