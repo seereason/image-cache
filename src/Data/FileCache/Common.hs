@@ -45,7 +45,7 @@ module Data.FileCache.Common
   , HasFileChecksum(fileChecksum)
   -- , fileURI
   -- , addMessage
-  , HasURIPath(toFilePath, toURIPath)
+  , HasURIPath(toURIPath)
 
     -- * ImageFile, ImageReady
   , ImageFile(..)
@@ -823,30 +823,12 @@ class HasImagePath a where imagePath :: a -> ImagePath
 instance HasImagePath ImagePath where imagePath = id
 instance HasImageKey ImagePath where imageKey (ImagePath x _) = imageKey x
 
--- | The common suffix of the path to the image URI and its server
--- FilePath.
 class HasURIPath a where
   toURIPath :: Texty text => a -> text
-  toFilePath :: a -> FilePath
-  toURIDir :: a -> FilePath
 
-instance HasURIPath (Checksum, ImageType) where
-  toURIDir (csum, _typ) = take 2 $ unpack csum
-  toFilePath p@(csum, typ) =
-     toURIDir p </> unpack (csum <> fileExtension typ)
-  toURIPath (csum, typ) =
-     textyText (csum <> fileExtension typ)
-
-instance HasURIPath ImagePath where
-  toURIDir (ImagePath (ImageOriginal csum typ) _) = toURIDir (csum, typ)
-  toURIDir (ImagePath (ImageUpright key) typ) = toURIDir (ImagePath key typ)
-  toURIDir (ImagePath (ImageScaled _ _ key) typ) = toURIDir (ImagePath key typ)
-  toURIDir (ImagePath (ImageCropped _ key) typ) = toURIDir (ImagePath key typ)
-  -- for backwards compatibility, special case ImageOriginal
-  toURIPath (ImagePath (ImageOriginal csum typ) _) = toURIPath (csum, typ)
-  toURIPath p = textyString (makeRelative "/" (unpack (toPathInfo p)))
-  toFilePath (ImagePath (ImageOriginal csum typ) _) = toFilePath (csum, typ)
-  toFilePath p = toURIDir p </> makeRelative "/" (unpack (toPathInfo p))
+instance HasURIPath ImageKey where
+  toURIPath (ImageOriginal csum typ) = textyText (csum <> fileExtension typ)
+  toURIPath key = textyString (makeRelative "/" (unpack (toPathInfo key)))
 
 -- * ImageCached
 
@@ -867,11 +849,6 @@ instance HasImageKey ImageCached where
 
 instance HasImagePath ImageCached where
   imagePath (ImageCached key img) = ImagePath key (imageType img)
-
-instance HasURIPath ImageCached where
-  toURIDir c = toURIDir (imagePath c)
-  toURIPath c@(ImageCached _ _) = toURIPath (imagePath c)
-  toFilePath c@(ImageCached _ _) = toFilePath (imagePath c)
 
 #if 0
 let file = ImageCached {_imageCachedKey = ImageScaled (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches}) (100 % 1) (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)), _imageCachedFile = ImageFile {_imageFile = File {_fileSource = Nothing, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"}, _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170}}

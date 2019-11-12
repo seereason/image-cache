@@ -21,6 +21,7 @@ module Data.FileCache.Server
     -- * Image IO
   , validateJPG
     -- * File Cache
+  , HasImageFilePath(toFilePath)
   , fileCachePath
   , fileCachePathIO
   , FileCacheT
@@ -83,7 +84,7 @@ import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..), SafeCopy(..), SafeCopy' )
 import Data.Set as Set (insert, Set)
-import Data.Text as T ( pack, Text )
+import Data.Text as T ( pack, Text, unpack )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
 import Extra.Except ( HasSomeNonPseudoException(..), lyftIO, MonadError, throwError, tryError)
@@ -108,6 +109,7 @@ import Text.Parsec ( Parsec, (<|>), many, parse, char, digit, newline, noneOf, o
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import UnexceptionalIO.Trans (Unexceptional)
 import UnexceptionalIO.Trans as UIO hiding (lift, ErrorCall)
+import Web.Routes (toPathInfo)
 
 -- * Orphan Instances
 
@@ -606,15 +608,43 @@ editImage' crop bs typ shape =
 
 -- * FileCacheTop
 
+-- | The common suffix of the path to the image URI and its server
+-- FilePath.
+class HasImageFilePath a where
+  toFilePath :: a -> FilePath
+  toURIDir :: a -> FilePath
+
+instance HasImageFilePath (Checksum, ImageType) where
+  toURIDir (csum, _typ) = take 2 $ unpack csum
+  toFilePath p@(csum, typ) =
+     toURIDir p </> unpack (csum <> fileExtension typ)
+
+instance HasImageFilePath ImagePath where
+  toURIDir (ImagePath (ImageOriginal csum typ) _) = toURIDir (csum, typ)
+  toURIDir (ImagePath (ImageUpright key) typ) = toURIDir (ImagePath key typ)
+  toURIDir (ImagePath (ImageScaled _ _ key) typ) = toURIDir (ImagePath key typ)
+  toURIDir (ImagePath (ImageCropped _ key) typ) = toURIDir (ImagePath key typ)
+  -- for backwards compatibility, special case ImageOriginal
+  toFilePath (ImagePath (ImageOriginal csum typ) _) = toFilePath (csum, typ)
+  toFilePath p = toURIDir p </> makeRelative "/" (unpack (toPathInfo p))
+
+instance HasImageFilePath ImageCached where
+  toURIDir c = toURIDir (imagePath c)
+  toFilePath c@(ImageCached _ _) = toFilePath (imagePath c)
+
+instance HasImageFilePath (ImageKey, ImageShape) where
+  toURIDir (key, shape) = toURIDir (ImagePath key (_imageShapeType shape))
+  toFilePath (key, shape) = toFilePath (ImagePath key (_imageShapeType shape))
+
 -- | The full path name for the local cache of the file.
-fileCachePath :: (HasURIPath a, MonadReader r m, HasFileCacheTop r) => a -> m FilePath
+fileCachePath :: (HasImageFilePath a, MonadReader r m, HasFileCacheTop r) => a -> m FilePath
 fileCachePath file = do
   (FileCacheTop top) <- fileCacheTop <$> ask
-  let path = toURIPath file
+  let path = toFilePath file
   return $ top </> makeRelative "/" path
 
 -- | Create any missing directories and evaluate 'fileCachePath'
-fileCachePathIO :: (HasURIPath a, MonadReader r m, HasFileCacheTop r, Unexceptional m, MonadError FileError m) => a -> m FilePath
+fileCachePathIO :: (HasImageFilePath a, MonadReader r m, HasFileCacheTop r, Unexceptional m, MonadError FileError m) => a -> m FilePath
 fileCachePathIO file = do
   path <- fileCachePath file
   let dir = takeDirectory path
@@ -1064,7 +1094,7 @@ buildCroppedImageBytes crop key = do
 
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
-  (MonadReader r m, HasFileCacheTop r, Unexceptional m, HasSomeNonPseudoException e, HasURIPath a)
+  (MonadReader r m, HasFileCacheTop r, Unexceptional m, HasSomeNonPseudoException e, HasImageFilePath a)
   => a -> ExceptT e m BS.ByteString
 lookImageBytes a = fileCachePath a >>= lyftIO . BS.readFile
 
@@ -1160,7 +1190,7 @@ fixImageShapes mp =
       fixImageShape (csum, typ) >>= \s' -> return (key, Right (ImageFileReady (ImageReady f s')))
     fixImageCached x = return x
     -- Actually we just compute it from scratch
-    fixImageShape :: HasURIPath a => a -> ExceptT FileError m ImageShape
+    fixImageShape :: HasImageFilePath a => a -> ExceptT FileError m ImageShape
     fixImageShape a = fileCachePath a >>= imageShapeM . (, BS.empty)
 
 instance (Unexceptional m, MonadReader r m, HasFileCacheTop r) => HasImageShapeM (ExceptT FileError m) (Checksum, ImageType) where
