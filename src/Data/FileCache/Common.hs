@@ -53,6 +53,7 @@ module Data.FileCache.Common
 
     -- * ImageKey
   , ImageKey(..)
+  , HasImageKey(imageKey)
   , OriginalKey(originalKey)
   , UprightKey(uprightKey)
   , EditedKey(editedKey)
@@ -666,6 +667,17 @@ instance Pretty ImageKey where
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
 
+class HasImageKey a where
+  imageKey :: a -> ImageKey
+instance HasImageKey ImageKey where
+  imageKey = id
+
+instance OriginalKey ImageKey where
+  originalKey key@(ImageOriginal _ _) = key
+  originalKey (ImageUpright key) = originalKey key
+  originalKey (ImageScaled _ _ key) = originalKey key
+  originalKey (ImageCropped _ key) = originalKey key
+
 -- | Various ways to build an OriginalKey.
 class OriginalKey a where
   originalKey :: a -> ImageKey
@@ -803,6 +815,7 @@ data ImagePath =
 
 class HasImagePath a where imagePath :: a -> ImagePath
 instance HasImagePath ImagePath where imagePath = id
+instance HasImageKey ImagePath where imageKey (ImagePath x _) = imageKey x
 
 -- | The common suffix of the path to the image URI and its server
 -- FilePath.
@@ -837,6 +850,9 @@ instance SafeCopy ImageCached
 
 instance HasImageShapeM Identity ImageCached where
   imageShapeM = imageShapeM . _imageCachedFile
+
+instance HasImageKey ImageCached where
+  imageKey (ImageCached x _) = imageKey x
 
 instance HasImagePath ImageCached where
   imagePath (ImageCached key img) = ImagePath key (imageType img)
