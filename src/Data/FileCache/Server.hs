@@ -58,7 +58,6 @@ import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (Exception)
 import Control.Lens ( (%=), _1, _2, _3, at, view )
 import Control.Monad (forever, unless, when)
-import Control.Monad.Catch (MonadCatch)
 import Control.Monad.RWS ( get, modify, MonadIO(liftIO), MonadState, put, RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask), ReaderT, runReaderT )
 import Control.Monad.State (execStateT)
@@ -280,7 +279,7 @@ initCacheMap = CacheMap mempty
 -- * ByteString
 
 class MakeByteString a where
-  makeByteString :: (Unexceptional m, MonadCatch m) => a -> ExceptT FileError m BS.ByteString
+  makeByteString :: (Unexceptional m) => a -> ExceptT FileError m BS.ByteString
 
 instance MakeByteString BS.ByteString where
   makeByteString = return
@@ -536,7 +535,7 @@ deriving instance Show Hires
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
 scaleImage' ::
-  (Unexceptional m, MonadCatch m)
+  Unexceptional m
   => Double
   -> BS.ByteString
   -> ImageType
@@ -762,7 +761,7 @@ evalImageCacheIO r s0 action =
 -- state image map and copies the file to a location determined by the
 -- FileCacheTop and its checksum.
 cacheOriginalImages ::
-  forall x e r m. (MakeByteString x, Ord x, Unexceptional m, MonadCatch m,
+  forall x e r m. (MakeByteString x, Ord x, Unexceptional m,
                    MonadError e m, HasSomeNonPseudoException e,
                    MonadReader r m, HasImageAcid r, HasFileCacheTop r,
                    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
@@ -773,7 +772,7 @@ cacheOriginalImages =
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
 cacheOriginalImage ::
-  forall x e r m. (MakeByteString x, Unexceptional m, MonadCatch m,
+  forall x e r m. (MakeByteString x, Unexceptional m,
                    MonadError e m, HasSomeNonPseudoException e,
                    MonadReader r m, HasFileCacheTop r, HasImageAcid r)
   => x
@@ -787,7 +786,7 @@ cacheOriginalImage x = do
   return (key, val)
 
 buildOriginalImage ::
-  forall x r m. (MakeByteString x, Unexceptional m, MonadCatch m,
+  forall x r m. (MakeByteString x, Unexceptional m,
                  MonadReader r m, HasFileCacheTop r)
   => x
   -> ExceptT FileError m ImageReady
@@ -951,16 +950,16 @@ startImageBuilder = do
     doImages r pairs = do
       unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
       -- the threadDelay is to test the behavior of the server for lengthy image builds
-      mapM_ (\(key, shape) -> cacheImageFile r key shape {- >> unsafeFromIO (threadDelay 5000000)-}) pairs
+      mapM_ (\(key, shape) -> runReaderT (cacheImageFile key shape {- >> unsafeFromIO (threadDelay 5000000)-}) r) pairs
       unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - completed " ++ show (length pairs) ++ " images")
 
 cacheImageFile ::
-  forall r. (HasImageAcid r, HasFileCacheTop r)
-  => r
-  -> ImageKey
+  forall r m. (Unexceptional m, MonadReader r m, HasImageAcid r, HasFileCacheTop r)
+  => ImageKey
   -> ImageShape
-  -> UIO (Either FileError (Either FileError ImageFile))
-cacheImageFile r key shape =
+  -> m (Either FileError (Either FileError ImageFile))
+cacheImageFile key shape = do
+  r <- ask
   -- FIXME - get the reader monad from FileCacheT
   runReaderT (runExceptT (evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key))) r
 
@@ -996,7 +995,7 @@ uprightImageShape shape@(ImageShape {_imageFileOrientation = rot}) =
     NineHr -> shape
 
 buildImageFile ::
-  forall e r m. (MonadCatch m, Unexceptional m,
+  forall e r m. (Unexceptional m,
                  MonadError e m, HasSomeNonPseudoException e,
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => ImageKey -> ImageShape -> ExceptT FileError m ImageFile
@@ -1014,7 +1013,7 @@ buildImageFile key shape = do
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
-  forall r e m. (Unexceptional m, MonadCatch m, MonadError e m, HasSomeNonPseudoException e,
+  forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
                  MonadReader r m, HasFileCacheTop r, HasImageAcid r)
   => ImageKey -> ExceptT FileError m BS.ByteString
 buildImageBytes (ImageOriginal csum typ) = buildOriginalImageBytes csum typ
@@ -1023,7 +1022,7 @@ buildImageBytes (ImageScaled sz dpi key) = buildScaledImageBytes sz dpi key
 buildImageBytes (ImageCropped crop key) = buildCroppedImageBytes crop key
 
 buildOriginalImageBytes ::
-  forall r e m. (Unexceptional m, MonadCatch m,
+  forall r e m. (Unexceptional m,
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r,
                  MonadError e m, HasSomeNonPseudoException e)
   => Checksum -> ImageType -> ExceptT FileError m BS.ByteString
@@ -1038,7 +1037,7 @@ buildOriginalImageBytes csum typ =
 -- it is not in the database - see if we can read it and verify
 -- its checksum.
 buildImageBytesFromFile ::
-  (Unexceptional m, MonadCatch m,
+  (Unexceptional m,
    MonadError e m, HasSomeNonPseudoException e,
    MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => ImageKey -> Text -> ImageType -> ExceptT FileError m BS.ByteString
@@ -1067,7 +1066,7 @@ buildImageBytesFromFile key csum typ = do
           return bs
 
 buildUprightImageBytes ::
-  (Unexceptional m, MonadCatch m,
+  (Unexceptional m,
    MonadError e m, HasSomeNonPseudoException e,
    MonadReader r m, HasFileCacheTop r, HasImageAcid r)
   => ImageKey -> ExceptT FileError m BS.ByteString
@@ -1075,7 +1074,7 @@ buildUprightImageBytes key =
   buildImageBytes key >>= \bs -> uprightImage' bs >>= maybe (return bs) return
 
 buildScaledImageBytes ::
-  (Unexceptional m, MonadCatch m,
+  (Unexceptional m,
    MonadError e m, HasSomeNonPseudoException e,
    MonadReader r m, HasFileCacheTop r, HasImageAcid r)
   => ImageSize -> Rational -> ImageKey -> ExceptT FileError m BS.ByteString
@@ -1088,7 +1087,7 @@ buildScaledImageBytes sz dpi key = do
   scaleImage' scale bs (imageType shape) >>= maybe (return bs) return
 
 buildCroppedImageBytes ::
-  (Unexceptional m, MonadCatch m,
+  (Unexceptional m,
    MonadError e m, HasSomeNonPseudoException e,
    MonadReader r m, HasFileCacheTop r, HasImageAcid r)
   => ImageCrop -> ImageKey -> ExceptT FileError m BS.ByteString
@@ -1106,7 +1105,7 @@ lookImageBytes a = fileCachePath a >>= lyftIO . BS.readFile
 -- | There is an error stored in the cache, maybe it can be repaired
 -- now?  Be careful not to get into a loop doing this.
 rebuildImageBytes ::
-  forall r e m. (Unexceptional m, MonadCatch m,
+  forall r e m. (Unexceptional m,
                  MonadError e m, HasSomeNonPseudoException e,
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
