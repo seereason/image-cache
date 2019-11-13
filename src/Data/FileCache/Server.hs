@@ -18,6 +18,7 @@ module Data.FileCache.Server
   , LookMap(..)
   , DeleteValue(..)
   , DeleteValues(..)
+  , Replace(..)
     -- * Image IO
   , validateJPG
     -- * File Cache
@@ -265,7 +266,10 @@ deleteValue key = field @"_unCacheMap" %= Map.delete key
 deleteValues :: Set ImageKey -> Update CacheMap ()
 deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (const ()) keys))
 
-$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues])
+replace :: CacheMap  -> Update CacheMap ()
+replace = put
+
+$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues, 'replace])
 
 openCache :: FilePath -> IO (AcidState CacheMap)
 openCache path = openLocalStateFrom path initCacheMap
@@ -814,7 +818,7 @@ data Results
     , _cachedErrors :: Map ImageKey FileError
     , _cachedReady :: Map ImageKey ImageReady
     , _cachedShapes :: Map ImageKey ImageShape
-    } deriving (Generic)
+    } deriving (Generic, Show)
 
 instance Semigroup Results where
   Results a1 a2 a3 a4 a5 a6 <> Results b1 b2 b3 b4 b5 b6 =
@@ -835,7 +839,8 @@ cacheDerivedImages ::
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
 cacheDerivedImages retry keys = do
-  Results{..} <- execStateT (mapM_ cacheDerivedImage keys) mempty
+  results@Results{..} <- execStateT (mapM_ cacheDerivedImage keys) mempty
+  unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("cacheDerivedImages results=" ++ show results)
   -- Send all cacheMisses to the builder.  It will update the
   -- cache as things complete.
   runExceptT (queueImageBuild (Map.toList _cacheMisses)) >>= either buildQueueFailure return
@@ -970,7 +975,7 @@ buildImageShape ::
   => ImageKey -> ExceptT FileError m ImageShape
 buildImageShape key@(ImageOriginal _csum _typ) =
   lift (cacheLook key) >>=
-  maybe (throwError (CacheDamage "Original image not in cache"))
+  maybe (throwError (CacheDamage $ ("Original image not in cache: key=" <> pack (show key))))
         (either throwError
                 (\case ImageFileReady img -> return (_imageShape img)
                        ImageFileShape s -> return s))
