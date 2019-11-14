@@ -39,6 +39,8 @@ module Data.FileCache.Server
   , cacheOriginalImage
   , cacheOriginalImages
   , cacheDerivedImages
+  , cacheDerivedImagesStrict
+  , cacheImageFile
   -- , cacheDerivedImage
   , buildImageShape
 
@@ -635,6 +637,16 @@ instance HasImageFilePath ImageCached where
   toURIDir c = toURIDir (imagePath c)
   toFilePath c@(ImageCached _ _) = toFilePath (imagePath c)
 
+instance HasImageFilePath (ImageKey, ImageFile) where
+  toURIDir (key, ImageFileShape shape) = toURIDir (key, shape)
+  toURIDir (key, ImageFileReady ready) = toURIDir (key, ready)
+  toFilePath (key, ImageFileShape shape) = toFilePath (key, shape)
+  toFilePath (key, ImageFileReady ready) = toFilePath (key, ready)
+
+instance HasImageFilePath (ImageKey, ImageReady) where
+  toURIDir (key, ImageReady _ shape) = toURIDir (key, shape)
+  toFilePath (key, ImageReady _ shape) = toFilePath (key, shape)
+
 instance HasImageFilePath (ImageKey, ImageShape) where
   toURIDir (key, shape) = toURIDir (ImagePath key (_imageShapeType shape))
   toFilePath (key, shape) = toFilePath (ImagePath key (_imageShapeType shape))
@@ -832,16 +844,13 @@ cacheDerivedImages ::
   forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e, Exception e,
                  MonadReader r m, HasCacheAcid r, HasImageBuilder r, HasFileCacheTop r)
   => Bool
-  -- ^ If true block until the images are ready, otherwise queue
-  -- the builds in the background.
-  -> Bool
   -- ^ Should we send _cachedErrors to the builder again?
   -- This sounds dangerous for normal operation, but useful
   -- for appraisalscope.
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
-cacheDerivedImages block retry keys = do
-  results@Results{..} <- execStateT (mapM_ (cacheDerivedImage block) keys) mempty
+cacheDerivedImages retry keys = do
+  results@Results{..} <- execStateT (mapM_ (cacheDerivedImage False) keys) mempty
   unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("cacheDerivedImages results=" ++ show results)
   -- Send all cacheMisses to the builder.  It will update the
   -- cache as things complete.
@@ -855,6 +864,25 @@ cacheDerivedImages block retry keys = do
       buildQueueFailure (e :: e) =
         unsafeFromIO (alog "Data.FileCache.Server" DEBUG
                        ("queueCacheImageFile failed: " ++ show e))
+
+-- | Build an image map in the state monad
+cacheDerivedImagesStrict ::
+  forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e, Exception e,
+                 MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
+  => Bool
+  -- ^ Should we send _cachedErrors to the builder again?
+  -- This sounds dangerous for normal operation, but useful
+  -- for appraisalscope.
+  -> [ImageKey]
+  -> m (Map ImageKey (Either FileError ImageFile))
+cacheDerivedImagesStrict retry keys = do
+  results@Results{..} <- execStateT (mapM_ (cacheDerivedImage True) keys) mempty
+  unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("cacheDerivedImages results=" ++ show results)
+  return (fmap Left _shapeErrors <>
+          fmap (Right . ImageFileShape) _cacheMisses <>
+          fmap Left _cachedErrors <>
+          fmap (Right . ImageFileReady) _cachedReady <>
+          fmap (Right . ImageFileShape) _cachedShapes)
 
 -- | Build the image described by the 'ImageKey' if necessary, and
 -- return its meta information as an 'ImageFile'.
