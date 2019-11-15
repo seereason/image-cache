@@ -703,11 +703,21 @@ class UprightKey a where
   uprightKey :: a -> ImageKey
 instance UprightKey ImageReady where
   uprightKey img = ImageUpright (originalKey img)
+instance UprightKey ImageKey where
+  uprightKey (ImageScaled _ _ key) = uprightKey key
+  uprightKey (ImageCropped _ key) = uprightKey key
+  uprightKey (ImageUpright key) = uprightKey key
+  uprightKey key@(ImageOriginal _ _) = ImageUpright key
 
 class EditedKey a where
   editedKey :: a -> ImageKey
 instance EditedKey ImageReady where
   editedKey img = uprightKey img
+instance EditedKey ImageKey where
+  editedKey (ImageScaled _ _ key) = editedKey key
+  editedKey key@(ImageCropped _ _) = key
+  editedKey key@(ImageUpright _) = key
+  editedKey key@(ImageOriginal _ _) = ImageUpright key
 
 class HasImageSize size => ScaledKey size a where
   scaledKey :: size -> Rational -> a -> ImageKey
