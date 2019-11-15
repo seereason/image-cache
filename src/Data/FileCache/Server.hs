@@ -57,12 +57,10 @@ module Data.FileCache.Server
 
 import Control.Concurrent (ThreadId{-, threadDelay-})
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Exception (Exception)
-import Control.Lens ( (%=), _1, _2, _3, at, view )
+import Control.Lens ( (%=), _1, _2, _3, at, over, _Right, view )
 import Control.Monad (forever, unless, when)
 import Control.Monad.RWS ( get, modify, MonadIO(liftIO), MonadState, put, RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask), ReaderT, runReaderT )
-import Control.Monad.State (execStateT)
 import Control.Monad.Trans (MonadTrans(lift))
 import Control.Monad.Trans.Except ( ExceptT, runExceptT )
 import Data.Acid ( AcidState, makeAcidic, openLocalStateFrom, Query, Update, query, update )
@@ -81,15 +79,15 @@ import Data.Generics (mkT, everywhere)
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
 import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
-import Data.Maybe ( fromMaybe )
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..), SafeCopy(..), SafeCopy' )
-import Data.Set as Set (insert, Set)
+import Data.Set as Set (member, Set)
 import Data.Text as T ( pack, Text, unpack )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
-import Extra.Except ( HasSomeNonPseudoException(..), lyftIO, MonadError, throwError, tryError)
+import Extra.Except ( HasSomeNonPseudoException(..), lyftIO, MonadError, throwError, tryError, withExceptT)
 import Extra.Log ( alog )
 import GHC.Generics (Generic)
 import GHC.Int ( Int64 )
@@ -205,6 +203,7 @@ instance Migrate CacheMap where
       migrateKey (ImageFileReady img) (ImageCropped_2 crop key) = ImageCropped crop (migrateKey (ImageFileReady img) key)
       migrateKey (ImageFileReady img) (ImageScaled_2 sz dpi key) = ImageScaled sz dpi (migrateKey (ImageFileReady img) key)
       migrateKey (ImageFileReady img) (ImageUpright_2 key) = ImageUpright (migrateKey (ImageFileReady img) key)
+      migrateKey _ _ = error "Unexpected value during migration"
 
 data CacheMap_2 key val =
     CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
@@ -794,7 +793,7 @@ cacheOriginalImage x = do
   let key = originalKey img
       val = ImageFileReady img
   unsafeFromIO (alog "Data.FileCache.Server" DEBUG ("cachePut " ++ show key))
-  lift (cachePut key (Right val))
+  lift (cachePut' key (Right val))
   return (key, val)
 
 buildOriginalImage ::
@@ -820,7 +819,79 @@ type ImageChan = Chan [(ImageKey, ImageShape)]
 class HasImageBuilder a where imageBuilder :: a -> ImageChan
 instance HasImageBuilder ImageChan where imageBuilder = id
 instance HasImageBuilder (a, b, ImageChan) where imageBuilder = view _3
+
+#if 1
+data CacheFlag
+  = RetryErrors
+  | RetryShapes
+  deriving (Eq, Ord, Show)
 
+cacheDerivedImagesForeground ::
+  forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
+                 MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
+  => Set CacheFlag
+  -> [ImageKey]
+  -> m (Map ImageKey (Either FileError ImageFile))
+cacheDerivedImagesForeground flags keys =
+  cacheLookImages keys >>= mapM (cacheImageShape flags) >>= foregroundBuilds >>= return . Map.fromList
+
+cacheDerivedImagesBackground ::
+  forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
+                 MonadReader r m, HasCacheAcid r, HasImageBuilder r)
+  => Set CacheFlag
+  -> [ImageKey]
+  -> m (Map ImageKey (Either FileError ImageFile))
+cacheDerivedImagesBackground flags keys =
+  cacheLookImages keys >>=
+  mapM (cacheImageShape flags) >>=
+  runExceptT . backgroundBuilds >>=
+  either throwError (return . Map.fromList)
+
+cacheLookImages ::
+  (Unexceptional m, MonadReader r m, HasCacheAcid r)
+  => [ImageKey] -> m [(ImageKey, Maybe (Either FileError ImageFile))]
+cacheLookImages keys = mapM (\key -> (key,) <$> cacheLook key) keys
+
+cacheImageShape ::
+  (Unexceptional m, MonadReader r m, HasCacheAcid r,
+   MonadError e m, HasSomeNonPseudoException e)
+  => Set CacheFlag
+  -> (ImageKey, Maybe (Either FileError ImageFile))
+  -> m (ImageKey, Either FileError ImageFile)
+cacheImageShape _ (key, Nothing) = do
+  cachePut' key noShape
+  (key,) <$> (runExceptT (buildImageShape key) >>= cachePut key . over _Right ImageFileShape)
+cacheImageShape flags (key, Just (Left _))
+  | Set.member RetryErrors flags =
+      (key,) <$> (runExceptT (buildImageShape key) >>= cachePut key . over _Right ImageFileShape)
+cacheImageShape _ (key, Just (Left e)) =
+  return (key, Left e)
+cacheImageShape _ (key, Just (Right (ImageFileShape shape))) =
+  -- This value shouldn't be here in normal operation
+  return (key, Right (ImageFileShape shape))
+cacheImageShape _ (key, Just (Right (ImageFileReady img))) =
+  return (key, Right (ImageFileReady img))
+
+backgroundBuilds ::
+  (Unexceptional m, HasSomeNonPseudoException e, MonadReader r m, HasImageBuilder r)
+  => [(ImageKey, Either FileError ImageFile)]
+  -> ExceptT e m [(ImageKey, Either FileError ImageFile)]
+backgroundBuilds pairs =
+  queueImageBuild (mapMaybe isShape pairs) >> return pairs
+  where isShape (key, Right (ImageFileShape shape)) = Just (key, shape)
+        isShape _ = Nothing
+
+foregroundBuilds ::
+  (Unexceptional m, MonadReader r m, HasCacheAcid r, HasFileCacheTop r, MonadError e m, HasSomeNonPseudoException e)
+  => [(ImageKey, Either FileError ImageFile)]
+  -> m [(ImageKey, Either FileError ImageFile)]
+foregroundBuilds pairs =
+  mapM (uncurry doImage) pairs
+  where
+    doImage key (Right (ImageFileShape shape)) =
+      (key,) <$> (cacheImageFile key shape >>= cachePut key)
+    doImage key x = return (key, x)
+#else
 data Results
   = Results
     { _badKeys :: Set ImageKey
@@ -843,13 +914,13 @@ data ImageBuildType = Foreground | Background
 
 -- | Should we send _cachedErrors to the builder again?  This sounds
 -- dangerous for normal operation, but useful for appraisalscope.
-data RetryErrors = RetryErrors | RetainErrors
+data RetryErrors' = RetryErrors' | RetainErrors
 
 -- | Build an image map in the state monad.
 cacheDerivedImagesBackground ::
   forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e, Exception e,
                  MonadReader r m, HasCacheAcid r, HasImageBuilder r, HasFileCacheTop r)
-  => RetryErrors
+  => RetryErrors'
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
 cacheDerivedImagesBackground _ keys = do
@@ -866,7 +937,7 @@ cacheDerivedImagesBackground _ keys = do
 cacheDerivedImagesForeground ::
   forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
                  MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
-  => RetryErrors
+  => RetryErrors'
   -- ^ Should we send _cachedErrors to the builder again?
   -- This sounds dangerous for normal operation, but useful
   -- for appraisalscope.
@@ -954,10 +1025,11 @@ shapeReady key shape = do
   field @"_shapeErrors" %= Map.delete key
   field @"_cacheMisses" %= Map.insert key shape
   cachePut' key (Right (ImageFileShape shape))
+#endif
 
 noShape :: Either FileError ImageFile
 noShape = Left NoShape
-
+
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
@@ -1199,7 +1271,7 @@ tests = TestList [ TestCase (assertEqual "lens_saneSize 1"
 
 -- splits (splitAt 3) [1,2,3,4,5,6,7] -> [[1,2,3],[4,5,6],[7]]
 splits :: ([a] -> ([a], [a])) -> [a] -> [[a]]
-splits f [] = []
+splits _ [] = []
 splits f xs = let (lhs, rhs) = f xs in (lhs : splits f rhs)
 
 -- | The migration of 'ImageKey' sets the 'ImageType' field to
