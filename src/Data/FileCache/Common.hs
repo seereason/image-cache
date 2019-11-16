@@ -178,8 +178,11 @@ instance Default ImageSize where
 instance SafeCopy ImageSize where version = 2
 instance Serialize ImageSize where get = safeGet; put = safePut
 
+-- > pPrint (ImageSize TheWidth 9 Inches)
+-- 9.0in wide
 instance Pretty ImageSize where
-    pPrint (ImageSize d sz u) = pPrint d <> text ("=" <> showRational sz <> " ") <> pPrint u
+  pPrint (ImageSize dim size units) =
+    text (showRational size) <> pPrint units <> text " " <> pPrint dim
 
 data Dimension
     = TheHeight
@@ -192,9 +195,9 @@ instance SafeCopy Dimension where version = 1
 instance Serialize Dimension where get = safeGet; put = safePut
 
 instance Pretty Dimension where
-    pPrint TheHeight = text "height"
-    pPrint TheWidth = text "width"
-    pPrint TheArea = text "area"
+    pPrint TheHeight = text "high"
+    pPrint TheWidth = text "wide"
+    pPrint TheArea = text "in area"
 
 data Units
     = Inches
@@ -285,7 +288,12 @@ instance SafeCopy ImageShape_0
 
 instance Pretty ImageShape where
   pPrint (ImageShape typ w h rot) =
-    text "ImageShape (" <> pPrint typ <> text (", " <> show w <> "x" <> show h <> ") " <> show rot)
+    (text "ImageShape (" <> text (show w) <> text "x" <> text (show h) <> text " " <> pPrint typ <>
+     (case rot of
+        ZeroHr -> text " UL"
+        ThreeHr -> text " UR"
+        SixHr -> text " LR"
+        NineHr -> text " LL") <> text ")")
 
 instance HasImageType ImageShape where imageType = _imageShapeType
 
@@ -408,6 +416,8 @@ instance SafeCopy Rotation where version = 0
 instance Serialize Rotation where get = safeGet; put = safePut
 
 instance Pretty ImageCrop where
+    pPrint (ImageCrop 0 0 0 0 ZeroHr) = text "(no crop)"
+    pPrint (ImageCrop t b l r ZeroHr) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ")"
     pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
 
 rotateImageShape :: Rotation -> ImageShape -> ImageShape
@@ -486,7 +496,7 @@ instance HasFileChecksum File where fileChecksum = _fileChksum
 instance HasFileExtension File where fileExtension = _fileExt
 
 instance Pretty File where
-    pPrint (File _ cksum _ ext) = text ("File(" <> show (cksum <> ext) <> ")")
+    pPrint (File _ cksum _ ext) = text ("File(" <> show (take 7 (unpack cksum) <> unpack ext) <> ")")
 instance SafeCopy File_2 where version = 2
 instance SafeCopy File where version = 3; kind = extension
 instance Serialize File where get = safeGet; put = safePut
@@ -668,8 +678,8 @@ instance SafeCopy ImageKey_2 where version = 2
 instance SafeCopy ImageKey where version = 4
 
 instance Pretty ImageKey where
-    pPrint (ImageOriginal csum typ) = text ("ImageOriginal " <> show csum <> " ") <> pPrint typ
-    pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> text ")"
+    pPrint (ImageOriginal csum typ) = text (take 7 (unpack csum)) <> text (unpack (fileExtension typ))
+    pPrint (ImageUpright x) = text "Up(" <> pPrint x <> text ")"
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
 
