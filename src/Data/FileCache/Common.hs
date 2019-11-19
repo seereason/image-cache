@@ -496,7 +496,7 @@ instance HasFileChecksum File where fileChecksum = _fileChksum
 instance HasFileExtension File where fileExtension = _fileExt
 
 instance Pretty File where
-    pPrint (File _ cksum _ ext) = text ("File(" <> show (take 7 (unpack cksum) <> unpack ext) <> ")")
+    pPrint (File _ cksum _ ext) = text ("File " <> take 7 (unpack cksum) <> unpack ext)
 instance SafeCopy File_2 where version = 2
 instance SafeCopy File where version = 3; kind = extension
 instance Serialize File where get = safeGet; put = safePut
@@ -679,7 +679,7 @@ instance SafeCopy ImageKey where version = 4
 
 instance Pretty ImageKey where
     pPrint (ImageOriginal csum typ) = text (take 7 (unpack csum)) <> text (unpack (fileExtension typ))
-    pPrint (ImageUpright x) = text "Up(" <> pPrint x <> text ")"
+    pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> ")"
     pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
     pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
 
