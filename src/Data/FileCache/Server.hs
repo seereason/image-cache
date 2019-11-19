@@ -103,6 +103,7 @@ import System.FilePath ( (</>), makeRelative, takeDirectory )
 import System.FilePath.Extra ( writeFileReadable )
 import System.IO (hFlush, stdout)
 import System.Log.Logger ( Priority(..) )
+import System.Posix.Files (createLink)
 import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
 import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser, shell )
 import System.Process.ByteString.Lazy as LBS ( readCreateProcessWithExitCode )
@@ -932,7 +933,7 @@ foregroundBuilds pairs =
   mapM (uncurry doImage) pairs
   where
     doImage key (Right (ImageFileShape shape)) =
-      (key,) <$> (cacheImageFile key shape >>= cachePut key)
+      (key,) <$> (cacheImageFile key shape)
     doImage key x = return (key, x)
 
 noShape :: Either FileError ImageFile
@@ -1018,25 +1019,32 @@ buildImageFile ::
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => ImageKey -> ImageShape -> ExceptT FileError m ImageFile
 buildImageFile key shape = do
-  bs <- buildImageBytes key
+  (key', bs) <- buildImageBytes key
   let file = File { _fileSource = Nothing
                   , _fileChksum = T.pack $ show $ md5 $ fromStrict bs
                   , _fileMessages = []
                   , _fileExt = fileExtension (_imageShapeType shape) }
   let img = ImageFileReady (ImageReady { _imageFile = file, _imageShape = shape })
-  path <- fileCachePathIO (ImageCached key img)
+  path <- fileCachePathIO (ImageCached key img) -- the rendered key
   exists <- lyftIO $ doesFileExist path
+  path' <- fileCachePathIO (ImageCached key' img) -- the equivalent file
+  -- path' should exist, hard link path to path'
   case exists of
     False -> do
-      unsafeFromIO $ alog "Data.FileCache.Server" INFO ("Writing new cache file: " <> show path)
-      lyftIO $ writeFileReadable path bs
+      case key == key' of
+        True -> do
+          unsafeFromIO $ alog "Data.FileCache.Server" INFO ("Writing new cache file: " <> show path)
+          lyftIO $ writeFileReadable path bs
+        False -> do
+          unsafeFromIO $ alog "Data.FileCache.Server" INFO ("Hard linking " <> show path' <> " -> " <> show path)
+          lyftIO $ createLink path' path
     True -> do
       bs' <- lyftIO $ BS.readFile path
       case bs == bs' of
         False -> do
           unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Replacing damaged cache file: " <> show path)
           lyftIO $ writeFileReadable path bs
-        True -> unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("cache file already exists: " <> show path)
+        True -> unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Cache file for new key already exists: " <> show path)
   unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("added to cache: " <> prettyShow img)
   return img
 
@@ -1044,23 +1052,28 @@ buildImageFile key shape = do
 buildImageBytes ::
   forall r e m. (Unexceptional m, MonadError e m, HasSomeNonPseudoException e,
                  MonadReader r m, HasFileCacheTop r, HasImageAcid r)
-  => ImageKey -> ExceptT FileError m BS.ByteString
-buildImageBytes (ImageOriginal csum typ) = buildOriginalImageBytes csum typ
-buildImageBytes (ImageUpright key) = buildUprightImageBytes key
-buildImageBytes (ImageScaled sz dpi key) = buildScaledImageBytes sz dpi key
-buildImageBytes (ImageCropped crop key) = buildCroppedImageBytes crop key
-
-buildOriginalImageBytes ::
-  forall r e m. (Unexceptional m,
-                 MonadReader r m, HasImageAcid r, HasFileCacheTop r,
-                 MonadError e m, HasSomeNonPseudoException e)
-  => Checksum -> ImageType -> ExceptT FileError m BS.ByteString
-buildOriginalImageBytes csum typ =
+  => ImageKey -> ExceptT FileError m (ImageKey, BS.ByteString)
+buildImageBytes key@(ImageOriginal csum typ) =
   lift (cacheLook key) >>=
-  maybe (buildImageBytesFromFile key csum typ)
-        (either (rebuildImageBytes False key typ) (lookImageBytes . ImageCached key))
-  where
-    key = ImageOriginal csum typ
+  maybe ((key,) <$> buildImageBytesFromFile key csum typ)
+        (\img -> (key,) <$> either (rebuildImageBytes False key typ)
+                                   (lookImageBytes . ImageCached key) img)
+buildImageBytes key@(ImageUpright key') = do
+  (key'', bs) <- buildImageBytes key'
+  uprightImage' bs >>= return . maybe (key'', bs) (key,)
+buildImageBytes key@(ImageScaled sz dpi key') = do
+  (key'', bs) <- buildImageBytes key'
+  -- the buildImageBytes that just ran might have this info
+  shape <- imageShapeM bs
+  let scale' = scaleFromDPI sz dpi shape
+  case scale' of
+    Nothing -> return (key'', bs)
+    Just scale ->
+      maybe (key'', bs) (key,) <$> scaleImage' (fromRat scale) bs (imageType shape)
+buildImageBytes key@(ImageCropped crop key') = do
+  (key'', bs) <- buildImageBytes key'
+  shape <- imageShapeM bs
+  maybe (key'', bs) (key,) <$> editImage' crop bs (imageType shape) (imageShape shape)
 
 -- There's a chance the file is just sitting on disk even though
 -- it is not in the database - see if we can read it and verify
@@ -1093,37 +1106,6 @@ buildImageBytesFromFile key csum typ = do
           unsafeFromIO (alog "Data.FileCache.Server" ALERT ("recaching " ++ show key))
           _cached <- cacheOriginalImage bs
           return bs
-
-buildUprightImageBytes ::
-  (Unexceptional m,
-   MonadError e m, HasSomeNonPseudoException e,
-   MonadReader r m, HasFileCacheTop r, HasImageAcid r)
-  => ImageKey -> ExceptT FileError m BS.ByteString
-buildUprightImageBytes key =
-  buildImageBytes key >>= \bs -> uprightImage' bs >>= maybe (return bs) return
-
-buildScaledImageBytes ::
-  (Unexceptional m,
-   MonadError e m, HasSomeNonPseudoException e,
-   MonadReader r m, HasFileCacheTop r, HasImageAcid r)
-  => ImageSize -> Rational -> ImageKey -> ExceptT FileError m BS.ByteString
-buildScaledImageBytes sz dpi key = do
-  bs <- buildImageBytes key
-  -- the buildImageBytes that just ran might have this info
-  shape <- imageShapeM bs
-  let scale' = scaleFromDPI sz dpi shape
-      scale = fromRat (fromMaybe 1 scale')
-  scaleImage' scale bs (imageType shape) >>= maybe (return bs) return
-
-buildCroppedImageBytes ::
-  (Unexceptional m,
-   MonadError e m, HasSomeNonPseudoException e,
-   MonadReader r m, HasFileCacheTop r, HasImageAcid r)
-  => ImageCrop -> ImageKey -> ExceptT FileError m BS.ByteString
-buildCroppedImageBytes crop key = do
-  bs <- buildImageBytes key
-  shape <- imageShapeM bs
-  editImage' crop bs (imageType shape) (imageShape shape) >>= maybe (return bs) return
 
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
