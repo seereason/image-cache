@@ -21,9 +21,9 @@ Library
   Hs-Source-Dirs: src
   GHC-Options: -Wall -Wredundant-constraints -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
-  Extensions: ConstraintKinds, CPP, DataKinds, DeriveDataTypeable, DeriveFunctor, DeriveGeneric
-  Extensions: FlexibleInstances, FlexibleContexts, MultiParamTypeClasses, RankNTypes
-  Extensions: ScopedTypeVariables, StandaloneDeriving, TypeApplications, TypeFamilies
+  Default-Extensions: ConstraintKinds, CPP, DataKinds, DeriveDataTypeable, DeriveFunctor, DeriveGeneric
+  Default-Extensions: FlexibleInstances, FlexibleContexts, MultiParamTypeClasses, RankNTypes
+  Default-Extensions: ScopedTypeVariables, StandaloneDeriving, TypeApplications, TypeFamilies
   Exposed-Modules:
     Data.FileCache
     Data.FileCache.Common
