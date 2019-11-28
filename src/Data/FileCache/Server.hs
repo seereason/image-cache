@@ -924,9 +924,7 @@ backgroundBuilds pairs =
         isShape _ = Nothing
 
 foregroundBuilds ::
-  (Unexceptional m,
-   MonadError e m, HasSomeNonPseudoException e,
-   MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
+  (Unexceptional m, MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => [(ImageKey, Either FileError ImageFile)]
   -> m [(ImageKey, Either FileError ImageFile)]
 foregroundBuilds pairs =
