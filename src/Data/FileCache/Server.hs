@@ -961,7 +961,7 @@ startImageBuilder ::
 startImageBuilder = do
   r <- ask
   (chan :: ImageChan) <- lyftIO newChan
-  (,) <$> pure chan <*> fork (forever (runExceptT (fromIO' (readChan chan)) >>= either doError (doImages r)))
+  (,) <$> pure chan <*> fork (forever (runExceptT (fromIO' fromSomeNonPseudoException (readChan chan)) >>= either doError (doImages r)))
   where
     doError (e :: SomeNonPseudoException) =
       unsafeFromIO $ alog "Data.FileCache.Server" ERROR ("Failure reading image cache request channel: " ++ show e)
