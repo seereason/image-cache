@@ -195,9 +195,9 @@ instance SafeCopy Dimension where version = 1
 instance Serialize Dimension where get = safeGet; put = safePut
 
 instance Pretty Dimension where
-    pPrint TheHeight = text "high"
-    pPrint TheWidth = text "wide"
-    pPrint TheArea = text "in area"
+    pPrint TheHeight = text "h"
+    pPrint TheWidth = text "w"
+    pPrint TheArea = text "sq"
 
 data Units
     = Inches
