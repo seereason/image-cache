@@ -27,6 +27,7 @@ Library
   Exposed-Modules:
     Data.FileCache
     Data.FileCache.Common
+    Data.FileCache.Types
   Build-Depends:
     base >= 4,
     binary,
@@ -41,11 +42,12 @@ Library
     generic-lens,
     hslogger,
     lens,
-    lens-path >= 3.3,
+    lens-path >= 3.4.1,
     mtl,
     network-uri,
     parsec,
     pretty >= 1.1.2,
+    process,
     pureMD5,
     safecopy >= 0.9.4.4,
     sr-extra >= 1.65,
@@ -55,6 +57,7 @@ Library
     th-lift,
     th-orphans >= 0.9,
     transformers,
+    unix,
     unexceptionalio-trans,
     web-routes,
     web-routes-th

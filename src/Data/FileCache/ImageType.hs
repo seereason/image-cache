@@ -15,14 +15,15 @@ import Data.ByteString as BS (ByteString)
 import Data.FileCache.Common
   (FileError(ErrorCall, NoShape), fromFileError, HasFileError, HasImageShapeM(..),
    ImageShape(..), ImageType(..), Rotation(..))
+import Data.String (fromString)
 import Data.Text (pack)
-import Extra.Except (Except, ExceptT, HasSomeNonPseudoException(..), liftEither, lyftIO, throwError)
+import Extra.Except (Except, ExceptT, FromSomeNonPseudoException(..), liftEither, throwError)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
 import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)
 import Text.Parsec.Text (Parser)
 import Data.ByteString.UTF8 (toString)
-import UnexceptionalIO.Trans (Unexceptional)
+import UnexceptionalIO.Trans (fromIO', SomeNonPseudoException, Unexceptional)
 
 instance Unexceptional m => HasImageShapeM (ExceptT FileError m) BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)
@@ -32,17 +33,17 @@ instance Unexceptional m => HasImageShapeM (ExceptT FileError m) (FilePath, BS.B
 -- | Helper function to learn the 'ImageType' of a file by running
 -- @file -b@.
 fileInfoFromBytes ::
-  forall e m. (Unexceptional m, HasFileError e, HasSomeNonPseudoException e)
+  forall e m. (Unexceptional m, HasFileError e, Exception e, FromSomeNonPseudoException e)
   => BS.ByteString
   -> ExceptT e m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath ("-", bytes)
 
 fileInfoFromPath ::
-  forall e m. (Unexceptional m, HasFileError e, HasSomeNonPseudoException e)
+  forall e m. (Unexceptional m, HasFileError e, Exception e, FromSomeNonPseudoException e)
   => (FilePath, BS.ByteString)
   -> ExceptT e m ImageShape
 fileInfoFromPath (path, input) =
-  lyftIO (LL.readProcessWithExitCode cmd args input) >>= fileInfoFromOutput path . view _2
+  fromIO' fromSomeNonPseudoException (LL.readProcessWithExitCode cmd args input) >>= fileInfoFromOutput path . view _2
     where
       cmd = "file"
       args = ["-b", path]
@@ -55,7 +56,7 @@ fileInfoFromOutput ::
   -> ExceptT e m ImageShape
 fileInfoFromOutput path output =
   case parse pFileOutput path (pack (toString output)) of
-    Left e -> throwError $ fromFileError $ ErrorCall $ pack $ "Failuring parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
+    Left e -> throwError $ fromFileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of

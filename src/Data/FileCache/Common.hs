@@ -1,4 +1,9 @@
-{-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, RecordWildCards, TemplateHaskell, UndecidableInstances #-}
+{-# LANGUAGE DeriveLift #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.FileCache.Common
   ( -- * Rational
@@ -67,18 +72,18 @@ module Data.FileCache.Common
 
 --    -- * FileError
   , FileError(..)
-  , CommandInfo(..)
-  , HasFileError(fileErrorPrism), fromFileError, withFileError
+  , CommandError
+  , HasFileError(fromFileError),
 --  , logErrorCall
   ) where
 
-import Control.Exception as E (Exception{-, ErrorCall(ErrorCallWithLocation), fromException, SomeException-} )
-import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show, {-_2, view,-} preview, Prism', review )
+import Control.Exception as E (Exception, ErrorCall, fromException, IOException, toException)
+import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show )
 import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
-import qualified Data.ByteString as P ( ByteString{-, take-} )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
+import Data.FileCache.Types (CommandError)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
@@ -87,7 +92,7 @@ import Data.Serialize ( Serialize(..) )
 import Data.String (IsString(fromString))
 import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
-import Extra.Except (HasIOException(..), HasSomeNonPseudoException(fromSomeNonPseudoException))
+import Extra.Except (FromSomeNonPseudoException(..), HasIOException(..), HasErrorCall(..))
 import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
 --import Language.Haskell.TH ( Loc(..) )
@@ -96,7 +101,7 @@ import Language.Haskell.TH.Lift as TH ( Lift )
 --import Language.Haskell.TH.Syntax ( Loc(loc_module) )
 --import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
-import System.FilePath ( makeRelative, (</>) )
+import System.FilePath ( makeRelative )
 --import System.Log.Logger ( Priority(ERROR), logM )
 import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)-}
@@ -746,12 +751,12 @@ instance ScaledKey ImageSize ImageReady where
 
 -- * FileError, CommandInfo
 
--- | It would be nice to store the actual IOException and E.ErrorCall,
--- but then the FileError type wouldn't be serializable.
 data FileError
-    = IOException {-IOException-} Text -- ^ Caught an IOException, or SomeNonPseudoException
-    | ErrorCall {-E.ErrorCall-} Text -- ^ Caught a call to error
-    | CommandFailure CommandInfo -- ^ A shell command failed
+    = IOException IOError -- ^ Caught an IOException
+    | ErrorCall E.ErrorCall -- ^ Caught a call to error
+    | FromString String -- ^ FileError created via IsString(fromstring)
+    | UnexpectedException String -- ^ Something unanticipated
+    | CommandFailure CommandError -- ^ A shell command failed
     | CacheDamage Text -- ^ The contents of the cache is wrong
     | NoShape
       -- ^ Could not determine the dimensions of an image.  This comes
@@ -760,60 +765,56 @@ data FileError
     deriving (Eq, Ord, Generic)
 
 -- Dubious instance, but omitting makes other things more dubious.
-instance IsString FileError where fromString = ErrorCall . pack
+instance IsString FileError where fromString = FromString
 
 instance Migrate FileError where
   type MigrateFrom FileError = FileError_1
-  migrate (IOException_1 t) = IOException t
-  migrate (ErrorCall_1 t) = ErrorCall t
+  migrate (IOException_1 _) = error "unexpected FileError migration"
+  migrate (ErrorCall_1 _) = error "unexpected FileError migration"
   migrate (CommandFailure_1 info) = CommandFailure info
   migrate CacheDamage_1 = CacheDamage ""
 
 data FileError_1
     = IOException_1 Text
     | ErrorCall_1 Text
-    | CommandFailure_1 CommandInfo
+    | CommandFailure_1 CommandError
     | CacheDamage_1
     deriving (Eq, Ord, Generic)
 
 instance Exception FileError
-instance SafeCopy CommandInfo where version = 1
 instance SafeCopy FileError_1 where version = 1
 instance SafeCopy FileError where version = 2; kind = extension
 
-instance Serialize CommandInfo where get = safeGet; put = safePut
 instance Serialize FileError where get = safeGet; put = safePut
 
-deriving instance Data FileError
-deriving instance Data CommandInfo
+--deriving instance Data FileError
+--deriving instance Data CommandInfo
 deriving instance Show FileError
-deriving instance Show CommandInfo
 
 -- | This ensures that runExceptT catches IOException
-instance HasIOException FileError where fromIOException = IOException . pack . show
+instance HasIOException FileError where fromIOException = IOException
+instance HasErrorCall FileError where fromErrorCall = ErrorCall
 
-class HasIOException e => HasFileError e where fileErrorPrism :: Prism' e FileError
-instance HasFileError FileError where fileErrorPrism = id
+class HasFileError e where fromFileError :: FileError -> e
+instance HasFileError FileError where fromFileError = id
 
-instance HasSomeNonPseudoException FileError where
-  fromSomeNonPseudoException = IOException . pack . show
+instance FromSomeNonPseudoException FileError where
+  fromSomeNonPseudoException e =
+    maybe
+      (maybe
+       (fromString ("fromSomeNonPseudoException - unexpected argument: " <> show e))
+       fromErrorCall
+       (fromException (toException e) :: Maybe ErrorCall))
+      fromIOException
+      (fromException (toException e) :: Maybe IOException)
 
+#if 0
 fromFileError :: HasFileError e => FileError -> e
 fromFileError = review fileErrorPrism
 
 withFileError :: HasFileError e => (Maybe FileError -> r) -> e -> r
 withFileError f = f . preview fileErrorPrism
-
--- | Information about a shell command that failed.  This is
--- recursive so we can include as much or as little as desired.
-data CommandInfo
-    = Command Text Text -- ^ CreateProcess and ExitCode
-    | CommandInput P.ByteString CommandInfo -- ^ command input
-    | CommandOut P.ByteString CommandInfo -- ^ stdout
-    | CommandErr P.ByteString CommandInfo -- ^ stderr
-    | FunctionName String CommandInfo -- ^ The function that ran the command
-    | Description String CommandInfo -- ^ free form description of what happened
-    deriving (Eq, Ord, Generic)
+#endif
 
 #if 0
 class Loggable a where
@@ -888,8 +889,7 @@ toURIPath file
 
 $(concat <$>
   sequence
-  [ makeValueInstance [] [t|Rational|]
-  , makePathInstances [FIELDS] ''ImageFile
+  [ makePathInstances [FIELDS] ''ImageFile
   , makePathInstances [FIELDS] ''ImageReady
   , makePathInstances [FIELDS] ''ImageShape
   , makePathInstances [] ''ImageType
