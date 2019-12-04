@@ -550,6 +550,16 @@ data ImageReady
 instance SafeCopy ImageFile where version = 3; kind = extension
 instance SafeCopy ImageReady where version = 1
 
+instance HasFileExtension ImageFile where
+  fileExtension (ImageFileShape x) = fileExtension x
+  fileExtension (ImageFileReady x) = fileExtension x
+
+instance HasFileExtension ImageReady where
+  fileExtension = fileExtension . _imageFile
+
+instance HasFileExtension ImageShape where
+  fileExtension = fileExtension . _imageShapeType
+
 instance Migrate ImageFile where
   type MigrateFrom ImageFile = ImageFile_2
   migrate (ImageFile_2 f s) = ImageFileReady (ImageReady f s)

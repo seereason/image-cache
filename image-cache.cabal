@@ -55,7 +55,6 @@ Library
     th-lift,
     th-orphans >= 0.9,
     transformers,
-    unexceptionalio,
     unexceptionalio-trans,
     web-routes,
     web-routes-th

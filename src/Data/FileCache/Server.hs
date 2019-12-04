@@ -1017,7 +1017,7 @@ buildImageFile ::
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => ImageKey -> ImageShape -> ExceptT FileError m ImageFile
 buildImageFile key shape = do
-  (key', bs) <- buildImageBytes key
+  (key', bs) <- buildImageBytes key -- key' may differ from key due to removal of no-ops
   let file = File { _fileSource = Nothing
                   , _fileChksum = T.pack $ show $ md5 $ fromStrict bs
                   , _fileMessages = []
