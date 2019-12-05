@@ -40,7 +40,6 @@ module Data.FileCache.Server
   , cacheOriginalImages
   , getImageFiles
   , getImageFile
-  , cacheDerivedImagesBackground
   , cacheDerivedImagesForeground
   , cacheImageFile
   -- , cacheDerivedImage
@@ -48,8 +47,11 @@ module Data.FileCache.Server
 
   , ImageChan
   , HasImageBuilder(imageBuilder)
+#if 0
+  , cacheDerivedImagesBackground
   , startImageBuilder
   -- , queueImageBuild
+#endif
 
   , fixImageShapes
   , validateImageKey
@@ -81,6 +83,7 @@ import Data.FileCache.LogException (logException)
 import Data.FileCache.Types
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
+import Data.ListLike ( length )
 import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Monoid ( (<>) )
@@ -99,6 +102,7 @@ import GHC.Int ( Int64 )
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( fromRat, showFFloat )
+import Prelude hiding (length)
 import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( (</>), makeRelative, takeDirectory )
@@ -825,9 +829,9 @@ buildOriginalImage x = do
   return img
 
 type ImageChan = Chan [(ImageKey, ImageShape)]
-class HasImageBuilder a where imageBuilder :: a -> ImageChan
-instance HasImageBuilder ImageChan where imageBuilder = id
-instance HasImageBuilder (a, b, ImageChan) where imageBuilder = view _3
+class HasImageBuilder a where imageBuilder :: a -> Maybe ImageChan
+instance HasImageBuilder ImageChan where imageBuilder = Just
+instance HasImageBuilder (a, b, ImageChan) where imageBuilder = Just . view _3
 
 -- * Create derived images
 
@@ -872,6 +876,7 @@ cacheDerivedImagesForeground flags keys =
   runExceptT . foregroundBuilds >>=
   either throwError (return . Map.fromList)
 
+#if 0
 cacheDerivedImagesBackground ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m, HasFileError e,
                  FromSomeNonPseudoException e, MonadReader r m, HasCacheAcid r,
@@ -884,6 +889,7 @@ cacheDerivedImagesBackground flags keys =
   mapM (cacheImageShape flags) >>=
   runExceptT . backgroundBuilds >>=
   either throwError (return . Map.fromList)
+#endif
 
 -- | See if images are already in the cache
 cacheLookImages ::
@@ -917,6 +923,7 @@ cacheImageShape _ (key, Just (Right (ImageFileReady img))) = do
   unsafeFromIO $ alog "Appraisal.LaTeX" INFO ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
   return (key, Right (ImageFileReady img))
 
+#if 0
 backgroundBuilds ::
   (Unexceptional m, Exception e, HasFileError e, FromSomeNonPseudoException e,
    MonadReader r m, HasImageBuilder r, HasFileCacheTop r)
@@ -926,6 +933,7 @@ backgroundBuilds pairs =
   queueImageBuild (mapMaybe isShape pairs) >> return pairs
   where isShape (key, Right (ImageFileShape shape)) = Just (key, shape)
         isShape _ = Nothing
+#endif
 
 foregroundBuilds ::
   (Unexceptional m, MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
@@ -941,6 +949,7 @@ foregroundBuilds pairs =
 noShape :: Either FileError ImageFile
 noShape = Left NoShape
 
+#if 0
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
@@ -949,7 +958,8 @@ queueImageBuild ::
   => [(ImageKey, ImageShape)]
   -> ExceptT e m ()
 queueImageBuild pairs = do
-  mapM (runExceptT . fileCachePathIO) pairs >>= mapM_ (either (throwError . fromFileError) (lyftIO . flip writeFile mempty))
+  -- Write empty files into cache
+  -- mapM (runExceptT . fileCachePathIO) pairs >>= mapM_ (either (throwError . fromFileError) (lyftIO . flip writeFile mempty))
   unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
   chan <- lift (imageBuilder <$> ask)
   lyftIO (writeChan chan pairs)
@@ -967,14 +977,19 @@ startImageBuilder = do
   (chan :: ImageChan) <- lyftIO newChan
   (,) <$> pure chan <*> fork (forever (runExceptT (fromIO' fromSomeNonPseudoException (readChan chan)) >>= either doError (doImages r)))
   where
+    -- This is the background task
     doError (e :: SomeNonPseudoException) =
       unsafeFromIO $ alog "Data.FileCache.Server" ERROR ("Failure reading image cache request channel: " ++ show e)
     doImages :: r -> [(ImageKey, ImageShape)] -> UIO ()
     doImages r pairs = do
       unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
       -- the threadDelay is to test the behavior of the server for lengthy image builds
-      mapM_ (\(key, shape) -> runReaderT (cacheImageFile key shape {- >> unsafeFromIO (threadDelay 5000000)-}) r) pairs
-      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - completed " ++ show (length pairs) ++ " images")
+      r <- mapM (\(key, shape) -> runExceptT @e (runReaderT (cacheImageFile' key shape {- >> unsafeFromIO (threadDelay 5000000)-}) r)) pairs
+      mapM_ (\case ((key, shape), Left e) -> unsafeFromIO (alog "Data.FileCache.Server" ERROR ("doImages - error building " <> show key <> ": " ++ show e))
+                   ((key, shape), Right (Left e)) -> unsafeFromIO (alog "Data.FileCache.Server" ERROR ("doImages - error in cache for " <> show key <> ": " ++ show e))
+                   ((key, shape), Right (Right _e)) -> unsafeFromIO (alog "Data.FileCache.Server" ERROR ("doImages - completed " <> show key)))
+        (zip pairs r)
+#endif
 
 cacheImageFile ::
   forall r m. (Unexceptional m, MonadReader r m, HasImageAcid r, HasFileCacheTop r)
@@ -983,8 +998,19 @@ cacheImageFile ::
   -> m (Either FileError ImageFile)
 cacheImageFile key shape = do
   r <- ask
-  -- FIXME - get the reader monad from FileCacheT
-  either Left id <$> runReaderT (runExceptT (evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key))) r
+  -- Errors that occur in buildImageFile are stored in the cache, errors
+  -- that occur in cachePut are returned.  Actually that's not right.
+  either Left id <$> runExceptT (evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key))
+
+cacheImageFile' ::
+  (FromSomeNonPseudoException e, Unexceptional m, Exception e,
+   MonadError e m, HasFileCacheTop r, HasCacheAcid r, MonadReader r m)
+  => ImageKey -> ImageShape -> m (Either FileError ImageFile)
+cacheImageFile' key shape = do
+  r <- ask
+  -- Errors that occur in buildImageFile are stored in the cache, errors
+  -- that occur in cachePut are returned.  Actually that's not right.
+  evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key)
 
 -- | These are meant to be inexpensive operations that determine the
 -- shape of the desired image, with the actual work of building them
@@ -1042,10 +1068,12 @@ buildImageFile key shape = do
           unsafeFromIO $ alog "Data.FileCache.Server" INFO ("Hard linking " <> show path' <> " -> " <> show path)
           lyftIO $ createLink path' path
     True -> do
+      -- Don't mess with it if it exists, there is probably
+      -- a process running that is writing it out.
       bs' <- lyftIO $ BS.readFile path
       case bs == bs' of
         False -> do
-          unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Replacing damaged cache file: " <> show path)
+          unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Replacing damaged cache file: " <> show path <> " length " <> show (length bs') <> " -> " <> show (length bs))
           lyftIO $ writeFileReadable path bs
         True -> unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Cache file for new key already exists: " <> show path)
   unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("added to cache: " <> prettyShow img)
