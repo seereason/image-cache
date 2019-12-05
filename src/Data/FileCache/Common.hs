@@ -102,6 +102,7 @@ import Language.Haskell.TH.Lift as TH ( Lift )
 --import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
 import System.FilePath ( makeRelative )
+import Test.HUnit (assertEqual, runTestTT, Test(TestCase))
 --import System.Log.Logger ( Priority(ERROR), logM )
 import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)-}
@@ -881,10 +882,22 @@ instance HasImageKey ImageCached where
 instance HasImagePath ImageCached where
   imagePath (ImageCached key img) = ImagePath key (imageType img)
 
-#if 0
-let file = ImageCached {_imageCachedKey = ImageScaled (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches}) (100 % 1) (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)), _imageCachedFile = ImageFile {_imageFile = File {_fileSource = Nothing, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"}, _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170}}
-toURIPath file
-"/image-path/image-scaled/image-size/the-area/15/1/inches/100/1/image-upright/image-original/c3bd1388b41fa5d956e4308ce518a8bd/i.png/i.jpg"
+#if 1
+test1 :: Test
+test1 =
+  TestCase (assertEqual "test1"
+              -- This is not the path to the file on disk, its what is used in the URI.
+              ("/image-path/image-scaled/image-size/the-area/15/1/inches/100/1/image-upright/image-original/c3bd1388b41fa5d956e4308ce518a8bd/i.png" :: Text)
+              (toURIPath (_imageCachedKey file)))
+  where
+    file = ImageCached
+             {_imageCachedKey = ImageScaled
+                                  (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches})
+                                  (100 % 1)
+                                  (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)),
+              _imageCachedFile = ImageFileReady (ImageReady {_imageFile = File {_fileSource = Nothing, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"},
+                                            _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170, _imageFileOrientation = ZeroHr}})}
+
 #endif
 
 $(concat <$>
