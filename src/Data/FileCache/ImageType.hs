@@ -8,22 +8,25 @@ module Data.FileCache.ImageType
   , fileInfoFromPath
   ) where
 
+import Control.Exception (IOException)
 import Control.Monad.Catch as Catch (Exception, MonadCatch, try)
-import Control.Lens (_2, view)
-import Data.Maybe(catMaybes, listToMaybe)
+import Control.Lens (_2, preview, review, view)
 import Data.ByteString as BS (ByteString)
+import Data.ByteString.UTF8 (toString)
 import Data.FileCache.Common
   (FileError(ErrorCall, NoShape), fromFileError, HasFileError, HasImageShapeM(..),
    ImageShape(..), ImageType(..), Rotation(..))
+import Data.Maybe(catMaybes, listToMaybe)
 import Data.String (fromString)
 import Data.Text (pack)
-import Extra.Except (Except, ExceptT, FromSomeNonPseudoException(..), liftEither, throwError)
+import Extra.ErrorControl (controlError, ErrorControl)
+import Extra.Except (Except, ExceptT, HasIOException(ioException), HasNonIOException(nonIOException), liftEither, throwError, withExceptT)
+import System.Exit (ExitCode)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
 import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)
 import Text.Parsec.Text (Parser)
-import Data.ByteString.UTF8 (toString)
-import UnexceptionalIO.Trans (fromIO', SomeNonPseudoException, Unexceptional)
+import UnexceptionalIO.Trans (fromIO, fromIO', SomeNonPseudoException, Unexceptional)
 
 instance Unexceptional m => HasImageShapeM (ExceptT FileError m) BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)
@@ -33,18 +36,29 @@ instance Unexceptional m => HasImageShapeM (ExceptT FileError m) (FilePath, BS.B
 -- | Helper function to learn the 'ImageType' of a file by running
 -- @file -b@.
 fileInfoFromBytes ::
-  forall e m. (Unexceptional m, HasFileError e, Exception e, FromSomeNonPseudoException e)
+  forall e m. (Unexceptional m, HasFileError e, Exception e, HasIOException e, HasNonIOException e)
   => BS.ByteString
   -> ExceptT e m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath ("-", bytes)
 
 fileInfoFromPath ::
-  forall e m. (Unexceptional m, HasFileError e, Exception e, FromSomeNonPseudoException e)
+  forall e m. (Unexceptional m, HasFileError e, Exception e, HasIOException e, HasNonIOException e)
   => (FilePath, BS.ByteString)
   -> ExceptT e m ImageShape
 fileInfoFromPath (path, input) =
-  fromIO' fromSomeNonPseudoException (LL.readProcessWithExitCode cmd args input) >>= fileInfoFromOutput path . view _2
+#if 0
+  withExceptT (review ioException :: IOException -> e) io >>= fileInfoFromOutput path . view _2
     where
+      io =
+        controlError
+          (fromIO (LL.readProcessWithExitCode cmd args input) :: ExceptT SomeNonPseudoException m (ExitCode, ByteString, ByteString))
+          (\e -> maybe undefined throwError (preview ioException e) :: ExceptT IOException m a)
+#else
+  controlError
+    (fromIO (LL.readProcessWithExitCode cmd args input) :: ExceptT SomeNonPseudoException m (ExitCode, ByteString, ByteString))
+    (\e -> maybe undefined (throwError . review ioException) (preview ioException e) :: ExceptT e m a) >>= fileInfoFromOutput path . view _2
+    where
+#endif
       cmd = "file"
       args = ["-b", path]
 

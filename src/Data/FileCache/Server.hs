@@ -62,7 +62,7 @@ module Data.FileCache.Server
 import Control.Concurrent (ThreadId{-, threadDelay-})
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (ErrorCall, Exception, fromException, IOException, toException)
-import Control.Lens ( (%=), _1, _2, _3, at, ix, over, preview, _Right, view )
+import Control.Lens ( (%=), _1, _2, _3, at, ix, over, preview, review, _Right, view )
 import Control.Monad (forever, unless, when)
 import Control.Monad.RWS ( get, modify, MonadIO(liftIO), MonadState, put, RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask), ReaderT, runReaderT )
@@ -85,7 +85,7 @@ import Data.Generics.Product ( field )
 import Data.List ( intercalate )
 import Data.ListLike ( length )
 import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromJust, fromMaybe, mapMaybe)
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..), SafeCopy(..), SafeCopy' )
@@ -94,7 +94,8 @@ import Data.String (fromString)
 import Data.Text as T ( pack, Text, unpack )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
-import Extra.Except (lyftIO, FromSomeNonPseudoException(..), MonadError, throwError, tryError, withError)
+import Extra.ErrorControl (ErrorControl(controlError))
+import Extra.Except (liftEither, lyftIO', lyftIO, HasIOException(..), HasNonIOException(..), MonadError, throwError, tryError, withError)
 import Extra.Log ( alog )
 import Extra.Text hiding (tests)
 import GHC.Generics (Generic)
@@ -156,12 +157,12 @@ pipeline ::
   -> ExceptT FileError m BS.ByteString
 pipeline [] bytes = return bytes
 pipeline (p : ps) bytes =
-  tryError (lyftIO (LL.readCreateProcessWithExitCode p bytes)) >>= doResult
+  lyftIO' (LL.readCreateProcessWithExitCode p bytes) >>= doResult
   where
-    doResult :: Either FileError (ExitCode, BS.ByteString, BS.ByteString) -> ExceptT FileError m BS.ByteString
-    doResult (Left e) = unsafeFromIO (alog "Appraisal.ImageFile" ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e)) >> throwError e
-    doResult (Right (ExitSuccess, out, _)) = pipeline ps out
-    doResult (Right (code, _, err)) =
+    doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> ExceptT FileError m BS.ByteString
+    -- doResult (Left e) = unsafeFromIO (alog "Appraisal.ImageFile" ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e)) >> throwError e
+    doResult (ExitSuccess, out, _) = pipeline ps out
+    doResult (code, _, err) =
       let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
         unsafeFromIO (alog "Appraisal.ImageFile" ERROR message) >>
         -- Not actually an IOExeption, this is a process error exit
@@ -296,14 +297,14 @@ instance MakeByteString BS.ByteString where
   makeByteString = return
 
 instance MakeByteString FilePath where
-  makeByteString path = lyftIO (BS.readFile path)
+  makeByteString path = lyftIO' (BS.readFile path)
 
 instance MakeByteString CreateProcess where
   makeByteString cmd = makeByteString (cmd, BS.empty)
 
 instance MakeByteString (CreateProcess, BS.ByteString) where
   makeByteString (cmd, input) = do
-    (code, bytes, _err) <- lyftIO (readCreateProcessWithExitCode' cmd input)
+    (code, bytes, _err) <- lyftIO' (readCreateProcessWithExitCode' cmd input)
     case code of
       ExitSuccess -> return bytes
       ExitFailure _ ->
@@ -315,7 +316,7 @@ instance MakeByteString URI where
   makeByteString uri = do
     let cmd = proc "curl" ["-s", uriToString id uri ""]
     (code, bytes, _err) <-
-      lyftIO $ readCreateProcessWithExitCode' cmd BS.empty
+      lyftIO' $ readCreateProcessWithExitCode' cmd BS.empty
     case code of
       ExitSuccess -> return bytes
       _ -> throwError $ CommandFailure [StartedFrom "instance MakeByteString URI",
@@ -333,7 +334,7 @@ uprightImage' bs =
   -- then flatten the two layers of ExceptT FileError into one, then
   -- turn the remaining one into a Maybe.
   either (const Nothing) (Just . toStrict) <$> runExceptT (normalizeOrientationCode (fromStrict bs))
-    -- runExceptT (runExceptT (lyftIO (normalizeOrientationCode (fromStrict bs))) >>= liftEither)
+    -- runExceptT (runExceptT (lyftIO' (normalizeOrientationCode (fromStrict bs))) >>= liftEither)
 
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the
@@ -370,7 +371,7 @@ normalizeOrientationCode bs = do
             flag = LBS.pack (if isMotorola then [0x0, 0x1] else [0x1, 0x0]) -- orientation code 1
             tl = LBS.drop (pos + 2) bs      -- everything after the orientation code
             bs' = LBS.concat [hd, flag, tl]
-        (result, out, err) <- lyftIO (LBS.readCreateProcessWithExitCode (proc cmd args') bs')
+        (result, out, err) <- lyftIO' (LBS.readCreateProcessWithExitCode (proc cmd args') bs')
         case result of
           ExitSuccess -> return out
           ExitFailure _ -> throwError $ CommandFailure [CommandErr (toStrict err), CommandCreateProcess cp, CommandExitCode result]
@@ -698,7 +699,7 @@ askCacheAcid = cacheAcid <$> ask
 -- is part of the cached value now, its not an exception.
 cachePut ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m,
-                 FromSomeNonPseudoException e, MonadReader r m, HasCacheAcid r)
+                 HasIOException e, HasNonIOException e, MonadReader r m, HasCacheAcid r)
   => ImageKey -> Either FileError ImageFile -> m (Either FileError ImageFile)
 cachePut key val = do
   st <- askCacheAcid
@@ -708,7 +709,7 @@ cachePut key val = do
 -- | Same as 'cachePut' but returns ().  Same FIXME applies.
 cachePut' ::
   forall e r m. (Unexceptional m, Exception e, MonadError e m,
-                 FromSomeNonPseudoException e, MonadReader r m, HasCacheAcid r)
+                 HasIOException e, HasNonIOException e, MonadReader r m, HasCacheAcid r)
   => ImageKey -> Either FileError ImageFile -> m ()
 cachePut' key val = do
   st <- askCacheAcid
@@ -733,7 +734,7 @@ cacheLook key = do
 
 cacheMap ::
   (Unexceptional m, Exception e, MonadError e m,
-   FromSomeNonPseudoException e, MonadReader r m, HasCacheAcid r)
+   HasIOException e, HasNonIOException e, MonadReader r m, HasCacheAcid r)
   => m CacheMap
 cacheMap = do
   st <- askCacheAcid
@@ -741,7 +742,7 @@ cacheMap = do
 
 cacheDelete ::
   forall e r m. (Unexceptional m, Exception e, MonadError e m,
-                 FromSomeNonPseudoException e, MonadReader r m, HasCacheAcid r)
+                 HasIOException e, HasNonIOException e, MonadReader r m, HasCacheAcid r)
   => Proxy ImageFile -> Set ImageKey -> m ()
 cacheDelete _ keys = do
   (st :: AcidState CacheMap) <- cacheAcid <$> ask
@@ -787,7 +788,7 @@ evalImageCacheIO r s0 action =
 -- FileCacheTop and its checksum.
 cacheOriginalImages ::
   forall x e r m. (MakeByteString x, Ord x,
-                   Unexceptional m, Exception e, MonadError e m, FromSomeNonPseudoException e,
+                   Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                    MonadReader r m, HasImageAcid r, HasFileCacheTop r,
                    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
   => [x] -> m ()
@@ -798,7 +799,7 @@ cacheOriginalImages =
 -- ByteString, insert it into the cache, and return it.
 cacheOriginalImage ::
   forall x e r m. (MakeByteString x, Unexceptional m, Exception e, MonadError e m,
-                   FromSomeNonPseudoException e, MonadReader r m, HasFileCacheTop r, HasImageAcid r)
+                   HasIOException e, HasNonIOException e, MonadReader r m, HasFileCacheTop r, HasImageAcid r)
   => x
   -> ExceptT FileError m (ImageKey, ImageFile)
 cacheOriginalImage x = do
@@ -837,7 +838,7 @@ instance HasImageBuilder (a, b, ImageChan) where imageBuilder = Just . view _3
 
 -- | This is just a wrapper around cacheDerivedImagesForeground.
 getImageFile ::
-  forall r e m. (Unexceptional m, Exception e, MonadError e m, FromSomeNonPseudoException e,
+  forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => ImageKey
   -> m (Either FileError ImageFile)
@@ -850,7 +851,7 @@ getImageFile key = do
       return (Left (CacheDamage $ "cacheDerivedImagesForeground failed for " <> textshow key))
 
 getImageFiles ::
-  forall r e m. (Unexceptional m, Exception e, MonadError e m, FromSomeNonPseudoException e,
+  forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => [ImageKey] -> m (Map ImageKey (Either FileError ImageFile))
 getImageFiles = cacheDerivedImagesForeground mempty
@@ -865,7 +866,7 @@ data CacheFlag
 
 -- Is this guaranteed to have a map entry for every key passed in?
 cacheDerivedImagesForeground ::
-  forall r e m. (Unexceptional m, Exception e, MonadError e m, FromSomeNonPseudoException e,
+  forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => Set CacheFlag
   -> [ImageKey]
@@ -879,7 +880,7 @@ cacheDerivedImagesForeground flags keys =
 #if 0
 cacheDerivedImagesBackground ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m, HasFileError e,
-                 FromSomeNonPseudoException e, MonadReader r m, HasCacheAcid r,
+                 HasIOException e, HasNonIOException e, MonadReader r m, HasCacheAcid r,
                  HasImageBuilder r, HasFileCacheTop r)
   => Set CacheFlag
   -> [ImageKey]
@@ -900,7 +901,7 @@ cacheLookImages keys = mapM (\key -> (key,) <$> cacheLook key) keys
 -- | Compute the shapes of requested images
 cacheImageShape ::
   (Unexceptional m, Exception e, MonadReader r m,
-   FromSomeNonPseudoException e, MonadError e m, HasCacheAcid r)
+   HasIOException e, HasNonIOException e, MonadError e m, HasCacheAcid r)
   => Set CacheFlag
   -> (ImageKey, Maybe (Either FileError ImageFile))
   -> m (ImageKey, Either FileError ImageFile)
@@ -925,7 +926,7 @@ cacheImageShape _ (key, Just (Right (ImageFileReady img))) = do
 
 #if 0
 backgroundBuilds ::
-  (Unexceptional m, Exception e, HasFileError e, FromSomeNonPseudoException e,
+  (Unexceptional m, Exception e, HasFileError e, HasIOException e, HasNonIOException e,
    MonadReader r m, HasImageBuilder r, HasFileCacheTop r)
   => [(ImageKey, Either FileError ImageFile)]
   -> ExceptT e m [(ImageKey, Either FileError ImageFile)]
@@ -953,7 +954,7 @@ noShape = Left NoShape
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
-  (Unexceptional m, Exception e, HasFileError e, FromSomeNonPseudoException e,
+  (Unexceptional m, Exception e, HasFileError e, HasIOException e, HasNonIOException e,
    MonadReader r m, HasImageBuilder r, HasFileCacheTop r)
   => [(ImageKey, ImageShape)]
   -> ExceptT e m ()
@@ -969,13 +970,13 @@ queueImageBuild pairs = do
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startImageBuilder ::
-  forall r e m. (Unexceptional m, Exception e, FromSomeNonPseudoException e,
+  forall r e m. (Unexceptional m, Exception e, HasIOException e, HasNonIOException e,
                  MonadError e m, MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => m (ImageChan, ThreadId)
 startImageBuilder = do
   r <- ask
   (chan :: ImageChan) <- lyftIO newChan
-  (,) <$> pure chan <*> fork (forever (runExceptT (fromIO' fromSomeNonPseudoException (readChan chan)) >>= either doError (doImages r)))
+  (,) <$> pure chan <*> fork (forever (runExceptT (fromIO' (review someNonPseudoException) (readChan chan)) >>= either doError (doImages r)))
   where
     -- This is the background task
     doError (e :: SomeNonPseudoException) =
@@ -1003,7 +1004,7 @@ cacheImageFile key shape = do
   either Left id <$> runExceptT (evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key))
 
 cacheImageFile' ::
-  (FromSomeNonPseudoException e, Unexceptional m, Exception e,
+  (HasIOException e, HasNonIOException e, Unexceptional m, Exception e,
    MonadError e m, HasFileCacheTop r, HasCacheAcid r, MonadReader r m)
   => ImageKey -> ImageShape -> m (Either FileError ImageFile)
 cacheImageFile' key shape = do
@@ -1044,7 +1045,7 @@ uprightImageShape shape@(ImageShape {_imageFileOrientation = rot}) =
     NineHr -> shape
 
 buildImageFile ::
-  forall e r m. (Unexceptional m, Exception e, MonadError e m, FromSomeNonPseudoException e,
+  forall e r m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => ImageKey -> ImageShape -> ExceptT FileError m ImageFile
 buildImageFile key shape = do
@@ -1055,7 +1056,7 @@ buildImageFile key shape = do
                   , _fileExt = fileExtension (_imageShapeType shape) }
   let img = ImageFileReady (ImageReady { _imageFile = file, _imageShape = shape })
   path <- fileCachePathIO (ImageCached key img) -- the rendered key
-  exists <- lyftIO $ doesFileExist path
+  exists <- lyftIO' $ doesFileExist path
   path' <- fileCachePathIO (ImageCached key' img) -- the equivalent file
   -- path' should exist, hard link path to path'
   case exists of
@@ -1063,25 +1064,25 @@ buildImageFile key shape = do
       case key == key' of
         True -> do
           unsafeFromIO $ alog "Data.FileCache.Server" INFO ("Writing new cache file: " <> show path)
-          lyftIO $ writeFileReadable path bs
+          lyftIO' $ writeFileReadable path bs
         False -> do
           unsafeFromIO $ alog "Data.FileCache.Server" INFO ("Hard linking " <> show path' <> " -> " <> show path)
-          lyftIO $ createLink path' path
+          lyftIO' $ createLink path' path
     True -> do
       -- Don't mess with it if it exists, there is probably
       -- a process running that is writing it out.
-      bs' <- lyftIO $ BS.readFile path
+      bs' <- lyftIO' $ BS.readFile path
       case bs == bs' of
         False -> do
           unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Replacing damaged cache file: " <> show path <> " length " <> show (length bs') <> " -> " <> show (length bs))
-          lyftIO $ writeFileReadable path bs
+          lyftIO' $ writeFileReadable path bs
         True -> unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Cache file for new key already exists: " <> show path)
   unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("added to cache: " <> prettyShow img)
   return img
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
-  forall r e m. (Unexceptional m, Exception e, MonadError e m, FromSomeNonPseudoException e,
+  forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasFileCacheTop r, HasImageAcid r)
   => ImageKey -> ExceptT FileError m (ImageKey, BS.ByteString)
 buildImageBytes key@(ImageOriginal csum typ) =
@@ -1110,14 +1111,14 @@ buildImageBytes key@(ImageCropped crop key') = do
 -- it is not in the database - see if we can read it and verify
 -- its checksum.
 buildImageBytesFromFile ::
-  (Unexceptional m, Exception e, MonadError e m, FromSomeNonPseudoException e,
+  (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
    MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => ImageKey -> Text -> ImageType -> ExceptT FileError m BS.ByteString
 buildImageBytesFromFile key csum typ = do
   -- If we get a cache miss for an ImageOriginal key something
   -- has gone wrong.  Try to rebuild from the file if it exists.
   path <- fileCachePath (ImagePath key typ)
-  exists <- lyftIO (doesFileExist path)
+  exists <- lyftIO' (doesFileExist path)
   case exists of
     False -> do
       let e = CacheDamage ("buildImageBytes - missing original: " <> T.pack (show key <> " -> " <> path))
@@ -1139,15 +1140,15 @@ buildImageBytesFromFile key csum typ = do
 
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
-  (MonadReader r m, HasFileCacheTop r, FromSomeNonPseudoException e,
+  (MonadReader r m, HasFileCacheTop r, HasIOException e, HasNonIOException e,
    Unexceptional m, Exception e, HasImageFilePath a)
   => a -> ExceptT e m BS.ByteString
-lookImageBytes a = fileCachePath a >>= lyftIO . BS.readFile
+lookImageBytes a = fileCachePath a >>= lyftIO' . BS.readFile
 
 -- | There is an error stored in the cache, maybe it can be repaired
 -- now?  Be careful not to get into a loop doing this.
 rebuildImageBytes ::
-  forall r e m. (Unexceptional m, Exception e, MonadError e m, FromSomeNonPseudoException e,
+  forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
 rebuildImageBytes False _key _typ e = throwError e
@@ -1156,7 +1157,7 @@ rebuildImageBytes True key typ e@(CacheDamage _) = do
   path <- fileCachePath (ImagePath key typ)
   -- This and other operations like it may throw an
   -- IOException - I need LyftIO to make sure this is caught.
-  bs <- lyftIO (BS.readFile path)
+  bs <- lyftIO' (BS.readFile path)
   _cached <- cacheOriginalImage bs
   return bs
 rebuildImageBytes True key _typ e = do
@@ -1188,10 +1189,10 @@ validateImageFile key (ImageFileReady i@(ImageReady {..})) = do
   where
     checkFile :: File -> FilePath -> Either FileError BS.ByteString -> m ()
     checkFile _file _path (Left e) =
-      lyftIO (putStrLn ("error loading " ++ show _imageFile ++ ": " ++ show e))
+      unsafeFromIO (putStrLn ("error loading " ++ show _imageFile ++ ": " ++ show e))
     checkFile file _path (Right bs)
       | T.pack (show (md5 (fromStrict bs))) /= (_fileChksum file) =
-          lyftIO (putStrLn ("checksum mismatch in file " ++ show file))
+          unsafeFromIO (putStrLn ("checksum mismatch in file " ++ show file))
     checkFile _file _path _bs = return ()
 
 tests :: Test

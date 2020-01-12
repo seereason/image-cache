@@ -77,13 +77,14 @@ module Data.FileCache.Common
 --  , logErrorCall
   ) where
 
-import Control.Exception as E (Exception, ErrorCall, fromException, IOException, toException)
+import Control.Exception as E (Exception, ErrorCall)
 import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show )
 import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.FileCache.Types (CommandError)
+import Data.Generics.Sum (_Ctor)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
@@ -92,7 +93,7 @@ import Data.Serialize ( Serialize(..) )
 import Data.String (IsString(fromString))
 import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
-import Extra.Except (FromSomeNonPseudoException(..), HasIOException(..), HasErrorCall(..))
+import Extra.Except (HasErrorCall(..), HasIOException(..), HasNonIOException(..))
 import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
 --import Language.Haskell.TH ( Loc(..) )
@@ -110,6 +111,7 @@ import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Text.PrettyPrint.HughesPJClass ()
 import Text.Read ( readMaybe )
+import UnexceptionalIO.Trans (SomeNonPseudoException)
 import Web.Routes ( PathInfo(..), segment, toPathInfo )
 import Web.Routes.TH ( derivePathInfo )
 
@@ -756,7 +758,9 @@ data FileError
     = IOException IOError -- ^ Caught an IOException
     | ErrorCall E.ErrorCall -- ^ Caught a call to error
     | FromString String -- ^ FileError created via IsString(fromstring)
-    | UnexpectedException String -- ^ Something unanticipated
+    | UnexpectedException String
+      -- ^ Something unanticipated, not an IOException.  Because we
+      -- derive Eq we can't put a SomeException here, so its a string.
     | CommandFailure CommandError -- ^ A shell command failed
     | CacheDamage Text -- ^ The contents of the cache is wrong
     | NoShape
@@ -764,6 +768,12 @@ data FileError
       -- from failed attempt to parse the output of the unix file(1)
       -- command.
     deriving (Eq, Ord, Generic)
+
+instance HasNonIOException FileError where
+  nonIOException =
+    _Ctor @"UnexpectedException" .
+    (iso (error "No Read instance for SomeNonPseudoException") show :: Iso' String SomeNonPseudoException)
+    -- (undefined :: Prism' String SomeNonPseudoException)
 
 -- Dubious instance, but omitting makes other things more dubious.
 instance IsString FileError where fromString = FromString
@@ -793,21 +803,13 @@ instance Serialize FileError where get = safeGet; put = safePut
 deriving instance Show FileError
 
 -- | This ensures that runExceptT catches IOException
-instance HasIOException FileError where fromIOException = IOException
+instance HasIOException FileError where ioException = _Ctor @"IOException"
 instance HasErrorCall FileError where fromErrorCall = ErrorCall
 
-class HasFileError e where fromFileError :: FileError -> e
+-- These superclasses are due to types embedded in FileError.
+-- they ought to be unbundled and removed going forward.
+class (IsString e, HasIOException e, HasNonIOException e) => HasFileError e where fromFileError :: FileError -> e
 instance HasFileError FileError where fromFileError = id
-
-instance FromSomeNonPseudoException FileError where
-  fromSomeNonPseudoException e =
-    maybe
-      (maybe
-       (fromString ("fromSomeNonPseudoException - unexpected argument: " <> show e))
-       fromErrorCall
-       (fromException (toException e) :: Maybe ErrorCall))
-      fromIOException
-      (fromException (toException e) :: Maybe IOException)
 
 #if 0
 fromFileError :: HasFileError e => FileError -> e
