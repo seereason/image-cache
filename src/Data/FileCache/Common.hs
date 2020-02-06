@@ -73,8 +73,10 @@ module Data.FileCache.Common
 --    -- * FileError
   , FileError(..)
   , CommandError
-  , HasFileError(fromFileError),
+  , HasFileError(fromFileError)
 --  , logErrorCall
+
+  , CacheMap(..)
   ) where
 
 import Control.Exception as E (Exception, ErrorCall)
@@ -85,10 +87,11 @@ import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.FileCache.Types (CommandError)
 import Data.Generics.Sum (_Ctor)
+import Data.Map (fromList, Map, toList)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
-import Data.SafeCopy ( extension, Migrate(..), SafeCopy(..), safeGet, safePut )
+import Data.SafeCopy ( base, extension, Migrate(..), SafeCopy(..), SafeCopy', safeGet, safePut )
 import Data.Serialize ( Serialize(..) )
 import Data.String (IsString(fromString))
 import Data.Text ( pack, Text, unpack )
@@ -901,6 +904,63 @@ test1 =
                                             _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170, _imageFileOrientation = ZeroHr}})}
 
 #endif
+
+-- * CacheMap
+
+
+-- Later we could make FileError a type parameter, but right now its
+-- tangled with the MonadError type.
+data CacheMap =
+    CacheMap {_unCacheMap :: Map ImageKey (Either FileError ImageFile)}
+    deriving (Generic, Eq, Ord)
+
+instance SafeCopy CacheMap where
+  version = 3
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap"
+
+instance Migrate CacheMap where
+  type MigrateFrom CacheMap = CacheMap_2 ImageKey_2 ImageFile
+  -- This is delicate - know before you edit!
+  migrate (CacheMap_2 mp) =
+    CacheMap (fromList $ fmap migratePair $ toList mp)
+    where
+      migratePair :: (ImageKey_2, CacheValue_1 ImageFile) -> (ImageKey, Either FileError ImageFile)
+      migratePair (key, Value_1 img) = (migrateKey img key, Right img)
+      migratePair (_, Failed_1 _) = error "unexpected"
+      migratePair (_, InProgress_1) = error "unexpected"
+      migrateKey :: ImageFile -> ImageKey_2 -> ImageKey
+      migrateKey (ImageFileReady img) (ImageOriginal_2 _) =
+        ImageOriginal (_fileChksum (_imageFile img)) (imageType img)
+      migrateKey (ImageFileReady img) (ImageCropped_2 crop key) = ImageCropped crop (migrateKey (ImageFileReady img) key)
+      migrateKey (ImageFileReady img) (ImageScaled_2 sz dpi key) = ImageScaled sz dpi (migrateKey (ImageFileReady img) key)
+      migrateKey (ImageFileReady img) (ImageUpright_2 key) = ImageUpright (migrateKey (ImageFileReady img) key)
+      migrateKey _ _ = error "Unexpected value during migration"
+
+data CacheMap_2 key val =
+    CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
+    deriving (Generic, Eq, Ord)
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
+  version = 2
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
+
+deriving instance Show CacheMap
+
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
+    type MigrateFrom (CacheMap_2 key val) = Map key val
+    migrate mp = CacheMap_2 (fmap Value_1 mp)
+
+data CacheValue_1 val
+    = InProgress_1
+    | Value_1 val
+    | Failed_1 FileError
+    deriving (Generic, Eq, Ord, Functor)
+
+deriving instance Show val => Show (CacheValue_1 val)
+
+instance SafeCopy' val => SafeCopy (CacheValue_1 val) where version = 1
 
 $(concat <$>
   sequence
