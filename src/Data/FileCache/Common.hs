@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -81,7 +82,7 @@ module Data.FileCache.Common
 
 import Control.Exception as E (Exception, ErrorCall)
 import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show )
-import Control.Lens.Path ( HOP(FIELDS), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
+import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
@@ -534,11 +535,6 @@ deriving instance Data FileSource
 deriving instance Typeable FileSource
 deriving instance Lift FileSource
 
-$(concat <$>
-  sequence
-  [ makePathInstances [FIELDS] ''File
-  , makePathInstances [FIELDS] ''FileSource ])
-
 #if ARBITRARY
 instance Arbitrary File where
     arbitrary = File <$> arbitrary <*> arbitrary <*> pure [] <*> arbitrary
@@ -912,7 +908,7 @@ test1 =
 -- tangled with the MonadError type.
 data CacheMap =
     CacheMap {_unCacheMap :: Map ImageKey (Either FileError ImageFile)}
-    deriving (Generic, Eq, Ord)
+    deriving (Generic, Eq, Ord, Serialize)
 
 instance SafeCopy CacheMap where
   version = 3
@@ -964,7 +960,10 @@ instance SafeCopy' val => SafeCopy (CacheValue_1 val) where version = 1
 
 $(concat <$>
   sequence
-  [ makePathInstances [FIELDS] ''ImageFile
+  [ makePathInstances [FIELDS] ''File
+  , makePathInstances [] ''FileError
+  , makePathInstances [FIELDS] ''FileSource
+  , makePathInstances [FIELDS] ''ImageFile
   , makePathInstances [FIELDS] ''ImageReady
   , makePathInstances [FIELDS] ''ImageShape
   , makePathInstances [] ''ImageType
@@ -974,6 +973,7 @@ $(concat <$>
   , makePathInstances [FIELDS] ''ImageKey
   , makePathInstances [] ''Units
   , makePathInstances [] ''Rotation
+  , makePathInstances [FIELDS] ''CacheMap
   , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
   , derivePathInfo ''ImagePath
   , derivePathInfo ''ImageKey
