@@ -18,7 +18,7 @@ import Data.FileCache.Common
    ImageShape(..), ImageType(..), Rotation(..))
 import Data.Maybe(catMaybes, listToMaybe)
 import Data.String (fromString)
-import Data.Text (pack)
+import Data.Text (pack, Text)
 import Extra.ErrorControl (controlError, ErrorControl)
 import Extra.Except (Except, ExceptT, HasIOException(ioException), HasNonIOException(nonIOException), liftEither, throwError, withExceptT)
 import System.Exit (ExitCode)
@@ -69,8 +69,10 @@ fileInfoFromOutput ::
   -> BS.ByteString
   -> ExceptT e m ImageShape
 fileInfoFromOutput path output =
-  case parse pFileOutput path (pack (toString output)) of
-    Left e -> throwError $ fromFileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
+  case parse pFileOutput path output' of
+    Left e ->
+      return $ ImageShape {_imageShapeType = Unknown output', _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
+      -- throwError $ fromFileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of
@@ -80,24 +82,14 @@ fileInfoFromOutput path output =
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}
         _ -> throwError (fromFileError NoShape)
   where
+    output' :: Text
+    output' = pack (toString output)
     findShape :: ImageAttribute -> Maybe (Int, Int)
     findShape (Shape shape) = Just shape
     findShape _ = Nothing
     findRotation :: ImageAttribute -> Maybe Rotation
     findRotation (Orientation rotation) = Just rotation
     findRotation _ = Nothing
-#if 0
-      test s = maybe (fail $ "ImageFile.getFileType - Not an image: (Ident string: " ++ show s ++ ")") return (foldr (testre (P.toString s)) Nothing reTests)
-      testre :: String -> (Regex, ImageType) -> Maybe ImageType -> Maybe ImageType
-      testre _ _ (Just result) = Just result
-      testre s (re, typ) Nothing = maybe Nothing (const (Just typ)) (matchRegex re s)
-      -- Any more?
-      reTests =
-              [(mkRegex "Netpbm P[BGPP]M \"rawbits\" image data$", PPM)
-              ,(mkRegex "JPEG image data", JPEG)
-              ,(mkRegex "PNG image data", PNG)
-              ,(mkRegex "GIF image data", GIF)]
-#endif
 
 data ImageAttribute = Shape (Int, Int) | Orientation Rotation deriving Show
 

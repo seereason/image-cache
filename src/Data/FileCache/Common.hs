@@ -81,7 +81,7 @@ module Data.FileCache.Common
   ) where
 
 import Control.Exception as E (Exception, ErrorCall)
-import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show )
+import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, review, _Show )
 import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Data.Data ( Data )
@@ -97,6 +97,7 @@ import Data.Serialize ( Serialize(..) )
 import Data.String (IsString(fromString))
 import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
+import Extra.Errors (follow, Member, OneOf)
 import Extra.Except (HasErrorCall(..), HasIOException(..), HasNonIOException(..))
 import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
@@ -452,15 +453,25 @@ cropImageShape (ImageCrop{..}) shape =
 
 -- * ImageType and Checksum
 
-data ImageType = PPM | JPEG | GIF | PNG | Unknown deriving (Generic, Eq, Ord)
+data ImageType_0 = PPM_0 | JPEG_0 | GIF_0 | PNG_0 | Unknown_0 deriving (Generic, Eq, Ord)
+data ImageType = PPM | JPEG | GIF | PNG | PDF | Unknown Text deriving (Generic, Eq, Ord)
 
 deriving instance Data ImageType
 deriving instance Read ImageType
 deriving instance Show ImageType
 deriving instance Typeable ImageType
 instance Serialize ImageType where get = safeGet; put = safePut
-instance SafeCopy ImageType where version = 0
+instance SafeCopy ImageType_0 where version = 0
+instance SafeCopy ImageType where version = 1; kind = extension
 instance Pretty ImageType where pPrint = text . show
+
+instance Migrate ImageType where
+  type MigrateFrom ImageType = ImageType_0
+  migrate = \case PPM_0 -> PPM
+                  JPEG_0 -> JPEG
+                  GIF_0 -> GIF
+                  PNG_0 -> PNG
+                  Unknown_0 -> Unknown ""
 
 type Extension = Text
 
@@ -474,7 +485,8 @@ instance HasFileExtension ImageType where
   fileExtension PPM = ".ppm"
   fileExtension GIF = ".gif"
   fileExtension PNG = ".png"
-  fileExtension Unknown = ".jpg"
+  fileExtension PDF = ".pdf"
+  fileExtension (Unknown _) = ".???"
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = Text
@@ -638,42 +650,6 @@ data ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
     deriving (Generic, Eq, Ord)
 
-{-
-instance Migrate ImageKey where
-  type MigrateFrom ImageKey = ImageKey_3
-  migrate (ImageOriginal_3 csum) =
-    -- We need to update the image original types with a migration of CacheMap
-    ImageOriginal csum Unknown
-  migrate (ImageCropped_3 crop key) = ImageCropped crop key
-  migrate (ImageScaled_3 size dpi key) = ImageScaled size dpi key
-  migrate (ImageUpright_3 key) = ImageUpright key
-
--- | Describes an ImageFile and, if it was derived from other image
--- files, how.
-data ImageKey_3
-    = ImageOriginal_3 Checksum
-    -- ^ An unmodified upload, the info lets us construct an URL
-    | ImageCropped_3 ImageCrop ImageKey
-    -- ^ A cropped version of another image
-    | ImageScaled_3 ImageSize Rational ImageKey
-    -- ^ A resized version of another image
-    | ImageUpright_3 ImageKey
-    -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Generic, Eq, Ord)
-
-instance Migrate ImageKey_3 where
-  type MigrateFrom ImageKey_3 = ImageKey_2
-  migrate (ImageOriginal_2 i) =
-    -- We need to update the image original types with a migration of CacheMap
-    ImageOriginal_3 (_fileChksum f)
-    where f = case i of
-                ImageFileShape _ -> error "unexpected value during migration"
-                ImageFileReady file -> _imageFile file
-  migrate (ImageCropped_2 crop key) = ImageCropped_3 crop key
-  migrate (ImageScaled_2 size dpi key) = ImageScaled_3 size dpi key
-  migrate (ImageUpright_2 key) = ImageUpright_3 key
--}
-
 -- When this is removed the 'setImageFileTypes' function should also
 -- be removed.
 data ImageKey_2
@@ -809,41 +785,6 @@ instance HasErrorCall FileError where fromErrorCall = ErrorCall
 -- they ought to be unbundled and removed going forward.
 class (IsString e, HasIOException e, HasNonIOException e) => HasFileError e where fromFileError :: FileError -> e
 instance HasFileError FileError where fromFileError = id
-
-#if 0
-fromFileError :: HasFileError e => FileError -> e
-fromFileError = review fileErrorPrism
-
-withFileError :: HasFileError e => (Maybe FileError -> r) -> e -> r
-withFileError f = f . preview fileErrorPrism
-#endif
-
-#if 0
-class Loggable a where
-  logit :: Priority -> Loc -> a -> IO ()
-
-instance Loggable FileError where
-  logit priority loc (IOException e) = (logM (loc_module loc) priority (" - IO exception: " <> unpack e))
-  logit priority loc (ErrorCall e) = (logM (loc_module loc) priority (" - error call: " <> show e))
-  logit priority loc (CommandFailure info) = (logM (loc_module loc) priority " - shell command failed:" >> logCommandInfo priority loc info)
-  logit priority loc (CacheDamage t) = logM (loc_module loc) priority (" - file cache is damaged: " <> unpack t)
-  logit priority loc NoShape = (logM (loc_module loc) priority (" - NoShape: file(1) output notparsed"))
-
-logCommandInfo :: Priority -> Loc -> CommandInfo -> IO ()
-logCommandInfo priority loc (Description s e) = logM (loc_module loc) priority (" - error description: " <> s) >> logCommandInfo priority loc e
-logCommandInfo priority loc (FunctionName n e) = logM (loc_module loc) priority (" - error function " <> n) >> logCommandInfo priority loc e
-logCommandInfo priority loc (Command cmd code) = logM (loc_module loc) priority (" - command: " <> show cmd <> ", exit code: " <> show code)
-logCommandInfo priority loc (CommandInput bs e) = logM (loc_module loc) priority (" - command input: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
-logCommandInfo priority loc (CommandOut bs e) = logM (loc_module loc) priority (" - command stdout: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
-logCommandInfo priority loc (CommandErr bs e) = logM (loc_module loc) priority (" - command stderr: " <> show (P.take 1000 bs)) >> logCommandInfo priority loc e
-
-logErrorCall :: Unexceptional m => m (Either SomeException a) -> m (Either SomeException a)
-logErrorCall x =
-    x >>= either (\e -> case fromException e :: Maybe E.ErrorCall of
-                          Just (ErrorCallWithLocation msg loc) ->
-                              liftIO (logM "Appraisal.FileError" ERROR (show loc ++ ": " ++ msg)) >> return (Left e)
-                          _ -> return (Left e)) (return . Right)
-#endif
 
 -- * ImagePath
 
@@ -992,13 +933,15 @@ instance PathInfo ImageType where
       JPEG -> [pack "i.jpg"]
       GIF -> [pack "i.gif"]
       PNG -> [pack "i.png"]
-      Unknown -> [pack "i.???"]
+      PDF -> [pack "i.pdf"]
+      Unknown _ -> [pack "i.???"]
   fromPathSegments =
     (segment (pack "i.ppm") >> return PPM) <|>
     (segment (pack "i.jpg") >> return JPEG) <|>
     (segment (pack "i.gif") >> return GIF) <|>
     (segment (pack "i.png") >> return PNG) <|>
-    (segment (pack "i.???") >> return Unknown)
+    (segment (pack "i.pdf") >> return PDF) <|>
+    (segment (pack "i.???") >> return (Unknown ""))
 
 {-
 λ> toPathInfo (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG)

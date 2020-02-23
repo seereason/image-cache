@@ -59,11 +59,11 @@ module Data.FileCache.Server
   , tests
   ) where
 
-import Control.Concurrent (ThreadId{-, threadDelay-})
-import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Exception (ErrorCall, Exception, fromException, IOException, toException)
-import Control.Lens ( (%=), _1, _2, _3, at, ix, over, preview, review, _Right, view )
-import Control.Monad (forever, unless, when)
+--import Control.Concurrent (ThreadId{-, threadDelay-})
+import Control.Concurrent.Chan (Chan)
+import Control.Exception (Exception)
+import Control.Lens ( (%=), _1, _2, _3, at, ix, over, preview, _Right, view )
+import Control.Monad (unless, when)
 import Control.Monad.RWS ( get, modify, MonadIO(liftIO), MonadState, put, RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask), ReaderT, runReaderT )
 import Control.Monad.Trans (MonadTrans(lift))
@@ -85,20 +85,17 @@ import Data.Generics.Product ( field )
 import Data.List ( intercalate )
 import Data.ListLike ( length )
 import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
-import Data.Maybe (fromJust, fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
-import Data.SafeCopy ( base, deriveSafeCopy, extension, Migrate(..), SafeCopy(..), SafeCopy' )
 import Data.Set as Set (member, Set)
 import Data.String (fromString)
 import Data.Text as T ( pack, Text, unpack )
 import Data.Text.Encoding ( decodeUtf8 )
 import Data.Word ( Word16, Word32 )
-import Extra.ErrorControl (ErrorControl(controlError))
-import Extra.Except (liftEither, lyftIO', lyftIO, HasIOException(..), HasNonIOException(..), MonadError, throwError, tryError, withError)
+import Extra.Except (lyftIO', lyftIO, HasIOException(..), HasNonIOException(..), MonadError, throwError, tryError)
 import Extra.Log ( alog )
 import Extra.Text hiding (tests)
-import GHC.Generics (Generic)
 import GHC.Int ( Int64 )
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
@@ -501,13 +498,16 @@ scaleImage' ::
   -> ImageType
   -> ExceptT FileError m (Maybe BS.ByteString)
 scaleImage' scale _ _ | approx (toRational scale) == 1 = return Nothing
+scaleImage' _ _ PDF = throwError NoShape
+scaleImage' _ _ (Unknown _) = throwError NoShape
 scaleImage' scale bytes typ = do
     let decoder = case typ of
                     JPEG -> showCommandForUser "jpegtopnm" ["-"]
                     PPM -> showCommandForUser "cat" ["-"]
                     GIF -> showCommandForUser "giftopnm" ["-"]
                     PNG -> showCommandForUser "pngtopnm" ["-"]
-                    Unknown -> error "scaleImage' unknown file type"
+                    PDF -> error "scaleImge' - Unexpected file type"
+                    Unknown _ -> error "scaleImge' - Unexpected file type"
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
         -- To save space, build a jpeg here rather than the original file type.
         encoder = case typ of
@@ -515,7 +515,8 @@ scaleImage' scale bytes typ = do
                     PPM -> showCommandForUser {-"cat"-} "cjpeg" []
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
-                    Unknown -> error "scaleImage' unknown file type"
+                    PDF -> error "scaleImge' - Unexpected file type"
+                    Unknown _ -> error "scaleImge' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
 
@@ -527,6 +528,9 @@ logIOError' io =
 editImage' ::
     forall m shape. (Unexceptional m, HasImageShape shape)
     => ImageCrop -> BS.ByteString -> ImageType -> shape -> ExceptT FileError m (Maybe BS.ByteString)
+editImage' crop _ _ _ | crop == def = return Nothing
+editImage' _ _ PDF _ = throwError NoShape
+editImage' _ _ (Unknown _) _ = throwError NoShape
 editImage' crop bs typ shape =
   logIOError' $
     case commands of
@@ -540,7 +544,8 @@ editImage' crop bs typ shape =
       latexImageFileType PPM = JPEG
       latexImageFileType JPEG = JPEG
       latexImageFileType PNG = JPEG
-      latexImageFileType Unknown = JPEG -- whatever
+      latexImageFileType PDF = error "editImage' - Unexpected file type"
+      latexImageFileType (Unknown _) = error "editImage' - Unexpected file type"
       cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
               (0, 0, 0, 0) -> Nothing
               (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
@@ -1196,7 +1201,7 @@ changes mp = \(key, file) -> (maybe key id (Map.lookup key changeMap), file)
     changeMap :: Map ImageKey ImageKey
     changeMap = fromList (fmap (\(key, img) -> (key, fixOriginalKey key img)) (toList mp))
     fixOriginalKey :: ImageKey -> (Either FileError ImageFile) -> ImageKey
-    fixOriginalKey (ImageOriginal csum Unknown) (Right img) = ImageOriginal csum (imageType img)
+    fixOriginalKey (ImageOriginal csum (Unknown _)) (Right img) = ImageOriginal csum (imageType img)
     fixOriginalKey key _img = key
 
 fixOriginalKeys ::
