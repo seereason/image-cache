@@ -740,19 +740,20 @@ cacheOriginalImages ::
                    Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                    MonadReader r m, HasImageAcid r, HasFileCacheTop r,
                    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
-  => [x] -> m ()
+  => [(FileSource, x)] -> m ()
 cacheOriginalImages =
-  mapM_ (\x -> runExceptT (cacheOriginalImage x) >>= modify  . Map.insert x)
+  mapM_ (\(source, x) -> runExceptT (cacheOriginalImage (Just source) x) >>= modify . Map.insert x)
 
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
 cacheOriginalImage ::
   forall x e r m. (MakeByteString x, Unexceptional m, Exception e, MonadError e m,
                    HasIOException e, HasNonIOException e, MonadReader r m, HasFileCacheTop r, HasImageAcid r)
-  => x
+  => Maybe FileSource
+  -> x
   -> ExceptT FileError m (ImageKey, ImageFile)
-cacheOriginalImage x = do
-  img <- buildOriginalImage x
+cacheOriginalImage source x = do
+  img <- buildOriginalImage source x
   let key = originalKey img
       val = ImageFileReady img
   unsafeFromIO (alog "Data.FileCache.Server" DEBUG ("cachePut " ++ show key))
@@ -762,13 +763,17 @@ cacheOriginalImage x = do
 buildOriginalImage ::
   forall x r m. (MakeByteString x, Unexceptional m,
                  MonadReader r m, HasFileCacheTop r)
-  => x
+  => Maybe FileSource
+  -> x
   -> ExceptT FileError m ImageReady
-buildOriginalImage x = do
+buildOriginalImage source x = do
   bs <- makeByteString x
   let csum = T.pack $ show $ md5 $ fromStrict bs
   shape@ImageShape {..} <- imageShapeM bs
-  let file = File { _fileSource = Nothing
+  -- FIXME: The image-replace command in appraisalscope will pass
+  -- Nothing to the source parameter.  Could the correct source
+  -- possibly be found in by looking in the image database?
+  let file = File { _fileSource = fromMaybe Missing source
                   , _fileChksum = csum
                   , _fileMessages = []
                   , _fileExt = fileExtension (imageType shape) }
@@ -998,8 +1003,8 @@ buildImageFile ::
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r)
   => ImageKey -> ImageShape -> ExceptT FileError m ImageFile
 buildImageFile key shape = do
-  (key', bs) <- buildImageBytes key -- key' may differ from key due to removal of no-ops
-  let file = File { _fileSource = Nothing
+  (key', bs) <- buildImageBytes Nothing key -- key' may differ from key due to removal of no-ops
+  let file = File { _fileSource = Derived
                   , _fileChksum = T.pack $ show $ md5 $ fromStrict bs
                   , _fileMessages = []
                   , _fileExt = fileExtension (_imageShapeType shape) }
@@ -1033,17 +1038,17 @@ buildImageFile key shape = do
 buildImageBytes ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasFileCacheTop r, HasImageAcid r)
-  => ImageKey -> ExceptT FileError m (ImageKey, BS.ByteString)
-buildImageBytes key@(ImageOriginal csum typ) =
+  => Maybe FileSource -> ImageKey -> ExceptT FileError m (ImageKey, BS.ByteString)
+buildImageBytes source key@(ImageOriginal csum typ) =
   lift (cacheLook key) >>=
-  maybe ((key,) <$> buildImageBytesFromFile key csum typ)
-        (\img -> (key,) <$> either (rebuildImageBytes False key typ)
+  maybe ((key,) <$> buildImageBytesFromFile source key csum typ)
+        (\img -> (key,) <$> either (rebuildImageBytes source False key typ)
                                    (lookImageBytes . ImageCached key) img)
-buildImageBytes key@(ImageUpright key') = do
-  (key'', bs) <- buildImageBytes key'
+buildImageBytes source key@(ImageUpright key') = do
+  (key'', bs) <- buildImageBytes source key'
   uprightImage' bs >>= return . maybe (key'', bs) (key,)
-buildImageBytes key@(ImageScaled sz dpi key') = do
-  (key'', bs) <- buildImageBytes key'
+buildImageBytes source key@(ImageScaled sz dpi key') = do
+  (key'', bs) <- buildImageBytes source key'
   -- the buildImageBytes that just ran might have this info
   shape <- imageShapeM bs
   let scale' = scaleFromDPI sz dpi shape
@@ -1051,8 +1056,8 @@ buildImageBytes key@(ImageScaled sz dpi key') = do
     Nothing -> return (key'', bs)
     Just scale ->
       maybe (key'', bs) (key,) <$> scaleImage' (fromRat scale) bs (imageType shape)
-buildImageBytes key@(ImageCropped crop key') = do
-  (key'', bs) <- buildImageBytes key'
+buildImageBytes source key@(ImageCropped crop key') = do
+  (key'', bs) <- buildImageBytes source key'
   shape <- imageShapeM bs
   maybe (key'', bs) (key,) <$> editImage' crop bs (imageType shape) (imageShape shape)
 
@@ -1062,8 +1067,8 @@ buildImageBytes key@(ImageCropped crop key') = do
 buildImageBytesFromFile ::
   (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
    MonadReader r m, HasImageAcid r, HasFileCacheTop r)
-  => ImageKey -> Text -> ImageType -> ExceptT FileError m BS.ByteString
-buildImageBytesFromFile key csum typ = do
+  => Maybe FileSource -> ImageKey -> Text -> ImageType -> ExceptT FileError m BS.ByteString
+buildImageBytesFromFile source key csum typ = do
   -- If we get a cache miss for an ImageOriginal key something
   -- has gone wrong.  Try to rebuild from the file if it exists.
   path <- fileCachePath (ImagePath key typ)
@@ -1084,7 +1089,7 @@ buildImageBytesFromFile key csum typ = do
           throwError e
         True -> do
           unsafeFromIO (alog "Data.FileCache.Server" ALERT ("recaching " ++ show key))
-          _cached <- cacheOriginalImage bs
+          _cached <- cacheOriginalImage source bs
           return bs
 
 -- | Look up the image FilePath and read the ByteString it contains.
@@ -1099,17 +1104,17 @@ lookImageBytes a = fileCachePath a >>= lyftIO' . BS.readFile
 rebuildImageBytes ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r)
-  => Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
-rebuildImageBytes False _key _typ e = throwError e
-rebuildImageBytes True key typ e@(CacheDamage _) = do
+  => Maybe FileSource -> Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
+rebuildImageBytes _ False _key _typ e = throwError e
+rebuildImageBytes source True key typ e@(CacheDamage _) = do
   unsafeFromIO (alog "Data.FileCache.Server" ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
   path <- fileCachePath (ImagePath key typ)
   -- This and other operations like it may throw an
   -- IOException - I need LyftIO to make sure this is caught.
   bs <- lyftIO' (BS.readFile path)
-  _cached <- cacheOriginalImage bs
+  _cached <- cacheOriginalImage source bs
   return bs
-rebuildImageBytes True key _typ e = do
+rebuildImageBytes _ True key _typ e = do
   unsafeFromIO (alog "Data.FileCache.Server" INFO ("Not retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
   throwError e
 

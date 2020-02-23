@@ -548,7 +548,7 @@ class HasFileChecksum a where fileChecksum :: a -> Checksum
 
 -- |A local cache of a file obtained from a 'FileSource'.
 data File
-    = File { _fileSource :: Maybe FileSource     -- ^ Where the file's contents came from
+    = File { _fileSource :: FileSource           -- ^ Where the file's contents came from
            , _fileChksum :: Checksum             -- ^ The checksum of the file's contents
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            , _fileExt :: Extension               -- ^ Name is formed by appending this to checksum
@@ -557,7 +557,7 @@ data File
 instance Migrate File where
   type MigrateFrom File = File_2
   migrate (File_2 src cksum msgs ext) =
-    File {_fileSource = src, _fileChksum = pack cksum, _fileMessages = msgs, _fileExt = pack ext}
+    File {_fileSource = fromMaybe Legacy src, _fileChksum = pack cksum, _fileMessages = msgs, _fileExt = pack ext}
 
 -- |A local cache of a file obtained from a 'FileSource'.
 data File_2
@@ -588,6 +588,10 @@ deriving instance Lift File
 data FileSource
     = TheURI String
     | ThePath FilePath
+    | TheUpload (FilePath, ContentType)
+    | Derived
+    | Legacy
+    | Missing
     deriving (Generic, Eq, Ord)
 
 instance SafeCopy FileSource where version = 1
@@ -888,7 +892,7 @@ test1 =
                                   (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches})
                                   (100 % 1)
                                   (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)),
-              _imageCachedFile = ImageFileReady (ImageReady {_imageFile = File {_fileSource = Nothing, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"},
+              _imageCachedFile = ImageFileReady (ImageReady {_imageFile = File {_fileSource = Legacy, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"},
                                             _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170, _imageFileOrientation = ZeroHr}})}
 
 #endif
