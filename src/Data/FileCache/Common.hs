@@ -6,9 +6,25 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- This may be set by the .ghci file, otherwise it gets set here.
+#ifndef HAVE_HAPPSTACK
+#if __GHCJS__
+#define HAVE_HAPPSTACK 0
+#else
+#define HAVE_HAPPSTACK 1
+#endif
+#endif
+
 module Data.FileCache.Common
-  ( -- * Rational
-    approx
+  (
+    -- * Happstack
+#if HAVE_HAPPSTACK
+    Real.ContentType(..)
+#else
+    ContentType(..)
+#endif
+    -- * Rational
+  , approx
   -- , rationalIso
   , rationalLens
   , readRationalMaybe
@@ -78,10 +94,11 @@ module Data.FileCache.Common
 --  , logErrorCall
 
   , CacheMap(..)
+  , test1
   ) where
 
 import Control.Exception as E (Exception, ErrorCall)
-import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, review, _Show )
+import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show )
 import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Data.Data ( Data )
@@ -92,12 +109,12 @@ import Data.Map (fromList, Map, toList)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
-import Data.SafeCopy ( base, extension, Migrate(..), SafeCopy(..), SafeCopy', safeGet, safePut )
+import Data.SafeCopy ( extension, Migrate(..), SafeCopy(..), SafeCopy', safeGet, safePut )
 import Data.Serialize ( Serialize(..) )
 import Data.String (IsString(fromString))
 import Data.Text ( pack, Text, unpack )
 import Data.Typeable ( Typeable )
-import Extra.Errors (follow, Member, OneOf)
+--import Extra.Errors (follow, Member, OneOf)
 import Extra.Except (HasErrorCall(..), HasIOException(..), HasNonIOException(..))
 import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
@@ -119,6 +136,40 @@ import Text.Read ( readMaybe )
 import UnexceptionalIO.Trans (SomeNonPseudoException)
 import Web.Routes ( PathInfo(..), segment, toPathInfo )
 import Web.Routes.TH ( derivePathInfo )
+
+#if HAVE_HAPPSTACK
+import Happstack.Server as Real (ContentType(..))
+deriving instance Generic Real.ContentType
+deriving instance Serialize Real.ContentType
+#endif
+
+-- * Happstack Types
+#if !HAVE_HAPPSTACK
+data ContentType =
+        ContentType {
+                     -- | The top-level media type, the general type
+                     --   of the data. Common examples are
+                     --   \"text\", \"image\", \"audio\", \"video\",
+                     --   \"multipart\", and \"application\".
+                     ctType :: String,
+                     -- | The media subtype, the specific data format.
+                     --   Examples include \"plain\", \"html\",
+                     --   \"jpeg\", \"form-data\", etc.
+                     ctSubtype :: String,
+                     -- | Media type parameters. On common example is
+                     --   the charset parameter for the \"text\"
+                     --   top-level type, e.g. @(\"charset\",\"ISO-8859-1\")@.
+                     ctParameters :: [(String, String)]
+                    }
+    deriving (Show, Read, Eq, Ord, Generic, Serialize)
+
+-- Happstack does not create a SafeCopy instance for ContentType.
+-- This gives it version 0.
+#endif
+
+deriving instance Data ContentType
+deriving instance Lift ContentType
+instance SafeCopy ContentType
 
 -- * Rational
 
@@ -915,6 +966,7 @@ $(concat <$>
   , makePathInstances [] ''Units
   , makePathInstances [] ''Rotation
   , makePathInstances [FIELDS] ''CacheMap
+  , makePathInstances [FIELDS] ''ContentType
   , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
   , derivePathInfo ''ImagePath
   , derivePathInfo ''ImageKey
