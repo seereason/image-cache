@@ -1219,10 +1219,10 @@ fixOriginalKeys ::
 fixOriginalKeys f pairs = fmap f pairs
 
 instance Arbitrary ImageKey where
-  arbitrary = {-scaled $ crop $ upright-} original
+  arbitrary = scaled $ crop $ upright original
     where
       original :: Gen ImageKey
-      original = ImageOriginal <$> (cons <$> arbitrary <*> arbitrary) <*> arbitrary
+      original = ImageOriginal <$> (pack <$> listOf1 (elements "0123456789abcdef")) <*> arbitrary
       upright :: Gen ImageKey -> Gen ImageKey
       upright i = oneof [i, ImageUpright <$> i]
       crop :: Gen ImageKey -> Gen ImageKey
@@ -1271,7 +1271,7 @@ approx_prop r = approx r == approx (approx r)
 
 quickTests = do
   quickCheck (pathInfoInverse_prop :: ImageKey -> Bool)
-  quickCheck (approx_prop :: Rational -> Bool)
+  -- quickCheck (approx_prop :: Rational -> Bool)
 
 {-
 > toPathInfo (ImageScaled (ImageSize {_dim = TheWidth, _size = 1 % 4, _units = Inches}) (142 % 163) (ImageCropped (ImageCrop {topCrop = 0, bottomCrop = 0, leftCrop = 1, rightCrop = 1, rotation = SixHr}) (ImageUpright (ImageOriginal "" PNG))))

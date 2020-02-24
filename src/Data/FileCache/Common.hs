@@ -112,7 +112,7 @@ import Data.Ratio ( (%), approxRational, denominator, numerator )
 import Data.SafeCopy ( extension, Migrate(..), SafeCopy(..), SafeCopy', safeGet, safePut )
 import Data.Serialize ( Serialize(..) )
 import Data.String (IsString(fromString))
-import Data.Text ( pack, Text, unpack )
+import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable )
 --import Extra.Errors (follow, Member, OneOf)
 import Extra.Except (ap, HasErrorCall(..), HasIOException(..), HasNonIOException(..))
@@ -124,6 +124,7 @@ import Language.Haskell.TH.Lift as TH ( Lift )
 --import Language.Haskell.TH.Syntax ( Loc(loc_module) )
 --import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
+import Prelude hiding (span)
 import System.FilePath ( makeRelative )
 import Test.HUnit (assertEqual, runTestTT, Test(TestCase))
 --import System.Log.Logger ( Priority(ERROR), logM )
@@ -217,11 +218,7 @@ instance View Rational where
   _View = rationalIso . iso pack unpack
 
 instance PathInfo Rational where
-  toPathSegments r =
-    toPathSegments (numerator r') <> toPathSegments (denominator r')
-    -- This means that toPathSegments might not be the exact inverse
-    -- of fromPathSegments - is there any danger from this?
-    where r' = approx r
+  toPathSegments r = toPathSegments (numerator r) <> toPathSegments (denominator r)
   fromPathSegments = (%) <$> fromPathSegments <*> fromPathSegments
 
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
@@ -363,15 +360,14 @@ instance HasImageType ImageShape where imageType = _imageShapeType
 
 scaleImageShape :: ImageSize -> Rational -> ImageShape -> ImageShape
 scaleImageShape sz dpi shape =
-  if approx (toRational scale) == 1
+  if scale == 1
   then shape
   else shape { _imageShapeType = JPEG -- the scaling pipeline results in a jpeg file
              , _imageShapeWidth = round (fromIntegral (_imageShapeWidth shape) * scale)
              , _imageShapeHeight = round (fromIntegral (_imageShapeHeight shape) * scale) }
   where
-    scale' = scaleFromDPI sz dpi shape
-    scale :: Double
-    scale = fromRat (fromMaybe 1 scale')
+    scale :: Rational
+    scale = maybe 1 approx $ scaleFromDPI sz dpi shape
 
 -- * HasImageShape
 
@@ -997,12 +993,23 @@ instance PathInfo ImageKey where
       ImageCropped arg_a9peM arg_a9peN -> [pack "image-cropped"] <> toPathSegments arg_a9peM <> toPathSegments arg_a9peN
       ImageScaled arg_a9peO arg_a9peP arg_a9peQ -> [pack "image-scaled"] <> toPathSegments arg_a9peO <> toPathSegments arg_a9peP <> toPathSegments arg_a9peQ
       ImageUpright arg_a9peR -> [pack "image-upright"] <> toPathSegments arg_a9peR
-      ImageOriginal csum ityp -> {-[pack "image-original"] <>-} toPathSegments csum <> toPathSegments ityp
+      ImageOriginal csum ityp -> {-[pack "image-original"] <>-} [csum <> fileExtension ityp]
   fromPathSegments =
     ap (ap (segment (pack "image-cropped") >> return ImageCropped) fromPathSegments) fromPathSegments <|>
     ap (ap (ap (segment (pack "image-scaled") >> return ImageScaled) fromPathSegments) fromPathSegments) fromPathSegments <|>
     ap (segment (pack "image-upright") >> return ImageUpright) fromPathSegments <|>
-    ap (ap ({-segment (pack "image-original") >>-} return ImageOriginal) fromPathSegments) fromPathSegments
+    (parseOriginal <$> fromPathSegments)
+    -- ap (ap ({-segment (pack "image-original") >>-} return ImageOriginal) fromPathSegments) fromPathSegments
+    where
+      parseOriginal :: Text -> ImageKey
+      parseOriginal t = let (name, ext) = span (/= '.') t in
+                          ImageOriginal name (case ext of
+                                                 ".jpg" -> JPEG
+                                                 ".ppm" -> PPM
+                                                 ".png" -> PNG
+                                                 ".gif" -> GIF
+                                                 ".pdf" -> PDF
+                                                 _ -> Unknown)
 
 -- This instance gives the paths conventional file extensions.
 instance PathInfo ImageType where
