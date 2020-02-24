@@ -90,7 +90,7 @@ import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.Set as Set (member, Set)
 import Data.String (fromString)
-import Data.Text as T ( pack, Text, unpack )
+import Data.Text as T ( cons, pack, Text, unpack )
 import Data.Text.Encoding ( decodeUtf8, encodeUtf8 )
 import Data.Word ( Word16, Word32 )
 import Extra.Except (lyftIO', lyftIO, HasIOException(..), HasNonIOException(..), MonadError, throwError, tryError)
@@ -1222,7 +1222,7 @@ instance Arbitrary ImageKey where
   arbitrary = {-scaled $ crop $ upright-} original
     where
       original :: Gen ImageKey
-      original = ImageOriginal <$> arbitrary <*> arbitrary
+      original = ImageOriginal <$> (cons <$> arbitrary <*> arbitrary) <*> arbitrary
       upright :: Gen ImageKey -> Gen ImageKey
       upright i = oneof [i, ImageUpright <$> i]
       crop :: Gen ImageKey -> Gen ImageKey
