@@ -56,9 +56,11 @@ module Data.FileCache.Server
   , fixImageShapes
   , validateImageKey
   , validateImageFile
+  , test1
   , tests
   ) where
 
+--import Debug.Trace
 --import Control.Concurrent (ThreadId{-, threadDelay-})
 import Control.Concurrent.Chan (Chan)
 import Control.Exception (Exception)
@@ -83,15 +85,17 @@ import Data.FileCache.LogException (logException)
 import Data.FileCache.Types
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
-import Data.ListLike ( length, toString )
+import Data.ListLike ( length, show, toString )
 import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
+import Data.Ratio ((%))
 import Data.Set as Set (member, Set)
 import Data.String (fromString)
 import Data.Text as T ( cons, pack, Text, unpack )
 import Data.Text.Encoding ( decodeUtf8, encodeUtf8 )
+import Data.Typeable (typeOf)
 import Data.Word ( Word16, Word32 )
 import Extra.Except (lyftIO', lyftIO, HasIOException(..), HasNonIOException(..), MonadError, throwError, tryError)
 import Extra.Log ( alog )
@@ -101,7 +105,7 @@ import GHC.Int ( Int64 )
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( fromRat, showFFloat )
-import Prelude hiding (length)
+import Prelude hiding (length, show)
 import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( (</>), makeRelative, takeDirectory )
@@ -501,8 +505,8 @@ scaleImage' ::
   -> ImageType
   -> ExceptT FileError m (Maybe BS.ByteString)
 scaleImage' scale _ _ | approx (toRational scale) == 1 = return Nothing
-scaleImage' _ _ PDF = throwError NoShape
-scaleImage' _ _ Unknown = throwError NoShape
+scaleImage' _ _ PDF = throwError (NoShape "scaleImage'")
+scaleImage' _ _ Unknown = throwError (NoShape "scaleImage'")
 scaleImage' scale bytes typ = do
     let decoder = case typ of
                     JPEG -> showCommandForUser "jpegtopnm" ["-"]
@@ -532,8 +536,8 @@ editImage' ::
     forall m shape. (Unexceptional m, HasImageShape shape)
     => ImageCrop -> BS.ByteString -> ImageType -> shape -> ExceptT FileError m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
-editImage' _ _ PDF _ = throwError NoShape
-editImage' _ _ Unknown _ = throwError NoShape
+editImage' _ _ PDF _ = throwError (NoShape "editImage'")
+editImage' _ _ Unknown _ = throwError (NoShape "editImage'")
 editImage' crop bs typ shape =
   logIOError' $
     case commands of
@@ -864,7 +868,7 @@ cacheImageShape ::
   -> m (ImageKey, Either FileError ImageFile)
 cacheImageShape _ (key, Nothing) = do
   unsafeFromIO $ alog "Appraisal.LaTeX" DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (miss)")
-  cachePut' key noShape
+  cachePut' key (noShape ("cacheImageShape " <> show key <> " :: " <> show (typeOf key)))
   (key,) <$> (runExceptT (buildImageShape key) >>= cachePut key . over _Right ImageFileShape)
 cacheImageShape flags (key, Just (Left _))
   | Set.member RetryErrors flags = do
@@ -904,8 +908,8 @@ foregroundBuilds pairs =
       (key,) <$> (cacheImageFile key shape)
     doImage key x = return (key, x)
 
-noShape :: Either FileError ImageFile
-noShape = Left NoShape
+noShape :: Text -> Either FileError ImageFile
+noShape = Left . NoShape
 
 #if 0
 -- | Insert an image build request into the channel that is being polled
@@ -1246,6 +1250,26 @@ instance Arbitrary Dimension where arbitrary = elements [minBound..maxBound]
 instance Arbitrary Units where arbitrary = elements [minBound..maxBound]
 instance Arbitrary Rotation where arbitrary = elements [ZeroHr, ThreeHr, SixHr, NineHr]
 
+#if 1
+test1 :: Test
+test1 =
+  TestCase (assertEqual "test1"
+              -- This is not the path to the file on disk, its what is used in the URI.
+              ("/image-path/image-scaled/image-size/the-area/15/1/inches/100/1/image-upright/c3bd1388b41fa5d956e4308ce518a8bd.png" :: Text
+            -- "/image-path/image-scaled/image-size/the-area/15/1/inches/100/1/image-upright/image-original/c3bd1388b41fa5d956e4308ce518a8bd/i.png" :: Text
+              )
+              (toPathInfo (_imageCachedKey file)))
+  where
+    file = ImageCached
+             {_imageCachedKey = ImageScaled
+                                  (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches})
+                                  (100 % 1)
+                                  (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)),
+              _imageCachedFile = ImageFileReady (ImageReady {_imageFile = File {_fileSource = Legacy, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"},
+                                            _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170, _imageFileOrientation = ZeroHr}})}
+
+#endif
+
 testKey :: ImageKey -> IO ()
 testKey key = do
   putStrLn (show key)
@@ -1270,7 +1294,7 @@ approx_prop :: Rational -> Bool
 approx_prop r = approx r == approx (approx r)
 
 quickTests = do
-  quickCheck (pathInfoInverse_prop :: ImageKey -> Bool)
+  quickCheck (withMaxSuccess 1000 (pathInfoInverse_prop :: ImageKey -> Bool))
   -- quickCheck (approx_prop :: Rational -> Bool)
 
 {-

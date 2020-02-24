@@ -65,9 +65,6 @@ module Data.FileCache.Common
   , FileSource(..)
   , Checksum
   , HasFileChecksum(fileChecksum)
-  -- , fileURI
-  -- , addMessage
-  , HasURIPath(toURIPath)
 
     -- * ImageFile, ImageReady
   , ImageFile(..)
@@ -94,7 +91,6 @@ module Data.FileCache.Common
 --  , logErrorCall
 
   , CacheMap(..)
-  , test1
   ) where
 
 import Control.Exception as E (Exception, ErrorCall)
@@ -130,7 +126,7 @@ import Test.HUnit (assertEqual, runTestTT, Test(TestCase))
 --import System.Log.Logger ( Priority(ERROR), logM )
 import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)-}
---import Text.Parsec.String as String (Parser)
+import Data.Text.Encoding ( encodeUtf8 )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Text.PrettyPrint.HughesPJClass ()
 import Text.Read ( readMaybe )
@@ -533,7 +529,7 @@ instance HasFileExtension ImageType where
   fileExtension GIF = ".gif"
   fileExtension PNG = ".png"
   fileExtension PDF = ".pdf"
-  fileExtension Unknown = ".???"
+  fileExtension Unknown = ".xxx"
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = Text
@@ -789,10 +785,11 @@ data FileError
       -- derive Eq we can't put a SomeException here, so its a string.
     | CommandFailure CommandError -- ^ A shell command failed
     | CacheDamage Text -- ^ The contents of the cache is wrong
-    | NoShape
+    | NoShape Text
       -- ^ Could not determine the dimensions of an image.  This comes
       -- from failed attempt to parse the output of the unix file(1)
-      -- command.
+      -- command, or attempts to scale or edit inappropriate file
+      -- types such as pdf.
     deriving (Eq, Ord, Generic)
 
 instance HasNonIOException FileError where
@@ -853,12 +850,10 @@ class HasImagePath a where imagePath :: a -> ImagePath
 instance HasImagePath ImagePath where imagePath = id
 instance HasImageKey ImagePath where imageKey (ImagePath x _) = imageKey x
 
-class HasURIPath a where
-  toURIPath :: Texty text => a -> text
-
-instance HasURIPath ImageKey where
-  toURIPath (ImageOriginal csum typ) = textyText (csum <> fileExtension typ)
-  toURIPath key = textyString (makeRelative "/" (unpack (toPathInfo key)))
+#if 0
+toURIPath :: (Texty a, PathInfo url) => url -> a
+toURIPath key = textyString (makeRelative "/" (unpack (toPathInfo key)))
+#endif
 
 -- * ImageCached
 
@@ -879,24 +874,6 @@ instance HasImageKey ImageCached where
 
 instance HasImagePath ImageCached where
   imagePath (ImageCached key img) = ImagePath key (imageType img)
-
-#if 1
-test1 :: Test
-test1 =
-  TestCase (assertEqual "test1"
-              -- This is not the path to the file on disk, its what is used in the URI.
-              ("/image-path/image-scaled/image-size/the-area/15/1/inches/100/1/image-upright/image-original/c3bd1388b41fa5d956e4308ce518a8bd/i.png" :: Text)
-              (toURIPath (_imageCachedKey file)))
-  where
-    file = ImageCached
-             {_imageCachedKey = ImageScaled
-                                  (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches})
-                                  (100 % 1)
-                                  (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)),
-              _imageCachedFile = ImageFileReady (ImageReady {_imageFile = File {_fileSource = Legacy, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"},
-                                            _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170, _imageFileOrientation = ZeroHr}})}
-
-#endif
 
 -- * CacheMap
 

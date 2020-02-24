@@ -1,6 +1,6 @@
 -- | Beginning of a parser for the output of file(1).
 
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
 {-# OPTIONS -Wall -Wredundant-constraints #-}
 
 module Data.FileCache.ImageType
@@ -16,11 +16,13 @@ import Data.ByteString.UTF8 (toString)
 import Data.FileCache.Common
   (FileError(ErrorCall, NoShape), fromFileError, HasFileError, HasImageShapeM(..),
    ImageShape(..), ImageType(..), Rotation(..))
+import Data.ListLike (show)
 import Data.Maybe(catMaybes, listToMaybe)
 import Data.String (fromString)
 import Data.Text (pack, Text)
 import Extra.ErrorControl (controlError, ErrorControl)
 import Extra.Except (Except, ExceptT, HasIOException(ioException), HasNonIOException(nonIOException), liftEither, throwError, withExceptT)
+import Prelude hiding (show)
 import System.Exit (ExitCode)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
 import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
@@ -73,6 +75,7 @@ fileInfoFromOutput path output =
     Left e ->
       return $ ImageShape {_imageShapeType = Unknown, _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
       -- throwError $ fromFileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
+    Right (PDF, []) -> return $ ImageShape PDF 0 0 ZeroHr
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of
@@ -80,7 +83,7 @@ fileInfoFromOutput path output =
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
         (Just (w, h), Nothing) ->
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}
-        _ -> throwError (fromFileError NoShape)
+        _ -> throwError (fromFileError (NoShape ("fileInfoFromOutput path=" <> show path <> " output=" <> show output)))
   where
     output' :: Text
     output' = pack (toString output)
@@ -131,15 +134,15 @@ pBy :: Parser ()
 pBy = spaces >> char 'x' >> spaces >> pure ()
 
 pJPEG :: Parser ImageType
-pJPEG = string "JPEG image data" >> pSep >> return JPEG
+pJPEG = Parsec.try (string "JPEG image data" >> pSep >> return JPEG)
 pPNG :: Parser ImageType
-pPNG = string "PNG image data" >> pSep >> return PNG
+pPNG = Parsec.try (string "PNG image data" >> pSep >> return PNG)
 pGIF :: Parser ImageType
-pGIF = string "GIF image data" >> pSep >> return GIF
+pGIF = Parsec.try (string "GIF image data" >> pSep >> return GIF)
 pPPM :: Parser ImageType
-pPPM = string "Netpbm P[BGPP]M \"rawbits\" image data$" >> pSep >> return PPM
+pPPM = Parsec.try (string "Netpbm P[BGPP]M \"rawbits\" image data$" >> pSep >> return PPM)
 pPDF :: Parser ImageType
-pPDF = string "PDF document, version " >> pSep >> return PDF
+pPDF = Parsec.try (string "PDF document" >> pSep >> return PDF)
 #if 0
 pICON = string "MS Windows icon resource" >> many anyChar >> return ???
 #endif
