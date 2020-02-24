@@ -83,7 +83,7 @@ import Data.FileCache.LogException (logException)
 import Data.FileCache.Types
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
-import Data.ListLike ( length )
+import Data.ListLike ( length, toString )
 import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
@@ -91,11 +91,12 @@ import Data.Proxy ( Proxy )
 import Data.Set as Set (member, Set)
 import Data.String (fromString)
 import Data.Text as T ( pack, Text, unpack )
-import Data.Text.Encoding ( decodeUtf8 )
+import Data.Text.Encoding ( decodeUtf8, encodeUtf8 )
 import Data.Word ( Word16, Word32 )
 import Extra.Except (lyftIO', lyftIO, HasIOException(..), HasNonIOException(..), MonadError, throwError, tryError)
 import Extra.Log ( alog )
 import Extra.Text hiding (tests)
+import GHC.Exts (fromString)
 import GHC.Int ( Int64 )
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
@@ -113,11 +114,13 @@ import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser
 import System.Process.ByteString.Lazy as LBS ( readCreateProcessWithExitCode )
 import System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcessWithExitCode, readCreateProcess )
 import Test.HUnit ( assertEqual, Test(..) )
+import Test.QuickCheck
 import Text.Parsec ( Parsec, (<|>), many, parse, char, digit, newline, noneOf, oneOf, satisfy, space, spaces, string, many1, optionMaybe )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), prettyShow, text )
 import UnexceptionalIO.Trans (Unexceptional)
 import UnexceptionalIO.Trans as UIO hiding (lift, ErrorCall)
-import Web.Routes (toPathInfo)
+import Web.Routes (fromPathInfo, PathInfo, toPathInfo)
+import Web.Routes.QuickCheck (pathInfoInverse_prop)
 
 -- * Orphan Instances
 
@@ -499,7 +502,7 @@ scaleImage' ::
   -> ExceptT FileError m (Maybe BS.ByteString)
 scaleImage' scale _ _ | approx (toRational scale) == 1 = return Nothing
 scaleImage' _ _ PDF = throwError NoShape
-scaleImage' _ _ (Unknown _) = throwError NoShape
+scaleImage' _ _ Unknown = throwError NoShape
 scaleImage' scale bytes typ = do
     let decoder = case typ of
                     JPEG -> showCommandForUser "jpegtopnm" ["-"]
@@ -507,7 +510,7 @@ scaleImage' scale bytes typ = do
                     GIF -> showCommandForUser "giftopnm" ["-"]
                     PNG -> showCommandForUser "pngtopnm" ["-"]
                     PDF -> error "scaleImge' - Unexpected file type"
-                    Unknown _ -> error "scaleImge' - Unexpected file type"
+                    Unknown -> error "scaleImge' - Unexpected file type"
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) scale ""]
         -- To save space, build a jpeg here rather than the original file type.
         encoder = case typ of
@@ -516,7 +519,7 @@ scaleImage' scale bytes typ = do
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
                     PDF -> error "scaleImge' - Unexpected file type"
-                    Unknown _ -> error "scaleImge' - Unexpected file type"
+                    Unknown -> error "scaleImge' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
 
@@ -530,7 +533,7 @@ editImage' ::
     => ImageCrop -> BS.ByteString -> ImageType -> shape -> ExceptT FileError m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' _ _ PDF _ = throwError NoShape
-editImage' _ _ (Unknown _) _ = throwError NoShape
+editImage' _ _ Unknown _ = throwError NoShape
 editImage' crop bs typ shape =
   logIOError' $
     case commands of
@@ -545,7 +548,7 @@ editImage' crop bs typ shape =
       latexImageFileType JPEG = JPEG
       latexImageFileType PNG = JPEG
       latexImageFileType PDF = error "editImage' - Unexpected file type"
-      latexImageFileType (Unknown _) = error "editImage' - Unexpected file type"
+      latexImageFileType Unknown = error "editImage' - Unexpected file type"
       cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
               (0, 0, 0, 0) -> Nothing
               (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
@@ -1206,7 +1209,7 @@ changes mp = \(key, file) -> (maybe key id (Map.lookup key changeMap), file)
     changeMap :: Map ImageKey ImageKey
     changeMap = fromList (fmap (\(key, img) -> (key, fixOriginalKey key img)) (toList mp))
     fixOriginalKey :: ImageKey -> (Either FileError ImageFile) -> ImageKey
-    fixOriginalKey (ImageOriginal csum (Unknown _)) (Right img) = ImageOriginal csum (imageType img)
+    fixOriginalKey (ImageOriginal csum Unknown) (Right img) = ImageOriginal csum (imageType img)
     fixOriginalKey key _img = key
 
 fixOriginalKeys ::
@@ -1214,3 +1217,67 @@ fixOriginalKeys ::
   -> [(ImageKey, Either FileError ImageFile)]
   -> [(ImageKey, Either FileError ImageFile)]
 fixOriginalKeys f pairs = fmap f pairs
+
+instance Arbitrary ImageKey where
+  arbitrary = {-scaled $ crop $ upright-} original
+    where
+      original :: Gen ImageKey
+      original = ImageOriginal <$> arbitrary <*> arbitrary
+      upright :: Gen ImageKey -> Gen ImageKey
+      upright i = oneof [i, ImageUpright <$> i]
+      crop :: Gen ImageKey -> Gen ImageKey
+      crop i = oneof [i, ImageCropped <$> arbitrary <*> i]
+      scaled :: Gen ImageKey -> Gen ImageKey
+      scaled i = oneof [i, ImageScaled
+                             <$> ((_unSaneSize . saneSize) <$> arbitrary)
+                             <*> ((approx . abs) <$> arbitrary)
+                             <*> i]
+
+instance Arbitrary ImageSize where
+  arbitrary = (ImageSize <$> arbitrary <*> ((approx . abs) <$> arbitrary) <*> arbitrary)
+
+instance Arbitrary ImageCrop where
+  arbitrary = ImageCrop <$> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> arbitrary
+
+instance Arbitrary ImageType where
+  arbitrary = oneof [pure PPM, pure JPEG, pure GIF, pure PNG, pure PDF, pure Unknown]
+
+instance Arbitrary Dimension where arbitrary = elements [minBound..maxBound]
+instance Arbitrary Units where arbitrary = elements [minBound..maxBound]
+instance Arbitrary Rotation where arbitrary = elements [ZeroHr, ThreeHr, SixHr, NineHr]
+
+testKey :: ImageKey -> IO ()
+testKey key = do
+  putStrLn (show key)
+  let path = toPathInfo key :: Text
+  putStrLn (unpack path)
+  case fromPathInfo (encodeUtf8 path) of
+    Left s -> putStrLn s
+    Right (key' :: ImageKey) -> do
+      putStrLn (show key')
+      putStrLn (unpack (toPathInfo key'))
+
+-- This fails because approx actually isn't idempotent.  I'm not 100%
+-- sure whether it should be or not.
+--
+-- > approx (1409154553389 % 1397579329319)
+-- 121 % 120
+-- > approx (121 % 120)
+-- 120 % 119
+-- > approx (120 % 119)
+-- 119 % 118
+approx_prop :: Rational -> Bool
+approx_prop r = approx r == approx (approx r)
+
+quickTests = do
+  quickCheck (pathInfoInverse_prop :: ImageKey -> Bool)
+  quickCheck (approx_prop :: Rational -> Bool)
+
+{-
+> toPathInfo (ImageScaled (ImageSize {_dim = TheWidth, _size = 1 % 4, _units = Inches}) (142 % 163) (ImageCropped (ImageCrop {topCrop = 0, bottomCrop = 0, leftCrop = 1, rightCrop = 1, rotation = SixHr}) (ImageUpright (ImageOriginal "" PNG))))
+"/image-scaled/image-size/the-width/1/4/inches/115/132/image-cropped/image-crop/0/0/1/1/six-hr/image-upright/image-original//i.png"
+toPathSegments (ImageScaled (ImageSize {_dim = TheWidth, _size = 1 % 4, _units = Inches}) (142 % 163) (ImageCropped (ImageCrop {topCrop = 0, bottomCrop = 0, leftCrop = 1, rightCrop = 1, rotation = SixHr}) (ImageUpright (ImageOriginal "" PNG))))
+["image-scaled","image-size","the-width","1","4","inches","115","132","image-cropped","image-crop","0","0","1","1","six-hr","image-upright","image-original","","i.png"]
+% fromPathInfo "/image-scaled/image-size/the-width/1/4/inches/115/132/image-cropped/image-crop/0/0/1/1/six-hr/image-upright/image-original//i.png" :: Either String ImageKey
+Right (ImageScaled (ImageSize {_dim = TheWidth, _size = 1 % 4, _units = Inches}) (115 % 132) (ImageCropped (ImageCrop {topCrop = 0, bottomCrop = 0, leftCrop = 1, rightCrop = 1, rotation = SixHr}) (ImageUpright (ImageOriginal "" PNG))))
+-}

@@ -505,7 +505,7 @@ cropImageShape (ImageCrop{..}) shape =
 -- * ImageType and Checksum
 
 data ImageType_0 = PPM_0 | JPEG_0 | GIF_0 | PNG_0 | Unknown_0 deriving (Generic, Eq, Ord)
-data ImageType = PPM | JPEG | GIF | PNG | PDF | Unknown Text deriving (Generic, Eq, Ord)
+data ImageType = PPM | JPEG | GIF | PNG | PDF | Unknown deriving (Generic, Eq, Ord)
 
 deriving instance Data ImageType
 deriving instance Read ImageType
@@ -522,7 +522,7 @@ instance Migrate ImageType where
                   JPEG_0 -> JPEG
                   GIF_0 -> GIF
                   PNG_0 -> PNG
-                  Unknown_0 -> Unknown ""
+                  Unknown_0 -> Unknown
 
 type Extension = Text
 
@@ -537,7 +537,7 @@ instance HasFileExtension ImageType where
   fileExtension GIF = ".gif"
   fileExtension PNG = ".png"
   fileExtension PDF = ".pdf"
-  fileExtension (Unknown _) = ".???"
+  fileExtension Unknown = ".???"
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = Text
@@ -983,21 +983,14 @@ $(concat <$>
   ])
 
 instance PathInfo ImageType where
-  toPathSegments inp =
-    case inp of
-      PPM -> [pack "i.ppm"]
-      JPEG -> [pack "i.jpg"]
-      GIF -> [pack "i.gif"]
-      PNG -> [pack "i.png"]
-      PDF -> [pack "i.pdf"]
-      Unknown _ -> [pack "i.???"]
+  toPathSegments inp = ["i" <> fileExtension inp]
   fromPathSegments =
-    (segment (pack "i.ppm") >> return PPM) <|>
-    (segment (pack "i.jpg") >> return JPEG) <|>
-    (segment (pack "i.gif") >> return GIF) <|>
-    (segment (pack "i.png") >> return PNG) <|>
-    (segment (pack "i.pdf") >> return PDF) <|>
-    (segment (pack "i.???") >> return (Unknown ""))
+    (segment ("i" <> fileExtension PPM) >> return PPM) <|>
+    (segment ("i" <> fileExtension JPEG) >> return JPEG) <|>
+    (segment ("i" <> fileExtension GIF) >> return GIF) <|>
+    (segment ("i" <> fileExtension PNG) >> return PNG) <|>
+    (segment ("i" <> fileExtension PDF) >> return PDF) <|>
+    (segment ("i" <> fileExtension Unknown) >> return Unknown)
 
 {-
 λ> toPathInfo (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG)

@@ -71,7 +71,7 @@ fileInfoFromOutput ::
 fileInfoFromOutput path output =
   case parse pFileOutput path output' of
     Left e ->
-      return $ ImageShape {_imageShapeType = Unknown output', _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
+      return $ ImageShape {_imageShapeType = Unknown, _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
       -- throwError $ fromFileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
@@ -95,7 +95,7 @@ data ImageAttribute = Shape (Int, Int) | Orientation Rotation deriving Show
 
 pFileOutput :: Parser (ImageType, [ImageAttribute])
 pFileOutput =
-  (,) <$> choice [pPPM, pJPEG, pPNG, pGIF]
+  (,) <$> choice [pPPM, pJPEG, pPNG, pGIF, pPDF]
       <*> (catMaybes <$> (sepBy (Parsec.try pShape <|> pOrientation <|> pNotAShape) pSep))
 
 pSep :: Parser ()
@@ -138,6 +138,8 @@ pGIF :: Parser ImageType
 pGIF = string "GIF image data" >> pSep >> return GIF
 pPPM :: Parser ImageType
 pPPM = string "Netpbm P[BGPP]M \"rawbits\" image data$" >> pSep >> return PPM
+pPDF :: Parser ImageType
+pPDF = string "PDF document, version " >> pSep >> return PDF
 #if 0
 pICON = string "MS Windows icon resource" >> many anyChar >> return ???
 #endif
