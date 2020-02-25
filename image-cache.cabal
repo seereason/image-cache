@@ -70,7 +70,6 @@ Library
     Build-Depends:
       acid-state,
       filemanip-extra,
-      happstack-server,
       ListLike,
       process >= 1.4.3,
       process-extras >= 0.7,

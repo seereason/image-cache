@@ -11,7 +11,9 @@
 #if __GHCJS__
 #define HAVE_HAPPSTACK 0
 #else
-#define HAVE_HAPPSTACK 1
+-- #define HAVE_HAPPSTACK 1
+-- I can't seem to build this package with the happstack-server dependency
+#define HAVE_HAPPSTACK 0
 #endif
 #endif
 
