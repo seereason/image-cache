@@ -699,6 +699,13 @@ data ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
     deriving (Generic, Eq, Ord)
 
+instance HasImageType ImageKey where
+  imageType = it . originalKey
+    where it :: ImageKey -> ImageType
+          it (ImageOriginal _ t) = t
+          --  DSF FIXME what error should I throw?
+          it _ = error "HasIMageType was given an ImageKey without an original key."
+
 -- When this is removed the 'setImageFileTypes' function should also
 -- be removed.
 data ImageKey_2
