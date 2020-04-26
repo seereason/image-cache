@@ -703,6 +703,9 @@ instance HasImageType ImageKey where
   imageType = it . originalKey
     where it :: ImageKey -> ImageType
           it (ImageOriginal _ t) = t
+          it (ImageCropped _ t) = it t
+          it (ImageScaled _ _ t) = it t
+          it (ImageUpright t) = it t
           --  DSF FIXME what error should I throw?
           it _ = error "HasIMageType was given an ImageKey without an original key."
 
