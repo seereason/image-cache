@@ -102,6 +102,7 @@ import Extra.Log ( alog )
 import Extra.Text hiding (tests)
 import GHC.Exts (fromString)
 import GHC.Int ( Int64 )
+import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( fromRat, showFFloat )
@@ -155,7 +156,7 @@ readCreateProcessWithExitCode' p s =
     $logException ERROR (LL.readCreateProcessWithExitCode p s)
 
 pipeline ::
-  forall m. Unexceptional m
+  forall m. (Unexceptional m, HasCallStack)
   => [CreateProcess]
   -> BS.ByteString
   -> ExceptT FileError m BS.ByteString
@@ -754,8 +755,8 @@ cacheOriginalImages =
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
 cacheOriginalImage ::
-  forall x e r m. (MakeByteString x, Unexceptional m, Exception e, MonadError e m,
-                   HasIOException e, HasNonIOException e, MonadReader r m, HasFileCacheTop r, HasImageAcid r)
+  forall x e r m. (MakeByteString x, Unexceptional m, Exception e, MonadError e m, HasIOException e,
+                   HasNonIOException e, MonadReader r m, HasFileCacheTop r, HasImageAcid r, HasCallStack)
   => Maybe FileSource
   -> x
   -> ExceptT FileError m (ImageKey, ImageFile)
@@ -800,7 +801,7 @@ instance HasImageBuilder (a, b, ImageChan) where imageBuilder = Just . view _3
 -- | This is just a wrapper around cacheDerivedImagesForeground.
 getImageFile ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
-                 MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
+                 MonadReader r m, HasCacheAcid r, HasFileCacheTop r, HasCallStack)
   => ImageKey
   -> m (Either FileError ImageFile)
 getImageFile key = do
@@ -861,7 +862,7 @@ cacheLookImages keys = mapM (\key -> (key,) <$> cacheLook key) keys
 
 -- | Compute the shapes of requested images
 cacheImageShape ::
-  (Unexceptional m, Exception e, MonadReader r m,
+  (Unexceptional m, Exception e, MonadReader r m, HasCallStack,
    HasIOException e, HasNonIOException e, MonadError e m, HasCacheAcid r)
   => Set CacheFlag
   -> (ImageKey, Maybe (Either FileError ImageFile))
@@ -916,7 +917,7 @@ noShape = Left . NoShape
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
   (Unexceptional m, Exception e, HasFileError e, HasIOException e, HasNonIOException e,
-   MonadReader r m, HasImageBuilder r, HasFileCacheTop r)
+   MonadReader r m, HasImageBuilder r, HasFileCacheTop r, HasCallStack)
   => [(ImageKey, ImageShape)]
   -> ExceptT e m ()
 queueImageBuild pairs = do
@@ -932,7 +933,7 @@ queueImageBuild pairs = do
 -- image file.
 startImageBuilder ::
   forall r e m. (Unexceptional m, Exception e, HasIOException e, HasNonIOException e,
-                 MonadError e m, MonadReader r m, HasImageAcid r, HasFileCacheTop r)
+                 MonadError e m, MonadReader r m, HasImageAcid r, HasFileCacheTop r, HasCallStack)
   => m (ImageChan, ThreadId)
 startImageBuilder = do
   r <- ask
@@ -1007,7 +1008,7 @@ uprightImageShape shape@(ImageShape {_imageFileOrientation = rot}) =
 
 buildImageFile ::
   forall e r m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
-                 MonadReader r m, HasImageAcid r, HasFileCacheTop r)
+                 MonadReader r m, HasImageAcid r, HasFileCacheTop r, HasCallStack)
   => ImageKey -> ImageShape -> ExceptT FileError m ImageFile
 buildImageFile key shape = do
   (key', bs) <- buildImageBytes Nothing key -- key' may differ from key due to removal of no-ops
@@ -1073,7 +1074,7 @@ buildImageBytes source key@(ImageCropped crop key') = do
 -- its checksum.
 buildImageBytesFromFile ::
   (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
-   MonadReader r m, HasImageAcid r, HasFileCacheTop r)
+   MonadReader r m, HasImageAcid r, HasFileCacheTop r, HasCallStack)
   => Maybe FileSource -> ImageKey -> Text -> ImageType -> ExceptT FileError m BS.ByteString
 buildImageBytesFromFile source key csum typ = do
   -- If we get a cache miss for an ImageOriginal key something
@@ -1110,7 +1111,7 @@ lookImageBytes a = fileCachePath a >>= lyftIO' . BS.readFile
 -- now?  Be careful not to get into a loop doing this.
 rebuildImageBytes ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
-                 MonadReader r m, HasImageAcid r, HasFileCacheTop r)
+                 MonadReader r m, HasImageAcid r, HasFileCacheTop r, HasCallStack)
   => Maybe FileSource -> Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
 rebuildImageBytes _ False _key _typ e = throwError e
 rebuildImageBytes source True key typ e@(CacheDamage _) = do
