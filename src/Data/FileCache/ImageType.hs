@@ -8,27 +8,27 @@ module Data.FileCache.ImageType
   , fileInfoFromPath
   ) where
 
-import Control.Exception (IOException)
-import Control.Monad.Catch as Catch (Exception, MonadCatch, try)
+--import Control.Exception (IOException)
+import Control.Monad.Catch as Catch (Exception)
 import Control.Lens (_2, preview, review, view)
 import Data.ByteString as BS (ByteString)
 import Data.ByteString.UTF8 (toString)
 import Data.FileCache.Common
-  (FileError(ErrorCall, NoShape), fromFileError, HasFileError, HasImageShapeM(..),
+  (FileError(NoShape), fromFileError, HasFileError, HasImageShapeM(..),
    ImageShape(..), ImageType(..), Rotation(..))
 import Data.ListLike (show)
 import Data.Maybe(catMaybes, listToMaybe)
-import Data.String (fromString)
+--import Data.String (fromString)
 import Data.Text (pack, Text)
-import Extra.ErrorControl (controlError, ErrorControl)
-import Extra.Except (Except, ExceptT, HasIOException(ioException), HasNonIOException(nonIOException), liftEither, throwError, withExceptT)
+import Extra.ErrorControl (controlError)
+import Extra.Except (ExceptT, HasIOException(ioException), HasNonIOException, throwError)
 import Prelude hiding (show)
 import System.Exit (ExitCode)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
 import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)
 import Text.Parsec.Text (Parser)
-import UnexceptionalIO.Trans (fromIO, fromIO', SomeNonPseudoException, Unexceptional)
+import UnexceptionalIO.Trans (fromIO, SomeNonPseudoException, Unexceptional)
 
 instance Unexceptional m => HasImageShapeM (ExceptT FileError m) BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)

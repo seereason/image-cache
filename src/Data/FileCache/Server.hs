@@ -85,7 +85,7 @@ import Data.FileCache.LogException (logException)
 import Data.FileCache.Types
 import Data.Generics.Product ( field )
 import Data.List ( intercalate )
-import Data.ListLike ( length, show, toString )
+import Data.ListLike ( length, show )
 import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
@@ -93,14 +93,12 @@ import Data.Proxy ( Proxy )
 import Data.Ratio ((%))
 import Data.Set as Set (member, Set)
 import Data.String (fromString)
-import Data.Text as T ( cons, pack, Text, unpack )
+import Data.Text as T ( pack, Text, unpack )
 import Data.Text.Encoding ( decodeUtf8, encodeUtf8 )
 import Data.Typeable (typeOf)
 import Data.Word ( Word16, Word32 )
 import Extra.Except (lyftIO', lyftIO, HasIOException(..), HasNonIOException(..), MonadError, throwError, tryError)
 import Extra.Log ( alog )
-import Extra.Text hiding (tests)
-import GHC.Exts (fromString)
 import GHC.Int ( Int64 )
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
@@ -124,7 +122,7 @@ import Text.Parsec ( Parsec, (<|>), many, parse, char, digit, newline, noneOf, o
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), prettyShow, text )
 import UnexceptionalIO.Trans (Unexceptional)
 import UnexceptionalIO.Trans as UIO hiding (lift, ErrorCall)
-import Web.Routes (fromPathInfo, PathInfo, toPathInfo)
+import Web.Routes (fromPathInfo, toPathInfo)
 import Web.Routes.QuickCheck (pathInfoInverse_prop)
 
 -- * Orphan Instances
@@ -401,20 +399,20 @@ deriving instance Show Pnmfile
 
 -- | Check whether the outputs of extractbb is valid by comparing it
 -- to the output of pnmfile.
-validateJPG :: FilePath -> IO (Either String (Integer, Integer))
+validateJPG :: FilePath -> IO (Either FileError (Integer, Integer))
 validateJPG path = do
   (_code, bs, _) <- LL.readCreateProcess (proc "jpegtopnm" [path]) mempty :: IO (ExitCode, BS.ByteString, BS.ByteString)
   (_code, s1', _) <- LL.readCreateProcess (proc "pnmfile" []) bs :: IO (ExitCode, BS.ByteString, BS.ByteString)
   let s1 = decodeUtf8 s1'
   case parse parsePnmfileOutput path s1 of
-    Left e -> return (Left ("Error parsing " ++ show s1 ++ ": " ++ show e))
+    Left _e -> return (Left (UnexpectedPnmfileOutput s1))
     Right (Pnmfile _ _ (w, h, _)) -> do
       (_code, s2, _) <- LL.readCreateProcess (proc "extractbb" ["-O", path]) ("" :: Text) :: IO (ExitCode, Text, Text)
       case parse parseExtractBBOutput path s2 of
-        Left e -> return (Left ("Error parsing " ++ show s2 ++ ": " ++ show e))
+        Left _e -> return (Left (ExtractBBFailed path s2))
         Right (ExtractBB (l, t, r, b) _) ->
           if l /= 0 || t /= 0 || r < 1 || b < 1 || r > 1000000 || b > 1000000
-          then return (Left (path ++ ": image data error\n\npnmfile ->\n" ++ show s1 ++ "\nextractbb ->\n" ++ show s2))
+          then return (Left (InvalidBoundingBox path s1 s2))
           else return (Right (w, h))
 
 -- | Parse the output of the pnmfile command (based on examination of
@@ -810,7 +808,7 @@ getImageFile key = do
   where
     missingKey = do
       unsafeFromIO $ alog WARNING ("getImageFile missingKey: " ++ show key)
-      return (Left (CacheDamage $ "cacheDerivedImagesForeground failed for " <> textshow key))
+      return (Left (MissingDerivedEntry key))
 
 getImageFiles ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
@@ -875,9 +873,10 @@ cacheImageShape flags (key, Just (Left _))
   | Set.member RetryErrors flags = do
       unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (retry)")
       (key,) <$> (runExceptT (buildImageShape key) >>= cachePut key . over _Right ImageFileShape)
-cacheImageShape _ (key, Just (Left e)) = do
-  unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (error)")
-  return (key, Left e)
+cacheImageShape flag (key, Just (Left e)) = do
+  unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
+  cacheImageShape flag (key, Nothing)
+  -- return (key, Left e)
 cacheImageShape _ (key, Just (Right (ImageFileShape shape))) = do
   unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
@@ -965,16 +964,6 @@ cacheImageFile key shape = do
   -- that occur in cachePut are returned.  Actually that's not right.
   either Left id <$> runExceptT (evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key))
 
-cacheImageFile' ::
-  (HasIOException e, HasNonIOException e, Unexceptional m, Exception e,
-   MonadError e m, HasFileCacheTop r, HasCacheAcid r, MonadReader r m)
-  => ImageKey -> ImageShape -> m (Either FileError ImageFile)
-cacheImageFile' key shape = do
-  r <- ask
-  -- Errors that occur in buildImageFile are stored in the cache, errors
-  -- that occur in cachePut are returned.  Actually that's not right.
-  evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key)
-
 -- | These are meant to be inexpensive operations that determine the
 -- shape of the desired image, with the actual work of building them
 -- deferred and forked into the background.  Are they actually
@@ -986,7 +975,7 @@ buildImageShape ::
   => ImageKey -> ExceptT FileError m ImageShape
 buildImageShape key@(ImageOriginal _csum _typ) =
   lift (cacheLook key) >>=
-  maybe (throwError (CacheDamage $ ("Original image not in cache: key=" <> pack (show key))))
+  maybe (throwError (MissingOriginalEntry key))
         (either throwError
                 (\case ImageFileReady img -> return (_imageShape img)
                        ImageFileShape s -> return s))
@@ -1050,7 +1039,7 @@ buildImageBytes ::
 buildImageBytes source key@(ImageOriginal csum typ) =
   lift (cacheLook key) >>=
   maybe ((key,) <$> buildImageBytesFromFile source key csum typ)
-        (\img -> (key,) <$> either (rebuildImageBytes source False key typ)
+        (\img -> (key,) <$> either (rebuildImageBytes source key typ)
                                    (lookImageBytes . ImageCached key) img)
 buildImageBytes source key@(ImageUpright key') = do
   (key'', bs) <- buildImageBytes source key'
@@ -1083,7 +1072,7 @@ buildImageBytesFromFile source key csum typ = do
   exists <- lyftIO' (doesFileExist path)
   case exists of
     False -> do
-      let e = CacheDamage ("buildImageBytes - missing original: " <> T.pack (show key <> " -> " <> path))
+      let e = MissingOriginalFile key path
       lift (cachePut' key (Left e :: Either FileError ImageFile))
       throwError e
     True -> do
@@ -1091,7 +1080,7 @@ buildImageBytesFromFile source key csum typ = do
       let csum' = T.pack $ show $ md5 $ fromStrict bs
       case csum' == csum of
         False -> do
-          let e = CacheDamage ("buildImageBytes - original damaged: " <> T.pack (show key <> " -> " <> path))
+          let e = DamagedOriginalFile key path
           unsafeFromIO (alog ERROR ("Checksum mismatch - " <> show e))
           lift (cachePut' key (Left e :: Either FileError ImageFile))
           throwError e
@@ -1112,9 +1101,8 @@ lookImageBytes a = fileCachePath a >>= lyftIO' . BS.readFile
 rebuildImageBytes ::
   forall r e m. (Unexceptional m, Exception e, MonadError e m, HasIOException e, HasNonIOException e,
                  MonadReader r m, HasImageAcid r, HasFileCacheTop r, HasCallStack)
-  => Maybe FileSource -> Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
-rebuildImageBytes _ False _key _typ e = throwError e
-rebuildImageBytes source True key typ e@(CacheDamage _) = do
+  => Maybe FileSource -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
+rebuildImageBytes source key typ e | retry e = do
   unsafeFromIO (alog ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
   path <- fileCachePath (ImagePath key typ)
   -- This and other operations like it may throw an
@@ -1122,7 +1110,12 @@ rebuildImageBytes source True key typ e@(CacheDamage _) = do
   bs <- lyftIO' (BS.readFile path)
   _cached <- cacheOriginalImage source bs
   return bs
-rebuildImageBytes _ True key _typ e = do
+    where
+      retry (MissingOriginalEntry _) = True -- transient I think
+      retry CacheDamageMigrated = True -- obsolete error type is obsolete
+      retry (MissingDerivedEntry _) = False -- troubling if this happens
+      retry _ = False
+rebuildImageBytes _ key _typ e = do
   unsafeFromIO (alog INFO ("Not retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
   throwError e
 
@@ -1133,9 +1126,8 @@ validateImageKey ::
   => ImageKey -> m ()
 validateImageKey key = do
   cacheLook key >>=
-    maybe (throwError (CacheDamage ("validateImageKey - missing: " <> pack (show key))))
-          (either (\e -> (throwError (CacheDamage ("validateImageKey - image " <> pack (show key) <> " got error from cacheLook: " <> pack (show e)))))
-                  (validateImageFile key))
+    maybe (throwError (MissingDerivedEntry key))
+          (either throwError (validateImageFile key))
 
 validateImageFile ::
   forall r m. (Unexceptional m, MonadError FileError m, MonadReader r m, HasFileCacheTop r)
@@ -1144,9 +1136,7 @@ validateImageFile _key (ImageFileShape _) = return ()
 validateImageFile key (ImageFileReady i@(ImageReady {..})) = do
   path <- fileCachePath (ImagePath key (imageType i))
   when (imageType i == JPEG)
-    (lyftIO (validateJPG path) >>=
-     either (\e -> throwError (CacheDamage ("image " <> pack (show (fileChecksum _imageFile)) <> " not a valid jpeg: " <> pack (show e))))
-            (\_ -> return ()))
+    (lyftIO (validateJPG path) >>= either throwError (\_ -> return ()))
   runExceptT (lyftIO (BS.readFile path)) >>= checkFile _imageFile path
   where
     checkFile :: File -> FilePath -> Either FileError BS.ByteString -> m ()

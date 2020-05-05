@@ -114,7 +114,7 @@ import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable )
 --import Extra.Errors (follow, Member, OneOf)
 import Extra.Except (ap, HasErrorCall(..), HasIOException(..), HasNonIOException(..))
-import Extra.Text (Texty(..))
+--import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
 --import Language.Haskell.TH ( Loc(..) )
 import Language.Haskell.TH.Instances ()
@@ -123,17 +123,17 @@ import Language.Haskell.TH.Lift as TH ( Lift )
 --import Network.URI ( URI(..), parseRelativeReference, parseURI )
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
 import Prelude hiding (span)
-import System.FilePath ( makeRelative )
-import Test.HUnit (assertEqual, runTestTT, Test(TestCase))
+--import System.FilePath ( makeRelative )
+--import Test.HUnit (assertEqual, runTestTT, Test(TestCase))
 --import System.Log.Logger ( Priority(ERROR), logM )
 import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)-}
-import Data.Text.Encoding ( encodeUtf8 )
+--import Data.Text.Encoding ( encodeUtf8 )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Text.PrettyPrint.HughesPJClass ()
 import Text.Read ( readMaybe )
 import UnexceptionalIO.Trans (SomeNonPseudoException)
-import Web.Routes ( PathInfo(..), segment, toPathInfo )
+import Web.Routes ( PathInfo(..), segment{-, toPathInfo-} )
 import Web.Routes.TH ( derivePathInfo )
 
 #if HAVE_HAPPSTACK
@@ -333,17 +333,8 @@ data ImageShape
       , _imageFileOrientation :: Rotation
       } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
-instance Migrate ImageShape where
-  type MigrateFrom ImageShape = ImageShape_0
-  -- We need to go through and repair the _imageFileOrientation field
-  -- after this migration occurs, probably in SetImageFileTypes.
-  migrate (ImageShape_0 typ w h) = ImageShape typ w h ZeroHr
-
-data ImageShape_0 = ImageShape_0 ImageType Int Int deriving Generic
-
 instance Serialize ImageShape where get = safeGet; put = safePut
 instance SafeCopy ImageShape where version = 1; kind = extension
-instance SafeCopy ImageShape_0
 
 instance Pretty ImageShape where
   pPrint (ImageShape typ w h rot) =
@@ -443,27 +434,8 @@ data ImageCrop
 
 data Rotation = ZeroHr | ThreeHr | SixHr | NineHr deriving (Generic, Eq, Ord, Show, Read, Data, Typeable)
 
-data ImageCrop_0
-    = ImageCrop_0
-      { topCrop_0 :: Int
-      , bottomCrop_0 :: Int
-      , leftCrop_0 :: Int
-      , rightCrop_0 :: Int
-      , rotation_0 :: Int         -- 0, 90, 180, 270
-      } deriving (Generic, Eq, Ord)
-
-instance Migrate ImageCrop where
-  type MigrateFrom ImageCrop = ImageCrop_0
-  migrate (ImageCrop_0 t b l r rot) =
-    ImageCrop t b l r (case rot of
-                         90 -> ThreeHr
-                         180 -> SixHr
-                         270 -> NineHr
-                         _ -> ZeroHr)
-
 instance Default ImageCrop where def = ImageCrop 0 0 0 0 ZeroHr
 instance Serialize ImageCrop where get = safeGet; put = safePut
-instance SafeCopy ImageCrop_0 where version = 0
 instance SafeCopy ImageCrop where kind = extension; version = 1
 deriving instance Data ImageCrop
 deriving instance Read ImageCrop
@@ -498,7 +470,6 @@ cropImageShape (ImageCrop{..}) shape =
 
 -- * ImageType and Checksum
 
-data ImageType_0 = PPM_0 | JPEG_0 | GIF_0 | PNG_0 | Unknown_0 deriving (Generic, Eq, Ord)
 data ImageType = PPM | JPEG | GIF | PNG | PDF | Unknown deriving (Generic, Eq, Ord)
 
 deriving instance Data ImageType
@@ -506,17 +477,8 @@ deriving instance Read ImageType
 deriving instance Show ImageType
 deriving instance Typeable ImageType
 instance Serialize ImageType where get = safeGet; put = safePut
-instance SafeCopy ImageType_0 where version = 0
 instance SafeCopy ImageType where version = 1; kind = extension
 instance Pretty ImageType where pPrint = text . show
-
-instance Migrate ImageType where
-  type MigrateFrom ImageType = ImageType_0
-  migrate = \case PPM_0 -> PPM
-                  JPEG_0 -> JPEG
-                  GIF_0 -> GIF
-                  PNG_0 -> PNG
-                  Unknown_0 -> Unknown
 
 type Extension = Text
 
@@ -548,25 +510,11 @@ data File
            , _fileExt :: Extension               -- ^ Name is formed by appending this to checksum
            } deriving (Generic, Eq, Ord)
 
-instance Migrate File where
-  type MigrateFrom File = File_2
-  migrate (File_2 src cksum msgs ext) =
-    File {_fileSource = fromMaybe Legacy src, _fileChksum = pack cksum, _fileMessages = msgs, _fileExt = pack ext}
-
--- |A local cache of a file obtained from a 'FileSource'.
-data File_2
-    = File_2 { _fileSource_2 :: Maybe FileSource
-             , _fileChksum_2 :: String
-             , _fileMessages_2 :: [String]
-             , _fileExt_2 :: String
-             } deriving (Generic, Eq, Ord)
-
 instance HasFileChecksum File where fileChecksum = _fileChksum
 instance HasFileExtension File where fileExtension = _fileExt
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File " <> take 7 (unpack cksum) <> unpack ext)
-instance SafeCopy File_2 where version = 2
 instance SafeCopy File where version = 3; kind = extension
 instance Serialize File where get = safeGet; put = safePut
 deriving instance Show File
@@ -628,10 +576,6 @@ instance HasFileExtension ImageReady where
 instance HasFileExtension ImageShape where
   fileExtension = fileExtension . _imageShapeType
 
-instance Migrate ImageFile where
-  type MigrateFrom ImageFile = ImageFile_2
-  migrate (ImageFile_2 f s) = ImageFileReady (ImageReady f s)
-
 instance Serialize ImageFile where get = safeGet; put = safePut
 instance Serialize ImageReady where get = safeGet; put = safePut
 
@@ -647,31 +591,6 @@ instance HasImageType ImageReady where
   imageType = imageType . _imageShape
 
 -- * ImageFile
-
--- | A file containing an image plus meta info.
-data ImageFile_2
-    = ImageFile_2
-      { _imageFile_2 :: File
-      , _imageFileShape_2 :: ImageShape
-      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
-
-instance SafeCopy ImageFile_2 where kind = extension; version = 2
-
--- 1 Nov 2019
-instance Migrate ImageFile_2 where
-  type MigrateFrom ImageFile_2 = ImageFile_1
-  migrate (ImageFile_1 f t w h _) = ImageFile_2 f (migrate (ImageShape_0 t w h))
-
-data ImageFile_1
-    = ImageFile_1
-      { _imageFile_1 :: File
-      , _imageFileType_1 :: ImageType
-      , _imageFileWidth_1 :: Int
-      , _imageFileHeight_1 :: Int
-      , _imageFileMaxVal_1 :: Int
-      } deriving (Generic, Eq, Ord)
-
-instance SafeCopy ImageFile_1 where version = 1
 
 instance View (Maybe ImageFile) where
   type ViewType (Maybe ImageFile) = String
@@ -699,32 +618,11 @@ data ImageKey
     -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
     deriving (Generic, Eq, Ord)
 
-instance HasImageType ImageKey where
-  imageType = it . originalKey
-    where it :: ImageKey -> ImageType
-          it (ImageOriginal _ t) = t
-          it (ImageCropped _ t) = it t
-          it (ImageScaled _ _ t) = it t
-          it (ImageUpright t) = it t
-          --  DSF FIXME what error should I throw?
-          it _ = error "HasIMageType was given an ImageKey without an original key."
-
--- When this is removed the 'setImageFileTypes' function should also
--- be removed.
-data ImageKey_2
-    = ImageOriginal_2 ImageFile
-    | ImageCropped_2 ImageCrop ImageKey_2
-    | ImageScaled_2 ImageSize Rational ImageKey_2
-    | ImageUpright_2 ImageKey_2
-    deriving (Generic, Eq, Ord)
-
 deriving instance Data ImageKey
 deriving instance Read ImageKey
 deriving instance Show ImageKey
 deriving instance Typeable ImageKey
 instance Serialize ImageKey where get = safeGet; put = safePut
-instance SafeCopy ImageKey_2 where version = 2
--- instance SafeCopy ImageKey_3 where kind = extension; version = 3
 -- This is not an extension of ImageKey_2, it is a new type
 -- created by the migration of ImageCache.
 instance SafeCopy ImageKey where version = 4
@@ -796,7 +694,17 @@ data FileError
       -- ^ Something unanticipated, not an IOException.  Because we
       -- derive Eq we can't put a SomeException here, so its a string.
     | CommandFailure CommandError -- ^ A shell command failed
-    | CacheDamage Text -- ^ The contents of the cache is wrong
+    | CacheDamageMigrated -- ^ A CacheDamage value was migrated
+    | MissingOriginalEntry ImageKey -- ^ An original image is missing from the cache
+    | MissingOriginalFile ImageKey FilePath -- ^ An original image file is missing
+    | MissingDerivedEntry ImageKey -- ^ cacheDerivedImagesForeground returned a map without this key
+    | DamagedOriginalFile ImageKey FilePath -- ^ An original image had a bad checksum
+    | ImageBuildFailure ImageKey -- ^ Some command in the image build failed
+    | InvalidJPEG ImageReady
+    | ExtractBBFailed FilePath Text
+    | InvalidBoundingBox FilePath Text Text
+    | UnexpectedPnmfileOutput Text
+    -- | CacheDamageUnknownOriginal ImageKey
     | NoShape Text
       -- ^ Could not determine the dimensions of an image.  This comes
       -- from failed attempt to parse the output of the unix file(1)
@@ -813,24 +721,8 @@ instance HasNonIOException FileError where
 -- Dubious instance, but omitting makes other things more dubious.
 instance IsString FileError where fromString = FromString
 
-instance Migrate FileError where
-  type MigrateFrom FileError = FileError_1
-  migrate (IOException_1 _) = error "unexpected FileError migration"
-  migrate (ErrorCall_1 _) = error "unexpected FileError migration"
-  migrate (CommandFailure_1 info) = CommandFailure info
-  migrate CacheDamage_1 = CacheDamage ""
-
-data FileError_1
-    = IOException_1 Text
-    | ErrorCall_1 Text
-    | CommandFailure_1 CommandError
-    | CacheDamage_1
-    deriving (Eq, Ord, Generic)
-
 instance Exception FileError
-instance SafeCopy FileError_1 where version = 1
-instance SafeCopy FileError where version = 2; kind = extension
-
+instance SafeCopy FileError where version = 3; kind = extension
 instance Serialize FileError where get = safeGet; put = safePut
 
 --deriving instance Data FileError
@@ -901,48 +793,7 @@ instance SafeCopy CacheMap where
   kind = extension
   errorTypeName _ = "Data.FileCache.Types.CacheMap"
 
-instance Migrate CacheMap where
-  type MigrateFrom CacheMap = CacheMap_2 ImageKey_2 ImageFile
-  -- This is delicate - know before you edit!
-  migrate (CacheMap_2 mp) =
-    CacheMap (fromList $ fmap migratePair $ toList mp)
-    where
-      migratePair :: (ImageKey_2, CacheValue_1 ImageFile) -> (ImageKey, Either FileError ImageFile)
-      migratePair (key, Value_1 img) = (migrateKey img key, Right img)
-      migratePair (_, Failed_1 _) = error "unexpected"
-      migratePair (_, InProgress_1) = error "unexpected"
-      migrateKey :: ImageFile -> ImageKey_2 -> ImageKey
-      migrateKey (ImageFileReady img) (ImageOriginal_2 _) =
-        ImageOriginal (_fileChksum (_imageFile img)) (imageType img)
-      migrateKey (ImageFileReady img) (ImageCropped_2 crop key) = ImageCropped crop (migrateKey (ImageFileReady img) key)
-      migrateKey (ImageFileReady img) (ImageScaled_2 sz dpi key) = ImageScaled sz dpi (migrateKey (ImageFileReady img) key)
-      migrateKey (ImageFileReady img) (ImageUpright_2 key) = ImageUpright (migrateKey (ImageFileReady img) key)
-      migrateKey _ _ = error "Unexpected value during migration"
-
-data CacheMap_2 key val =
-    CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
-    deriving (Generic, Eq, Ord)
-
-instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
-  version = 2
-  kind = extension
-  errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
-
 deriving instance Show CacheMap
-
-instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
-    type MigrateFrom (CacheMap_2 key val) = Map key val
-    migrate mp = CacheMap_2 (fmap Value_1 mp)
-
-data CacheValue_1 val
-    = InProgress_1
-    | Value_1 val
-    | Failed_1 FileError
-    deriving (Generic, Eq, Ord, Functor)
-
-deriving instance Show val => Show (CacheValue_1 val)
-
-instance SafeCopy' val => SafeCopy (CacheValue_1 val) where version = 1
 
 $(concat <$>
   sequence
@@ -1046,3 +897,186 @@ instance HasImageType ImageKey => PathInfo ImageKey where
   toPathSegments (ImageOriginal csum typ) = [csum <> fileExtension typ]
   fromPathSegments = p2u pImageKey
 #endif
+
+----------------
+-- MIGRATIONS --
+----------------
+
+instance Migrate File where
+  type MigrateFrom File = File_2
+  migrate (File_2 src cksum msgs ext) =
+    File {_fileSource = fromMaybe Legacy src, _fileChksum = pack cksum, _fileMessages = msgs, _fileExt = pack ext}
+
+-- |A local cache of a file obtained from a 'FileSource'.
+data File_2
+    = File_2 { _fileSource_2 :: Maybe FileSource
+             , _fileChksum_2 :: String
+             , _fileMessages_2 :: [String]
+             , _fileExt_2 :: String
+             } deriving (Generic, Eq, Ord)
+
+instance SafeCopy File_2 where version = 2
+
+instance Migrate ImageShape where
+  type MigrateFrom ImageShape = ImageShape_0
+  -- We need to go through and repair the _imageFileOrientation field
+  -- after this migration occurs, probably in SetImageFileTypes.
+  migrate (ImageShape_0 typ w h) = ImageShape typ w h ZeroHr
+
+data ImageShape_0 = ImageShape_0 ImageType Int Int deriving Generic
+instance SafeCopy ImageShape_0
+
+data ImageCrop_0
+    = ImageCrop_0
+      { topCrop_0 :: Int
+      , bottomCrop_0 :: Int
+      , leftCrop_0 :: Int
+      , rightCrop_0 :: Int
+      , rotation_0 :: Int         -- 0, 90, 180, 270
+      } deriving (Generic, Eq, Ord)
+
+instance Migrate ImageCrop where
+  type MigrateFrom ImageCrop = ImageCrop_0
+  migrate (ImageCrop_0 t b l r rot) =
+    ImageCrop t b l r (case rot of
+                         90 -> ThreeHr
+                         180 -> SixHr
+                         270 -> NineHr
+                         _ -> ZeroHr)
+instance SafeCopy ImageCrop_0 where version = 0
+
+data ImageType_0 = PPM_0 | JPEG_0 | GIF_0 | PNG_0 | Unknown_0 deriving (Generic, Eq, Ord)
+instance SafeCopy ImageType_0 where version = 0
+instance Migrate ImageType where
+  type MigrateFrom ImageType = ImageType_0
+  migrate = \case PPM_0 -> PPM
+                  JPEG_0 -> JPEG
+                  GIF_0 -> GIF
+                  PNG_0 -> PNG
+                  Unknown_0 -> Unknown
+
+-- | A file containing an image plus meta info.
+data ImageFile_2
+    = ImageFile_2
+      { _imageFile_2 :: File
+      , _imageFileShape_2 :: ImageShape
+      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance Migrate ImageFile where
+  type MigrateFrom ImageFile = ImageFile_2
+  migrate (ImageFile_2 f s) = ImageFileReady (ImageReady f s)
+
+instance SafeCopy ImageFile_2 where kind = extension; version = 2
+
+-- 1 Nov 2019
+instance Migrate ImageFile_2 where
+  type MigrateFrom ImageFile_2 = ImageFile_1
+  migrate (ImageFile_1 f t w h _) = ImageFile_2 f (migrate (ImageShape_0 t w h))
+
+data ImageFile_1
+    = ImageFile_1
+      { _imageFile_1 :: File
+      , _imageFileType_1 :: ImageType
+      , _imageFileWidth_1 :: Int
+      , _imageFileHeight_1 :: Int
+      , _imageFileMaxVal_1 :: Int
+      } deriving (Generic, Eq, Ord)
+
+instance SafeCopy ImageFile_1 where version = 1
+
+data FileError_1
+    = IOException_1 Text
+    | ErrorCall_1 Text
+    | CommandFailure_1 CommandError
+    | CacheDamage_1
+    deriving (Eq, Ord, Generic)
+
+instance Migrate FileError_2 where
+  type MigrateFrom FileError_2 = FileError_1
+  migrate (IOException_1 _) = error "unexpected FileError migration"
+  migrate (ErrorCall_1 _) = error "unexpected FileError migration"
+  migrate (CommandFailure_1 info) = CommandFailure_2 info
+  migrate CacheDamage_1 = CacheDamage_2 ""
+
+instance SafeCopy FileError_1 where version = 1
+
+data FileError_2
+    = IOException_2 IOError -- ^ Caught an IOException
+    | ErrorCall_2 E.ErrorCall -- ^ Caught a call to error
+    | FromString_2 String -- ^ FileError created via IsString(fromstring)
+    | UnexpectedException_2 String
+      -- ^ Something unanticipated, not an IOException.  Because we
+      -- derive Eq we can't put a SomeException here, so its a string.
+    | CommandFailure_2 CommandError -- ^ A shell command failed
+    | CacheDamage_2 Text -- ^ The contents of the cache is wrong
+    | NoShape_2 Text
+      -- ^ Could not determine the dimensions of an image.  This comes
+      -- from failed attempt to parse the output of the unix file(1)
+      -- command, or attempts to scale or edit inappropriate file
+      -- types such as pdf.
+    deriving (Eq, Ord, Generic)
+
+instance SafeCopy FileError_2 where version = 2; kind = extension
+
+instance Migrate FileError where
+  type MigrateFrom FileError = FileError_2
+  migrate (IOException_2 e) = IOException e
+  migrate (ErrorCall_2 e) = ErrorCall e
+  migrate (FromString_2 s) = FromString s
+  migrate (UnexpectedException_2 s) = UnexpectedException s
+  migrate (CommandFailure_2 e) = CommandFailure e
+  migrate (CacheDamage_2 _) = CacheDamageMigrated
+  migrate (NoShape_2 t) = NoShape t
+
+instance Migrate CacheMap where
+  type MigrateFrom CacheMap = CacheMap_2 ImageKey_2 ImageFile
+  -- This is delicate - know before you edit!
+  migrate (CacheMap_2 mp) =
+    CacheMap (fromList $ fmap migratePair $ toList mp)
+    where
+      migratePair :: (ImageKey_2, CacheValue_1 ImageFile) -> (ImageKey, Either FileError ImageFile)
+      migratePair (key, Value_1 img) = (migrateKey img key, Right img)
+      migratePair (_, Failed_1 _) = error "unexpected"
+      migratePair (_, InProgress_1) = error "unexpected"
+      migrateKey :: ImageFile -> ImageKey_2 -> ImageKey
+      migrateKey (ImageFileReady img) (ImageOriginal_2 _) =
+        ImageOriginal (_fileChksum (_imageFile img)) (imageType img)
+      migrateKey (ImageFileReady img) (ImageCropped_2 crop key) = ImageCropped crop (migrateKey (ImageFileReady img) key)
+      migrateKey (ImageFileReady img) (ImageScaled_2 sz dpi key) = ImageScaled sz dpi (migrateKey (ImageFileReady img) key)
+      migrateKey (ImageFileReady img) (ImageUpright_2 key) = ImageUpright (migrateKey (ImageFileReady img) key)
+      migrateKey _ _ = error "Unexpected value during migration"
+
+-- When this is removed the 'setImageFileTypes' function should also
+-- be removed.
+data ImageKey_2
+    = ImageOriginal_2 ImageFile
+    | ImageCropped_2 ImageCrop ImageKey_2
+    | ImageScaled_2 ImageSize Rational ImageKey_2
+    | ImageUpright_2 ImageKey_2
+    deriving (Generic, Eq, Ord)
+
+instance SafeCopy ImageKey_2 where version = 2
+-- instance SafeCopy ImageKey_3 where kind = extension; version = 3
+
+data CacheMap_2 key val =
+    CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
+    deriving (Generic, Eq, Ord)
+
+instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
+  version = 2
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
+
+instance (Ord key, SafeCopy key, SafeCopy val) => Migrate (CacheMap_2 key val) where
+    type MigrateFrom (CacheMap_2 key val) = Map key val
+    migrate mp = CacheMap_2 (fmap Value_1 mp)
+
+data CacheValue_1 val
+    = InProgress_1
+    | Value_1 val
+    | Failed_1 FileError
+    deriving (Generic, Eq, Ord, Functor)
+
+deriving instance Show val => Show (CacheValue_1 val)
+
+instance SafeCopy' val => SafeCopy (CacheValue_1 val) where version = 1
