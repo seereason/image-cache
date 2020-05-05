@@ -165,11 +165,11 @@ pipeline (p : ps) bytes =
   lyftIO' (LL.readCreateProcessWithExitCode p bytes) >>= doResult
   where
     doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> ExceptT FileError m BS.ByteString
-    -- doResult (Left e) = unsafeFromIO (alog "Appraisal.ImageFile" ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e)) >> throwError e
+    -- doResult (Left e) = unsafeFromIO (alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e)) >> throwError e
     doResult (ExitSuccess, out, _) = pipeline ps out
     doResult (code, _, err) =
       let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
-        unsafeFromIO (alog "Appraisal.ImageFile" ERROR message) >>
+        unsafeFromIO (alog ERROR message) >>
         -- Not actually an IOExeption, this is a process error exit
         (throwError (fromString message))
 
@@ -764,7 +764,7 @@ cacheOriginalImage source x = do
   img <- buildOriginalImage source x
   let key = originalKey img
       val = ImageFileReady img
-  unsafeFromIO (alog "Data.FileCache.Server" DEBUG ("cachePut " ++ show key))
+  unsafeFromIO (alog DEBUG ("cachePut " ++ show key))
   lift (cachePut' key (Right val))
   return (key, val)
 
@@ -809,7 +809,7 @@ getImageFile key = do
     maybe missingKey (either (return . Left) (return . Right))
   where
     missingKey = do
-      unsafeFromIO $ alog "Appraisal.LaTeX" WARNING ("getImageFile missingKey: " ++ show key)
+      unsafeFromIO $ alog WARNING ("getImageFile missingKey: " ++ show key)
       return (Left (CacheDamage $ "cacheDerivedImagesForeground failed for " <> textshow key))
 
 getImageFiles ::
@@ -868,22 +868,22 @@ cacheImageShape ::
   -> (ImageKey, Maybe (Either FileError ImageFile))
   -> m (ImageKey, Either FileError ImageFile)
 cacheImageShape _ (key, Nothing) = do
-  unsafeFromIO $ alog "Appraisal.LaTeX" DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (miss)")
+  unsafeFromIO $ alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (miss)")
   cachePut' key (noShape ("cacheImageShape " <> show key <> " :: " <> show (typeOf key)))
   (key,) <$> (runExceptT (buildImageShape key) >>= cachePut key . over _Right ImageFileShape)
 cacheImageShape flags (key, Just (Left _))
   | Set.member RetryErrors flags = do
-      unsafeFromIO $ alog "Appraisal.LaTeX" INFO ("cacheImageShape key=" ++ prettyShow key ++ " (retry)")
+      unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (retry)")
       (key,) <$> (runExceptT (buildImageShape key) >>= cachePut key . over _Right ImageFileShape)
 cacheImageShape _ (key, Just (Left e)) = do
-  unsafeFromIO $ alog "Appraisal.LaTeX" INFO ("cacheImageShape key=" ++ prettyShow key ++ " (error)")
+  unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (error)")
   return (key, Left e)
 cacheImageShape _ (key, Just (Right (ImageFileShape shape))) = do
-  unsafeFromIO $ alog "Appraisal.LaTeX" INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
+  unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (key, Right (ImageFileShape shape))
 cacheImageShape _ (key, Just (Right (ImageFileReady img))) = do
-  unsafeFromIO $ alog "Appraisal.LaTeX" INFO ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
+  unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
   return (key, Right (ImageFileReady img))
 
 #if 0
@@ -923,10 +923,10 @@ queueImageBuild ::
 queueImageBuild pairs = do
   -- Write empty files into cache
   -- mapM (runExceptT . fileCachePathIO) pairs >>= mapM_ (either (throwError . fromFileError) (lyftIO . flip writeFile mempty))
-  unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
+  unsafeFromIO $ alog DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
   chan <- lift (imageBuilder <$> ask)
   lyftIO (writeChan chan pairs)
-  unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
+  unsafeFromIO $ alog DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
@@ -942,15 +942,15 @@ startImageBuilder = do
   where
     -- This is the background task
     doError (e :: SomeNonPseudoException) =
-      unsafeFromIO $ alog "Data.FileCache.Server" ERROR ("Failure reading image cache request channel: " ++ show e)
+      unsafeFromIO $ alog ERROR ("Failure reading image cache request channel: " ++ show e)
     doImages :: r -> [(ImageKey, ImageShape)] -> UIO ()
     doImages r pairs = do
-      unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
+      unsafeFromIO $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
       -- the threadDelay is to test the behavior of the server for lengthy image builds
       r <- mapM (\(key, shape) -> runExceptT @e (runReaderT (cacheImageFile' key shape {- >> unsafeFromIO (threadDelay 5000000)-}) r)) pairs
-      mapM_ (\case ((key, shape), Left e) -> unsafeFromIO (alog "Data.FileCache.Server" ERROR ("doImages - error building " <> show key <> ": " ++ show e))
-                   ((key, shape), Right (Left e)) -> unsafeFromIO (alog "Data.FileCache.Server" ERROR ("doImages - error in cache for " <> show key <> ": " ++ show e))
-                   ((key, shape), Right (Right _e)) -> unsafeFromIO (alog "Data.FileCache.Server" ERROR ("doImages - completed " <> show key)))
+      mapM_ (\case ((key, shape), Left e) -> unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
+                   ((key, shape), Right (Left e)) -> unsafeFromIO (alog ERROR ("doImages - error in cache for " <> show key <> ": " ++ show e))
+                   ((key, shape), Right (Right _e)) -> unsafeFromIO (alog ERROR ("doImages - completed " <> show key)))
         (zip pairs r)
 #endif
 
@@ -1025,10 +1025,10 @@ buildImageFile key shape = do
     False -> do
       case key == key' of
         True -> do
-          unsafeFromIO $ alog "Data.FileCache.Server" INFO ("Writing new cache file: " <> show path)
+          unsafeFromIO $ alog INFO ("Writing new cache file: " <> show path)
           lyftIO' $ writeFileReadable path bs
         False -> do
-          unsafeFromIO $ alog "Data.FileCache.Server" INFO ("Hard linking " <> show path' <> " -> " <> show path)
+          unsafeFromIO $ alog INFO ("Hard linking " <> show path' <> " -> " <> show path)
           lyftIO' $ createLink path' path
     True -> do
       -- Don't mess with it if it exists, there is probably
@@ -1036,10 +1036,10 @@ buildImageFile key shape = do
       bs' <- lyftIO' $ BS.readFile path
       case bs == bs' of
         False -> do
-          unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Replacing damaged cache file: " <> show path <> " length " <> show (length bs') <> " -> " <> show (length bs))
+          unsafeFromIO $ alog WARNING ("Replacing damaged cache file: " <> show path <> " length " <> show (length bs') <> " -> " <> show (length bs))
           lyftIO' $ writeFileReadable path bs
-        True -> unsafeFromIO $ alog "Data.FileCache.Server" WARNING ("Cache file for new key already exists: " <> show path)
-  unsafeFromIO $ alog "Data.FileCache.Server" DEBUG ("added to cache: " <> prettyShow img)
+        True -> unsafeFromIO $ alog WARNING ("Cache file for new key already exists: " <> show path)
+  unsafeFromIO $ alog DEBUG ("added to cache: " <> prettyShow img)
   return img
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
@@ -1092,11 +1092,11 @@ buildImageBytesFromFile source key csum typ = do
       case csum' == csum of
         False -> do
           let e = CacheDamage ("buildImageBytes - original damaged: " <> T.pack (show key <> " -> " <> path))
-          unsafeFromIO (alog "Data.FileCache.Server" ERROR ("Checksum mismatch - " <> show e))
+          unsafeFromIO (alog ERROR ("Checksum mismatch - " <> show e))
           lift (cachePut' key (Left e :: Either FileError ImageFile))
           throwError e
         True -> do
-          unsafeFromIO (alog "Data.FileCache.Server" ALERT ("recaching " ++ show key))
+          unsafeFromIO (alog ALERT ("recaching " ++ show key))
           _cached <- cacheOriginalImage source bs
           return bs
 
@@ -1115,7 +1115,7 @@ rebuildImageBytes ::
   => Maybe FileSource -> Bool -> ImageKey -> ImageType -> FileError -> ExceptT FileError m BS.ByteString
 rebuildImageBytes _ False _key _typ e = throwError e
 rebuildImageBytes source True key typ e@(CacheDamage _) = do
-  unsafeFromIO (alog "Data.FileCache.Server" ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
+  unsafeFromIO (alog ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
   path <- fileCachePath (ImagePath key typ)
   -- This and other operations like it may throw an
   -- IOException - I need LyftIO to make sure this is caught.
@@ -1123,7 +1123,7 @@ rebuildImageBytes source True key typ e@(CacheDamage _) = do
   _cached <- cacheOriginalImage source bs
   return bs
 rebuildImageBytes _ True key _typ e = do
-  unsafeFromIO (alog "Data.FileCache.Server" INFO ("Not retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
+  unsafeFromIO (alog INFO ("Not retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
   throwError e
 
 -- | Integrity testing
