@@ -6,7 +6,7 @@ Author:         David Fox <dsf@seereason.com>
 Maintainer:     David Fox <dsf@seereason.com>
 Homepage:       http://src.seereason.com/image-cache
 Synopsis:       Support for image file processing and caching
-Cabal-version:  >= 1.8
+Cabal-version:  >= 1.10
 build-type:     Simple
 description:    Server and client side support for image handling.
 source-repository head
