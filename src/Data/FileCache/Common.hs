@@ -89,14 +89,14 @@ module Data.FileCache.Common
 --    -- * FileError
   , FileError(..)
   , CommandError
-  , HasFileError(fromFileError)
+  , HasFileError(fileError)
 --  , logErrorCall
 
   , CacheMap(..)
   ) where
 
 import Control.Exception as E (Exception, ErrorCall)
-import Control.Lens ( Identity(runIdentity), Iso', iso, Lens', lens, _Show )
+import Control.Lens (Identity(runIdentity), Iso', iso, Lens', lens, Prism', _Show)
 import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Data.Data ( Data )
@@ -113,7 +113,7 @@ import Data.String (IsString(fromString))
 import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable )
 --import Extra.Errors (follow, Member, OneOf)
-import Extra.Except (ap, HasErrorCall(..), HasIOException(..), HasNonIOException(..))
+import Extra.Except (ap, HasErrorCall(..), HasIOException(..))
 --import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
 --import Language.Haskell.TH ( Loc(..) )
@@ -712,12 +712,6 @@ data FileError
       -- types such as pdf.
     deriving (Eq, Ord, Generic)
 
-instance HasNonIOException FileError where
-  nonIOException =
-    _Ctor @"UnexpectedException" .
-    (iso (error "No Read instance for SomeNonPseudoException") show :: Iso' String SomeNonPseudoException)
-    -- (undefined :: Prism' String SomeNonPseudoException)
-
 -- Dubious instance, but omitting makes other things more dubious.
 instance IsString FileError where fromString = FromString
 
@@ -735,8 +729,8 @@ instance HasErrorCall FileError where fromErrorCall = ErrorCall
 
 -- These superclasses are due to types embedded in FileError.
 -- they ought to be unbundled and removed going forward.
-class (IsString e, HasIOException e, HasNonIOException e) => HasFileError e where fromFileError :: FileError -> e
-instance HasFileError FileError where fromFileError = id
+class (IsString e, HasIOException e) => HasFileError e where fileError :: Prism' e FileError
+instance HasFileError FileError where fileError = id
 
 -- * ImagePath
 

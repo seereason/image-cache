@@ -8,20 +8,21 @@ module Data.FileCache.ImageType
   , fileInfoFromPath
   ) where
 
---import Control.Exception (IOException)
+import Control.Exception (fromException, IOException, toException)
 import Control.Monad.Catch as Catch (Exception)
+import Control.Monad.Trans (lift)
 import Control.Lens (_2, preview, review, view)
 import Data.ByteString as BS (ByteString)
 import Data.ByteString.UTF8 (toString)
 import Data.FileCache.Common
-  (FileError(NoShape), fromFileError, HasFileError, HasImageShapeM(..),
+  (FileError(IOException, NoShape), fileError, HasFileError, HasImageShapeM(..),
    ImageShape(..), ImageType(..), Rotation(..))
 import Data.ListLike (show)
 import Data.Maybe(catMaybes, listToMaybe)
 --import Data.String (fromString)
 import Data.Text (pack, Text)
 import Extra.ErrorControl (controlError)
-import Extra.Except (ExceptT, HasIOException(ioException), HasNonIOException, throwError)
+import Extra.Except (ExceptT, HasIOException(ioException), HasSomeNonPseudoException(someNonPseudoException), lyftIO, runExceptT, throwError)
 import Prelude hiding (show)
 import System.Exit (ExitCode)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
@@ -38,29 +39,23 @@ instance Unexceptional m => HasImageShapeM (ExceptT FileError m) (FilePath, BS.B
 -- | Helper function to learn the 'ImageType' of a file by running
 -- @file -b@.
 fileInfoFromBytes ::
-  forall e m. (Unexceptional m, HasFileError e, Exception e, HasIOException e, HasNonIOException e)
+  forall e m. (Unexceptional m{-, HasFileError e, Exception e, HasIOException e-})
   => BS.ByteString
-  -> ExceptT e m ImageShape
+  -> ExceptT FileError m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath ("-", bytes)
 
 fileInfoFromPath ::
-  forall e m. (Unexceptional m, HasFileError e, Exception e, HasIOException e, HasNonIOException e)
+  forall m. (Unexceptional m{-, HasFileError e, Exception e, HasIOException e, HasSomeNonPseudoException e-})
   => (FilePath, BS.ByteString)
-  -> ExceptT e m ImageShape
+  -> ExceptT FileError m ImageShape
 fileInfoFromPath (path, input) =
-#if 0
-  withExceptT (review ioException :: IOException -> e) io >>= fileInfoFromOutput path . view _2
+  lift (runExceptT (lyftIO (LL.readProcessWithExitCode cmd args input) :: ExceptT SomeNonPseudoException m (ExitCode, ByteString, ByteString))) >>=
+    (either doError (fileInfoFromOutput path . view _2) :: Either SomeNonPseudoException (ExitCode, ByteString, ByteString) -> ExceptT FileError m ImageShape)
+    -- (\e -> maybe undefined (throwError . review ioException) (preview ioException e) :: ExceptT e m a) >>= fileInfoFromOutput path . view _2
     where
-      io =
-        controlError
-          (fromIO (LL.readProcessWithExitCode cmd args input) :: ExceptT SomeNonPseudoException m (ExitCode, ByteString, ByteString))
-          (\e -> maybe undefined throwError (preview ioException e) :: ExceptT IOException m a)
-#else
-  controlError
-    (fromIO (LL.readProcessWithExitCode cmd args input) :: ExceptT SomeNonPseudoException m (ExitCode, ByteString, ByteString))
-    (\e -> maybe undefined (throwError . review ioException) (preview ioException e) :: ExceptT e m a) >>= fileInfoFromOutput path . view _2
-    where
-#endif
+      doError :: SomeNonPseudoException -> ExceptT FileError m ImageShape
+      doError e = maybe undefined (throwError . IOException) (fromException (toException e) :: Maybe IOException)
+      -- doError e = maybe (undefined {-throwError (review someNonPseudoException e)-}) {-(throwError . review fileError)-} (throwError . (undefined :: IOException -> FileError)) (preview ioException e)
       cmd = "file"
       args = ["-b", path]
 
@@ -74,7 +69,7 @@ fileInfoFromOutput path output =
   case parse pFileOutput path output' of
     Left e ->
       return $ ImageShape {_imageShapeType = Unknown, _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
-      -- throwError $ fromFileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
+      -- throwError $ review fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (PDF, []) -> return $ ImageShape PDF 0 0 ZeroHr
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
@@ -83,7 +78,7 @@ fileInfoFromOutput path output =
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
         (Just (w, h), Nothing) ->
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}
-        _ -> throwError (fromFileError (NoShape ("fileInfoFromOutput path=" <> show path <> " output=" <> show output)))
+        _ -> throwError (review fileError (NoShape ("fileInfoFromOutput path=" <> show path <> " output=" <> show output)))
   where
     output' :: Text
     output' = pack (toString output)
