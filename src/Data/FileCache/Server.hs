@@ -25,8 +25,6 @@ module Data.FileCache.Server
   , HasImageFilePath(toFilePath)
   , fileCachePath
   , fileCachePathIO
-  , FileCacheT
-  , runFileCacheT, evalFileCacheT, execFileCacheT
   , cacheLook, cacheDelete, cacheMap
     -- * Image Cache
   , ImageCacheT
@@ -64,7 +62,7 @@ module Data.FileCache.Server
 --import Control.Concurrent (ThreadId{-, threadDelay-})
 import Control.Concurrent.Chan (Chan)
 import Control.Exception (Exception, fromException, IOException, toException)
-import Control.Lens ((%=), _1, _2, _3, at, ix, over, preview, _Right, view)
+import Control.Lens ((%=), _1, _3, at, ix, over, preview, _Right, view)
 import Control.Monad (unless, when)
 import Control.Monad.RWS ( get, modify, MonadIO(liftIO), MonadState, put, RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask), ReaderT, runReaderT )
@@ -645,18 +643,6 @@ fileCachePathIO file = do
   fileIO (createDirectoryIfMissing True dir)
   return path
 
--- * FileCacheT
-
-type FileCacheT r s m = RWST r () s m
-
-runFileCacheT :: r -> s -> FileCacheT r s m a -> m (a, s, ())
-runFileCacheT r s0 action = runRWST action r s0
-
-evalFileCacheT :: Functor m => r -> s -> FileCacheT r s m a -> m a
-evalFileCacheT r s0 action = view _1 <$> runFileCacheT r s0 action
-execFileCacheT :: Functor m => r -> s -> FileCacheT r s m a-> m s
-execFileCacheT r s0 action = view _2 <$> runFileCacheT r s0 action
-
 askCacheAcid :: (MonadReader r m, HasCacheAcid r) => m CacheAcid
 askCacheAcid = cacheAcid <$> ask
 
@@ -709,7 +695,7 @@ cacheDelete _ keys = do
 
 -- * ImageCache
 
-type ImageCacheT r s m = FileCacheT r s m
+type ImageCacheT r s m = RWST r () s m
 type HasImageAcid r = HasCacheAcid r
 type ImageAcid = CacheAcid
 imageAcid :: HasImageAcid a => a -> ImageAcid
@@ -718,12 +704,12 @@ imageAcid = cacheAcid
 -- | Run some 'Unexceptional' image cache IO in a a MonadIO instance.
 evalImageCacheUIO ::
   forall r s m a. (MonadIO m, MonadState s m, MonadReader r m)
-  => FileCacheT r s (ExceptT SomeNonPseudoException UIO) a
+  => RWST r () s (ExceptT SomeNonPseudoException UIO) a
   -> ExceptT SomeNonPseudoException m a
 evalImageCacheUIO io = do
   (r :: r) <- ask
   s0 <- get
-  result <- liftIO (run (runExceptT (runFileCacheT r s0 io)))
+  result <- liftIO (run (runExceptT (runRWST io r s0)))
   either throwError (\(a, s', ()) -> put s' >> return a) result
 
 -- | Lift an ImageCacheT operation (which has the Unexceptional
@@ -732,10 +718,10 @@ evalImageCacheIO ::
   forall r s e m a. MonadIO m
   => r
   -> s
-  -> FileCacheT r s (ReaderT r (ExceptT e UIO)) a
+  -> RWST r () s (ReaderT r (ExceptT e UIO)) a
   -> m (Either e a)
 evalImageCacheIO r s0 action =
-  liftIO (run (runExceptT (runReaderT (evalFileCacheT r s0 action :: ReaderT r (ExceptT e UIO) a) r
+  liftIO (run (runExceptT (runReaderT (view _1 <$> runRWST action r s0 :: ReaderT r (ExceptT e UIO) a) r
                           ) :: UIO (Either e a)
               ) :: IO (Either e a)
          ) :: m (Either e a)
@@ -961,7 +947,7 @@ cacheImageFile key shape = do
   r <- ask
   -- Errors that occur in buildImageFile are stored in the cache, errors
   -- that occur in cachePut are returned.  Actually that's not right.
-  either Left id <$> runExceptT (evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key))
+  either Left id <$> runExceptT (view _1 <$> runRWST @r @() (runExceptT (buildImageFile key shape) >>= cachePut key) r ())
 
 -- | These are meant to be inexpensive operations that determine the
 -- shape of the desired image, with the actual work of building them
