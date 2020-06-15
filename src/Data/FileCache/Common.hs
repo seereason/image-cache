@@ -90,13 +90,14 @@ module Data.FileCache.Common
   , FileError(..)
   , CommandError
   , HasFileError(fileError)
+  , runFileError
 --  , logErrorCall
 
   , CacheMap(..)
   ) where
 
 import Control.Exception as E (Exception, ErrorCall)
-import Control.Lens (Identity(runIdentity), Iso', iso, Lens', lens, Prism', _Show)
+import Control.Lens (Identity(runIdentity), Iso', iso, Lens', lens, preview, Prism', _Show)
 import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Data.Data ( Data )
@@ -113,7 +114,7 @@ import Data.String (IsString(fromString))
 import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable )
 --import Extra.Errors (follow, Member, OneOf)
-import Extra.Except (ap, HasErrorCall(..), HasIOException(..))
+import Extra.Except (ap, ExceptT, HasErrorCall(..), HasIOException(..), HasNonIOException(..), MonadError, NonIOException(..), runExceptT, throwError)
 --import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
 --import Language.Haskell.TH ( Loc(..) )
@@ -731,6 +732,10 @@ instance HasErrorCall FileError where fromErrorCall = ErrorCall
 -- they ought to be unbundled and removed going forward.
 class (IsString e, HasIOException e) => HasFileError e where fileError :: Prism' e FileError
 instance HasFileError FileError where fileError = id
+
+runFileError :: forall e m a. (MonadError e m, HasFileError e) => ExceptT e m a -> m (Either FileError a)
+runFileError action =
+  runExceptT action >>= either (\(e :: e) -> maybe (throwError e) (return . Left) (preview fileError e)) (return . Right)
 
 -- * ImagePath
 

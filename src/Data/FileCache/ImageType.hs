@@ -1,17 +1,20 @@
 -- | Beginning of a parser for the output of file(1).
 
-{-# LANGUAGE OverloadedStrings, TupleSections #-}
+{-# LANGUAGE OverloadedStrings, TupleSections, UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints #-}
 
 module Data.FileCache.ImageType
-  ( fileInfoFromBytes
+  ( FileIOErrors
+  , FileIO
+  , fileIO
+  , runIO
+  , unsafeIO
+  , fileInfoFromBytes
   , fileInfoFromPath
   ) where
 
-import Control.Exception (fromException, IOException, toException)
-import Control.Monad.Catch as Catch (Exception)
-import Control.Monad.Trans (lift)
-import Control.Lens (_2, preview, review, view)
+import Control.Exception (fromException, toException)
+import Control.Lens (_2, review, view)
 import Data.ByteString as BS (ByteString)
 import Data.ByteString.UTF8 (toString)
 import Data.FileCache.Common
@@ -21,55 +24,80 @@ import Data.ListLike (show)
 import Data.Maybe(catMaybes, listToMaybe)
 --import Data.String (fromString)
 import Data.Text (pack, Text)
-import Extra.ErrorControl (controlError)
-import Extra.Except (ExceptT, HasIOException(ioException), HasSomeNonPseudoException(someNonPseudoException), lyftIO, runExceptT, throwError)
+import Extra.Errors (Member, OneOf, throwMember)
+import Extra.Except (ExceptT, HasIOException(ioException), HasNonIOException, MonadError, MonadIO, NonIOException(..), runExceptT, splitException, throwError)
 import Prelude hiding (show)
-import System.Exit (ExitCode)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
 import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
                               spaces, try, parse, string, noneOf)
 import Text.Parsec.Text (Parser)
-import UnexceptionalIO.Trans (fromIO, SomeNonPseudoException, Unexceptional)
+import UnexceptionalIO.Trans (fromIO, run, SomeNonPseudoException, UIO, Unexceptional, unsafeFromIO)
 
-instance Unexceptional m => HasImageShapeM (ExceptT FileError m) BS.ByteString where
+#if 1
+type FileIOErrors e = (Member NonIOException e, Member FileError e)
+type FileIO e m = (Unexceptional m, FileIOErrors e, MonadError (OneOf e) m)
+
+-- Split a SomeNonPseudoError into an IOException (which is returned
+-- in ExceptT FileError) o r else rethrown in the monad m.
+fileIO :: forall e m a. FileIO e m => IO a -> m a
+fileIO io = runExceptT (fromIO io) >>= either split return
+  where split :: SomeNonPseudoException -> m a
+        split e = maybe (throwMember (NonIOException e)) (throwMember . IOException) (fromException (toException e))
+
+unsafeIO :: Unexceptional m => IO a -> m a
+unsafeIO = unsafeFromIO
+
+runIO :: MonadIO m => UIO a -> m a
+runIO = run
+#else
+type FileIOErrors e = (Member FileError e)
+type FileIO e m = (MonadIO m, FileIOErrors e, MonadError (OneOf e) m)
+
+fileIO :: forall e m a. FileIO e m => IO a -> m a
+fileIO io = liftIO (Control.Exception.try io) >>= either (throwMember . IOException) return
+
+unsafeIO :: MonadIO m => IO a -> m a
+unsafeIO = liftIO
+
+runIO :: MonadIO m => IO a -> m a
+runIO = liftIO
+#endif
+
+instance (Unexceptional m, HasFileError e, HasNonIOException e, MonadError e m) => HasImageShapeM m BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)
-instance Unexceptional m => HasImageShapeM (ExceptT FileError m) (FilePath, BS.ByteString) where
+instance (Unexceptional m, HasFileError e, HasNonIOException e, MonadError e m) => HasImageShapeM m (FilePath, BS.ByteString) where
   imageShapeM (path, input) = fileInfoFromPath (path, input)
 
 -- | Helper function to learn the 'ImageType' of a file by running
 -- @file -b@.
 fileInfoFromBytes ::
-  forall e m. (Unexceptional m{-, HasFileError e, Exception e, HasIOException e-})
+  forall e m. (Unexceptional m, HasFileError e, HasNonIOException e, MonadError e m)
   => BS.ByteString
-  -> ExceptT FileError m ImageShape
+  -> m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath ("-", bytes)
 
 fileInfoFromPath ::
-  forall m. (Unexceptional m{-, HasFileError e, Exception e, HasIOException e, HasSomeNonPseudoException e-})
+  forall e m. (Unexceptional m, HasFileError e, HasNonIOException e, MonadError e m)
   => (FilePath, BS.ByteString)
-  -> ExceptT FileError m ImageShape
+  -> m ImageShape
 fileInfoFromPath (path, input) =
-  lift (runExceptT (lyftIO (LL.readProcessWithExitCode cmd args input) :: ExceptT SomeNonPseudoException m (ExitCode, ByteString, ByteString))) >>=
-    (either doError (fileInfoFromOutput path . view _2) :: Either SomeNonPseudoException (ExitCode, ByteString, ByteString) -> ExceptT FileError m ImageShape)
-    -- (\e -> maybe undefined (throwError . review ioException) (preview ioException e) :: ExceptT e m a) >>= fileInfoFromOutput path . view _2
-    where
-      doError :: SomeNonPseudoException -> ExceptT FileError m ImageShape
-      doError e = maybe undefined (throwError . IOException) (fromException (toException e) :: Maybe IOException)
-      -- doError e = maybe (undefined {-throwError (review someNonPseudoException e)-}) {-(throwError . review fileError)-} (throwError . (undefined :: IOException -> FileError)) (preview ioException e)
-      cmd = "file"
-      args = ["-b", path]
+  runExceptT (fromIO (LL.readProcessWithExitCode cmd args input)) >>=
+  either (throwError . splitException) (fileInfoFromOutput path . view _2)
+  where
+    cmd = "file"
+    args = ["-b", path]
 
 -- Note - no IO here
 fileInfoFromOutput ::
-  forall e m. (Monad m, HasFileError e)
+  forall e m. (HasFileError e, MonadError e m)
   => FilePath
   -> BS.ByteString
-  -> ExceptT e m ImageShape
+  -> m ImageShape
 fileInfoFromOutput path output =
   case parse pFileOutput path output' of
-    Left e ->
+    Left _e ->
       return $ ImageShape {_imageShapeType = Unknown, _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
-      -- throwError $ review fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
+      -- throwError $ fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (PDF, []) -> return $ ImageShape PDF 0 0 ZeroHr
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),

@@ -51,7 +51,7 @@ Library
     process,
     pureMD5,
     safecopy >= 0.9.4.4,
-    sr-extra >= 1.68,
+    sr-extra >= 1.79,
     syb,
     template-haskell,
     text,
@@ -83,8 +83,7 @@ Library
     Build-Depends: Cabal
 
 test-suite image-cache-tests
-  if impl(ghcjs)
-    Buildable: False
+  Buildable: False
   type: exitcode-stdio-1.0
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs

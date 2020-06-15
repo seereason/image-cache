@@ -4,7 +4,7 @@ module Cache where
 
 -- | Load an image cache state
 
-import Appraisal.Image (ImageFile, ImageKey)
+import Data.FileCache (ImageFile, ImageKey)
 import Control.Exception (bracket)
 import Data.Acid (AcidState, IsAcidic, openLocalStateFrom, closeAcidState)
 import Data.Map (Map)

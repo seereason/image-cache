@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
-module Exif (tests) where
+module Exif (Exif.tests) where
 
-import Appraisal.Exif
+import Data.FileCache.Server
 import Control.Exception (ErrorCall(ErrorCall), try, evaluate)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 (pack)
