@@ -811,7 +811,7 @@ $(concat <$>
   , makePathInstances [] ''Rotation
   , makePathInstances [FIELDS] ''CacheMap
   , makePathInstances [FIELDS] ''ContentType
-  , makeValueInstance [FIELDS, VIEW] [t|SaneSize ImageSize|]
+  , makeValueInstance [VIEW] [t|SaneSize ImageSize|]
   , derivePathInfo ''ImagePath
   -- , derivePathInfo ''ImageKey
   , derivePathInfo ''ImageCrop
