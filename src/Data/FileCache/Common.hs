@@ -98,7 +98,7 @@ module Data.FileCache.Common
 
 import Control.Exception as E (Exception, ErrorCall)
 import Control.Lens (Identity(runIdentity), Iso', iso, Lens', lens, preview, Prism', _Show)
-import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(VIEW, NEWTYPE), View(..), newtypeIso )
+import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(FIELDS, VIEW), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
@@ -811,7 +811,7 @@ $(concat <$>
   , makePathInstances [] ''Rotation
   , makePathInstances [FIELDS] ''CacheMap
   , makePathInstances [FIELDS] ''ContentType
-  , makeValueInstance [NEWTYPE, VIEW] [t|SaneSize ImageSize|]
+  , makeValueInstance [FIELDS, VIEW] [t|SaneSize ImageSize|]
   , derivePathInfo ''ImagePath
   -- , derivePathInfo ''ImageKey
   , derivePathInfo ''ImageCrop
