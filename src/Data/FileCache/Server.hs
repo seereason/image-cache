@@ -72,6 +72,7 @@ import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, d
 import Data.Char ( isSpace )
 import Data.Default (def)
 import Data.Digest.Pure.MD5 (md5)
+import Data.Either (isLeft)
 import Data.FileCache.Common
 import Data.FileCache.ImageType (fileInfoFromPath)
 import Data.FileCache.LogException (logException)
@@ -88,7 +89,7 @@ import Data.Set as Set (member, Set)
 import Data.String (fromString)
 import Data.Text as T ( pack, Text, unpack )
 import Data.Text.Encoding ( decodeUtf8, encodeUtf8 )
-import Data.Typeable (typeOf)
+import Data.Typeable (Typeable, typeOf)
 import Data.Word ( Word16, Word32 )
 import Extra.Except (lyftIO, HasIOException(..), HasNonIOException(..), MonadError, throwError, tryError)
 import Extra.Log ( alog )
@@ -757,7 +758,7 @@ instance HasImageBuilder (a, b, ImageChan) where imageBuilder = Just . view _3
 
 -- | This is just a wrapper around cacheDerivedImagesForeground.
 getImageFile ::
-  forall r e m. (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e,
+  forall r e m. (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e, Show e, Typeable e,
                  MonadReader r m, HasCacheAcid r, HasFileCacheTop r, HasCallStack)
   => ImageKey
   -> m (Either FileError ImageFile)
@@ -770,7 +771,7 @@ getImageFile key = do
       return (Left (MissingDerivedEntry key))
 
 getImageFiles ::
-  forall r e m. (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e,
+  forall r e m. (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e, Show e, Typeable e,
                  MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => [ImageKey] -> m (Map ImageKey (Either FileError ImageFile))
 getImageFiles = cacheDerivedImagesForeground mempty
@@ -785,7 +786,7 @@ data CacheFlag
 
 -- Is this guaranteed to have a map entry for every key passed in?
 cacheDerivedImagesForeground ::
-  forall r e m. (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e,
+  forall r e m. (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e, Show e, Typeable e,
                  MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => Set CacheFlag
   -> [ImageKey]
@@ -794,7 +795,14 @@ cacheDerivedImagesForeground flags keys =
   cacheLookImages keys >>=
   mapM (cacheImageShape flags) >>=
   runExceptT . foregroundBuilds >>=
-  either throwError (return . Map.fromList)
+  either doError doResult
+  where
+    doError e = do
+      unsafeFromIO $ alog ALERT ("foregroundBuilds failed: " <> show e <> " :: " <> show (typeOf e))
+      throwError e
+    doResult rs = do
+      unsafeFromIO $ mapM_ (\e -> alog DEBUG ("cached error: " <> show e)) (filter (isLeft . snd) rs)
+      return $ Map.fromList rs
 
 #if 0
 cacheDerivedImagesBackground ::
