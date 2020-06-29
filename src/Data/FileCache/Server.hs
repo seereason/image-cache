@@ -944,17 +944,21 @@ buildImageShape ::
   (Unexceptional m, HasFileError e, HasNonIOException e, MonadError e m, MonadReader r m, HasCacheAcid r)
   => ImageKey -> m ImageShape
 buildImageShape key@(ImageOriginal _csum _typ) =
+  unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key <> ")")) >>
   cacheLook key >>=
   maybe (throwError (review fileError (MissingOriginalEntry key)))
         (either (throwError . review fileError)
                 (\case ImageFileReady img -> return (_imageShape img)
                        ImageFileShape s -> return s))
   -- buildOriginalImageBytes csum typ >>= getFileInfo
-buildImageShape (ImageUpright key) =
+buildImageShape key'@(ImageUpright key) =
+  unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
   uprightImageShape <$> buildImageShape key
-buildImageShape (ImageCropped crop key) =
+buildImageShape key'@(ImageCropped crop key) =
+  unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
   cropImageShape crop <$> buildImageShape key
-buildImageShape (ImageScaled sz dpi key) =
+buildImageShape key'@(ImageScaled sz dpi key) =
+  unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
   scaleImageShape sz dpi <$> buildImageShape key
 
 uprightImageShape :: ImageShape -> ImageShape
