@@ -791,11 +791,11 @@ cacheDerivedImagesForeground ::
   => Set CacheFlag
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
-cacheDerivedImagesForeground flags keys =
-  cacheLookImages keys >>=
-  mapM (cacheImageShape flags) >>=
-  runExceptT . foregroundBuilds >>=
-  either doError doResult
+cacheDerivedImagesForeground flags keys = do
+  (cached :: [(ImageKey, Maybe (Either FileError ImageFile))]) <- cacheLookImages keys
+  (shapes :: [(ImageKey, Either FileError ImageFile)]) <- mapM (cacheImageShape flags) cached
+  (result :: Either e [(ImageKey, Either FileError ImageFile)]) <- runExceptT (foregroundBuilds shapes)
+  either doError doResult result
   where
     doError e = do
       unsafeFromIO $ alog ALERT ("foregroundBuilds failed: " <> show e <> " :: " <> show (typeOf e))
@@ -828,7 +828,7 @@ cacheLookImages keys = mapM (\key -> (key,) <$> cacheLook key) keys
 -- | Compute the shapes of requested images
 cacheImageShape ::
   (Unexceptional m, MonadReader r m, HasCallStack,
-   HasFileError e, HasNonIOException e, MonadError e m, HasCacheAcid r)
+   HasFileError e, HasNonIOException e, MonadError e m, HasCacheAcid r, HasFileCacheTop r)
   => Set CacheFlag
   -> (ImageKey, Maybe (Either FileError ImageFile))
   -> m (ImageKey, Either FileError ImageFile)
@@ -852,7 +852,7 @@ cacheImageShape _ (key, Just (Right (ImageFileReady img))) = do
   unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
   return (key, Right (ImageFileReady img))
 
-#if 0
+{-
 backgroundBuilds ::
   (Unexceptional m, HasFileError e, HasIOException e, HasNonIOException e,
    MonadReader r m, HasImageBuilder r, HasFileCacheTop r)
@@ -862,7 +862,7 @@ backgroundBuilds pairs =
   queueImageBuild (mapMaybe isShape pairs) >> return pairs
   where isShape (key, Right (ImageFileShape shape)) = Just (key, shape)
         isShape _ = Nothing
-#endif
+-}
 
 foregroundBuilds ::
   (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e,
@@ -928,7 +928,6 @@ cacheImageFile ::
   -> ImageShape
   -> m (Either FileError ImageFile)
 cacheImageFile key shape = do
-  r <- ask
   -- Errors that occur in buildImageFile are stored in the cache, errors
   -- that occur in cachePut are returned.  Actually that's not right.
   runFileError @e (buildImageFile key shape) >>= cachePut key
@@ -941,24 +940,30 @@ cacheImageFile key shape = do
 -- get the shape and orientation of that image, and the other
 -- operations are pure.
 buildImageShape ::
-  (Unexceptional m, HasFileError e, HasNonIOException e, MonadError e m, MonadReader r m, HasCacheAcid r)
+  (Unexceptional m, HasFileError e, HasNonIOException e, MonadError e m, MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => ImageKey -> m ImageShape
-buildImageShape key@(ImageOriginal _csum _typ) =
-  unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key <> ")")) >>
+buildImageShape key@(ImageOriginal csum typ) =
   cacheLook key >>=
-  maybe (throwError (review fileError (MissingOriginalEntry key)))
+  maybe missingOriginal
         (either (throwError . review fileError)
                 (\case ImageFileReady img -> return (_imageShape img)
                        ImageFileShape s -> return s))
-  -- buildOriginalImageBytes csum typ >>= getFileInfo
+  where
+    missingOriginal = do
+      unsafeFromIO $ alog ALERT ("Missing original: " <> show key)
+      (key', file) <- cacheOriginalImage (Just (ThePath path)) =<< fileCachePath (csum, typ)
+      unsafeFromIO $ alog ALERT ("Missing original found: " <> show (key, file))
+      case file of
+        ImageFileReady img -> return (_imageShape img)
+        ImageFileShape s -> return s
 buildImageShape key'@(ImageUpright key) =
-  unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
+  -- unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
   uprightImageShape <$> buildImageShape key
 buildImageShape key'@(ImageCropped crop key) =
-  unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
+  -- unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
   cropImageShape crop <$> buildImageShape key
 buildImageShape key'@(ImageScaled sz dpi key) =
-  unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
+  -- unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
   scaleImageShape sz dpi <$> buildImageShape key
 
 uprightImageShape :: ImageShape -> ImageShape
