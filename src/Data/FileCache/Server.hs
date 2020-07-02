@@ -951,7 +951,8 @@ buildImageShape key@(ImageOriginal csum typ) =
   where
     missingOriginal = do
       unsafeFromIO $ alog ALERT ("Missing original: " <> show key)
-      (key', file) <- cacheOriginalImage (Just (ThePath path)) =<< fileCachePath (csum, typ)
+      path <- fileCachePath (csum, typ)
+      (key', file) <- cacheOriginalImage (Just (ThePath path)) path
       unsafeFromIO $ alog ALERT ("Missing original found: " <> show (key, file))
       case file of
         ImageFileReady img -> return (_imageShape img)
