@@ -92,6 +92,8 @@ module Data.FileCache.Common
   , HasFileError(fileError)
   , runFileError
 --  , logErrorCall
+  , FileCacheErrors
+  , FileCacheErrors2
 
   , CacheMap(..)
   ) where
@@ -114,7 +116,7 @@ import Data.String (IsString(fromString))
 import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable )
 --import Extra.Errors (follow, Member, OneOf)
-import Extra.Except (ap, ExceptT, HasErrorCall(..), HasIOException(..), HasNonIOException(..), MonadError, NonIOException(..), runExceptT, throwError)
+import Extra.Except (ap, ExceptT, HasErrorCall(..), HasIOException(..), HasNonIOException(..), MonadError, runExceptT, throwError)
 --import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
 --import Language.Haskell.TH ( Loc(..) )
@@ -133,7 +135,7 @@ import Text.Parsec {-as Parsec ((<|>), anyChar, char, choice, digit, many, many1
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Text.PrettyPrint.HughesPJClass ()
 import Text.Read ( readMaybe )
-import UnexceptionalIO.Trans (SomeNonPseudoException)
+import UnexceptionalIO.Trans (Unexceptional)
 import Web.Routes ( PathInfo(..), segment{-, toPathInfo-} )
 import Web.Routes.TH ( derivePathInfo )
 
@@ -732,6 +734,15 @@ instance HasErrorCall FileError where fromErrorCall = ErrorCall
 -- they ought to be unbundled and removed going forward.
 class (IsString e, HasIOException e) => HasFileError e where fileError :: Prism' e FileError
 instance HasFileError FileError where fileError = id
+
+-- | Constraints typical of the functions in this package.  They occur
+-- when an IO operation is lifted into 'Unexceptional' by 'lyftIO',
+-- which splits the resulting 'SomeNonPseudoException' into @IO@ and
+-- @NonIO@ parts.  It also has FileException, an error type defined in
+-- this package.
+type FileCacheErrors e m = (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e, HasIOException e)
+-- A little looser
+type FileCacheErrors2 e m = (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e)
 
 runFileError :: forall e m a. (MonadError e m, HasFileError e) => ExceptT e m a -> m (Either FileError a)
 runFileError action =
