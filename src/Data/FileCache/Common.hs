@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- This may be set by the .ghci file, otherwise it gets set here.
@@ -90,22 +91,22 @@ module Data.FileCache.Common
   , FileError(..)
   , CommandError
   , HasFileError(fileError)
-  , runFileError
 --  , logErrorCall
   , FileCacheErrors
   , FileCacheErrors2
+  , FileCacheErrors3
 
   , CacheMap(..)
   ) where
 
-import Control.Exception as E (Exception, ErrorCall)
-import Control.Lens (Identity(runIdentity), Iso', iso, Lens', lens, preview, Prism', _Show)
+import Control.Exception as E (Exception, ErrorCall, IOException)
+import Control.Lens (Identity(runIdentity), Iso', iso, Lens', lens, Prism', _Show)
 import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(FIELDS, VIEW), View(..), newtypeIso )
 import Control.Lens.Path.View ( viewIso )
+import Control.Monad.Except (withExceptT)
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.FileCache.Types (CommandError)
-import Data.Generics.Sum (_Ctor)
 import Data.Map (fromList, Map, toList)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
@@ -115,8 +116,8 @@ import Data.Serialize ( Serialize(..) )
 import Data.String (IsString(fromString))
 import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable )
---import Extra.Errors (follow, Member, OneOf)
-import Extra.Except (ap, ExceptT, HasErrorCall(..), HasIOException(..), HasNonIOException(..), MonadError, runExceptT, throwError)
+import Extra.Errors (catchMember, DeleteList, Member, OneOf)
+import Extra.Except (ap, ExceptT, HasErrorCall(..), NonIOException, MonadError, runExceptT, throwError)
 --import Extra.Text (Texty(..))
 import GHC.Generics ( Generic, M1(M1) )
 --import Language.Haskell.TH ( Loc(..) )
@@ -349,6 +350,20 @@ instance Pretty ImageShape where
         NineHr -> text " LL") <> text ")")
 
 instance HasImageType ImageShape where imageType = _imageShapeType
+
+-- | We can infer the file type from the key using insider info on how
+-- the various IO operations work.  E.g. all the cropping operations
+-- other than the identity crop result in a JPEG.
+instance HasImageShape a => HasImageType (ImageKey, a) where
+  imageType (ImageOriginal _ typ, _) = typ
+  imageType (ImageUpright key, shape) = imageType (key, shape)
+  imageType (ImageCropped crop key, shape) =
+    if crop == def then imageType (key, shape) else JPEG
+  imageType (ImageScaled sz dpi key, shape) =
+    let sc' = scaleFromDPI sz dpi shape
+        sc :: Double
+        sc = fromRat (fromMaybe 1 sc') in
+      if approx (toRational sc) == 1 then imageType (key, shape) else JPEG
 
 scaleImageShape :: ImageSize -> Rational -> ImageShape -> ImageShape
 scaleImageShape sz dpi shape =
@@ -682,10 +697,13 @@ instance EditedKey ImageKey where
   editedKey key@(ImageUpright _) = key
   editedKey key@(ImageOriginal _ _) = ImageUpright key
 
+-- | Compute an image key that has a certain size at the given dpi
 class HasImageSize size => ScaledKey size a where
   scaledKey :: size -> Rational -> a -> ImageKey
 instance ScaledKey ImageSize ImageReady where
   scaledKey size dpi x = ImageScaled (imageSize size) dpi (editedKey x)
+instance ScaledKey ImageSize ImageKey where
+  scaledKey size dpi x = ImageScaled size dpi (editedKey x)
 
 -- * FileError, CommandInfo
 
@@ -727,12 +745,12 @@ instance Serialize FileError where get = safeGet; put = safePut
 deriving instance Show FileError
 
 -- | This ensures that runExceptT catches IOException
-instance HasIOException FileError where ioException = _Ctor @"IOException"
+--instance HasIOException FileError where ioException = _Ctor @"IOException"
 instance HasErrorCall FileError where fromErrorCall = ErrorCall
 
 -- These superclasses are due to types embedded in FileError.
 -- they ought to be unbundled and removed going forward.
-class (IsString e, HasIOException e) => HasFileError e where fileError :: Prism' e FileError
+class HasFileError e where fileError :: Prism' e FileError
 instance HasFileError FileError where fileError = id
 
 -- | Constraints typical of the functions in this package.  They occur
@@ -740,13 +758,11 @@ instance HasFileError FileError where fileError = id
 -- which splits the resulting 'SomeNonPseudoException' into @IO@ and
 -- @NonIO@ parts.  It also has FileException, an error type defined in
 -- this package.
-type FileCacheErrors e m = (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e, HasIOException e)
--- A little looser
-type FileCacheErrors2 e m = (Unexceptional m, MonadError e m, HasFileError e, HasNonIOException e)
 
-runFileError :: forall e m a. (MonadError e m, HasFileError e) => ExceptT e m a -> m (Either FileError a)
-runFileError action =
-  runExceptT action >>= either (\(e :: e) -> maybe (throwError e) (return . Left) (preview fileError e)) (return . Right)
+type FileCacheErrors e m = (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member NonIOException e, Member IOException e, Show (OneOf e), Typeable (OneOf e), Typeable e)
+-- A little looser
+type FileCacheErrors2 e m = (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member NonIOException e, Show (OneOf e), Typeable (OneOf e), Typeable e)
+type FileCacheErrors3 e m = (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e, Show (OneOf e), Typeable (OneOf e), Typeable e)
 
 -- * ImagePath
 
@@ -757,12 +773,12 @@ runFileError action =
 -- available until the image has been fully generated by the server.
 data ImagePath =
   ImagePath { _imagePathKey :: ImageKey
-            , _imagePathType :: ImageType
+            -- , _imagePathType :: ImageType
             } deriving (Generic, Eq, Ord)
 
 class HasImagePath a where imagePath :: a -> ImagePath
 instance HasImagePath ImagePath where imagePath = id
-instance HasImageKey ImagePath where imageKey (ImagePath x _) = imageKey x
+instance HasImageKey ImagePath where imageKey (ImagePath x) = imageKey x
 
 #if 0
 toURIPath :: (Texty a, PathInfo url) => url -> a
@@ -787,7 +803,7 @@ instance HasImageKey ImageCached where
   imageKey (ImageCached x _) = imageKey x
 
 instance HasImagePath ImageCached where
-  imagePath (ImageCached key img) = ImagePath key (imageType img)
+  imagePath (ImageCached key img) = ImagePath key {-(imageType img)-}
 
 -- * CacheMap
 

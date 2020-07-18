@@ -3,29 +3,24 @@
 {-# LANGUAGE OverloadedStrings, TupleSections, UndecidableInstances #-}
 {-# OPTIONS -Wall -Wredundant-constraints #-}
 
-module Data.FileCache.ImageType
-  ( FileIOErrors
-  , FileIO
-  , fileIO
-  , runIO
-  , unsafeIO
-  , fileInfoFromBytes
+module Data.FileCache.FileInfo
+  ( fileInfoFromBytes
   , fileInfoFromPath
   ) where
 
-import Control.Exception (fromException, toException)
+import Control.Exception (fromException, IOException, toException)
 import Control.Lens (_2, review, view)
 import Data.ByteString as BS (ByteString)
 import Data.ByteString.UTF8 (toString)
 import Data.FileCache.Common
-  (FileCacheErrors, FileCacheErrors2, FileError(IOException, NoShape), fileError, HasFileError, HasImageShapeM(..),
+  (FileCacheErrors, FileCacheErrors2, FileError(IOException, NoShape), fileError, FileError, HasImageShapeM(..),
    ImageShape(..), ImageType(..), Rotation(..))
 import Data.ListLike (show)
-import Data.Maybe(catMaybes, listToMaybe)
+import Data.Maybe(catMaybes, fromMaybe, listToMaybe)
 --import Data.String (fromString)
 import Data.Text (pack, Text)
-import Extra.Errors (Member, OneOf, throwMember)
-import Extra.Except (ExceptT, HasIOException(ioException), HasNonIOException, lyftIO, MonadError, MonadIO, NonIOException(..), runExceptT, splitException, throwError)
+import Extra.Errors (liftUIO, Member, OneOf, oneOf, throwMember)
+import Extra.Except (ExceptT, MonadError, MonadIO, NonIOException(..), runExceptT, {-splitException,-} throwError)
 import Prelude hiding (show)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
 import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
@@ -33,62 +28,32 @@ import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
 import Text.Parsec.Text (Parser)
 import UnexceptionalIO.Trans (fromIO, run, SomeNonPseudoException, UIO, Unexceptional, unsafeFromIO)
 
-#if 1
-type FileIOErrors e = (Member NonIOException e, Member FileError e)
-type FileIO e m = (Unexceptional m, FileIOErrors e, MonadError (OneOf e) m)
-
--- Split a SomeNonPseudoError into an IOException (which is returned
--- in ExceptT FileError) o r else rethrown in the monad m.
-fileIO :: forall e m a. FileIO e m => IO a -> m a
-fileIO io = runExceptT (fromIO io) >>= either split return
-  where split :: SomeNonPseudoException -> m a
-        split e = maybe (throwMember (NonIOException e)) (throwMember . IOException) (fromException (toException e))
-
-unsafeIO :: Unexceptional m => IO a -> m a
-unsafeIO = unsafeFromIO
-
-runIO :: MonadIO m => UIO a -> m a
-runIO = run
-#else
-type FileIOErrors e = (Member FileError e)
-type FileIO e m = (MonadIO m, FileIOErrors e, MonadError (OneOf e) m)
-
-fileIO :: forall e m a. FileIO e m => IO a -> m a
-fileIO io = liftIO (Control.Exception.try io) >>= either (throwMember . IOException) return
-
-unsafeIO :: MonadIO m => IO a -> m a
-unsafeIO = liftIO
-
-runIO :: MonadIO m => IO a -> m a
-runIO = liftIO
-#endif
-
-instance (FileCacheErrors2 e m) => HasImageShapeM m BS.ByteString where
+instance (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => HasImageShapeM m BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)
-instance (FileCacheErrors2 e m) => HasImageShapeM m (FilePath, BS.ByteString) where
+instance (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => HasImageShapeM m (FilePath, BS.ByteString) where
   imageShapeM (path, input) = fileInfoFromPath (path, input)
 
 -- | Helper function to learn the 'ImageType' of a file by running
 -- @file -b@.
 fileInfoFromBytes ::
-  forall e m. (FileCacheErrors2 e m)
+  forall e m. (FileCacheErrors e m)
   => BS.ByteString
   -> m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath ("-", bytes)
 
 fileInfoFromPath ::
-  forall e m. (FileCacheErrors2 e m)
+  forall e m. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
   => (FilePath, BS.ByteString)
   -> m ImageShape
 fileInfoFromPath (path, input) =
-  lyftIO (LL.readProcessWithExitCode cmd args input) >>= fileInfoFromOutput path . view _2
+  liftUIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput path . view _2)
   where
     cmd = "file"
     args = ["-b", path]
 
 -- Note - no IO here
 fileInfoFromOutput ::
-  forall e m. (HasFileError e, MonadError e m)
+  forall e m. (Member FileError e, MonadError (OneOf e) m)
   => FilePath
   -> BS.ByteString
   -> m ImageShape
@@ -105,7 +70,7 @@ fileInfoFromOutput path output =
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
         (Just (w, h), Nothing) ->
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}
-        _ -> throwError (review fileError (NoShape ("fileInfoFromOutput path=" <> show path <> " output=" <> show output)))
+        _ -> throwMember (NoShape ("fileInfoFromOutput path=" <> show path <> " output=" <> show output))
   where
     output' :: Text
     output' = pack (toString output)

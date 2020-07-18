@@ -19,6 +19,7 @@ import Data.ByteString (ByteString)
 import Data.Function (on)
 import Data.SafeCopy
 import Data.Serialize (Serialize(..))
+import Extra.Except ({-instances only-})
 import Foreign.C.Types (CInt(..))
 import GHC.Generics (Generic)
 import GHC.IO.Exception (IOException(IOError), IOErrorType(..))
@@ -26,10 +27,6 @@ import System.Exit (ExitCode)
 import System.Posix (CGid(..), CUid(..))
 import System.Process -- (CmdSpec(..), CreateProcess(..))
 
-deriving instance Generic IOException
-instance Serialize IOException where
-  get = (\(t, l, d, e, p) -> IOError Nothing t l d e p) <$> get
-  put (IOError _ t l d e p) = put (t, l, d, e, p)
 instance SafeCopy IOException where
   putCopy (IOError _ t l d e p) = putCopy (t, l, d, e, p)
   getCopy = contain $ do get1 <- getSafeGet
@@ -46,12 +43,7 @@ instance Ord IOException where
   compare (IOError _ t1 l1 d1 e1 p1) (IOError _ t2 l2 d2 e2 p2) =
     compare (t1, l1, d1, e1, p1) (t2, l2, d2, e2, p2)
 
-deriving instance Generic CInt
-deriving instance Serialize CInt
 instance SafeCopy CInt
-
-deriving instance Generic IOErrorType
-deriving instance Serialize IOErrorType
 instance SafeCopy IOErrorType
 deriving instance Ord IOErrorType
 
