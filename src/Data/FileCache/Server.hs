@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators, UndecidableInstances #-}
-{-# OPTIONS -Wno-orphans #-}
+{-# OPTIONS -Wno-orphans -Wno-redundant-constraints #-}
 
 module Data.FileCache.Server
   ( -- * FileCacheTop

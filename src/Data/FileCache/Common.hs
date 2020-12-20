@@ -101,7 +101,8 @@ module Data.FileCache.Common
 
 import Control.Exception as E (Exception, ErrorCall, IOException)
 import Control.Lens (Identity(runIdentity), Iso', iso, Lens', lens, Prism', _Show)
-import Control.Lens.Path ( HOP(..), makePathInstances, makeValueInstance, HOP(FIELDS, VIEW), View(..), newtypeIso )
+import Control.Lens.Path ( HopType(..), HOP(..), HOP(FIELDS, VIEW), View(..), newtypeIso, Value(hops) )
+import Control.Lens.Path.TH (makePathInstances')
 import Control.Lens.Path.View ( viewIso )
 import Control.Monad.Except (withExceptT)
 import Data.Data ( Data )
@@ -821,29 +822,39 @@ instance SafeCopy CacheMap where
 
 deriving instance Show CacheMap
 
+
+instance Value File where hops _ = [RecType, CtorType]
+instance Value FileError where hops _ = []
+instance Value FileSource where hops _ = [RecType, CtorType]
+instance Value ImageFile where hops _ = [RecType, CtorType]
+instance Value ImageReady where hops _ = [RecType, CtorType]
+instance Value ImageShape where hops _ = [RecType, CtorType]
+instance Value ImageType where hops _ = []
+instance Value ImageSize where hops _ = [RecType, CtorType]
+instance Value Dimension where hops _ = []
+instance Value ImageCrop where hops _ = [RecType, CtorType]
+instance Value ImageKey where hops _ = [RecType, CtorType]
+instance Value Units where hops _ = []
+instance Value Rotation where hops _ = []
+instance Value CacheMap where hops _ = [RecType, CtorType]
+instance Value ContentType where hops _ = [RecType, CtorType]
+instance Value (SaneSize ImageSize) where hops _ = [ViewType]
+
 $(concat <$>
   sequence
-  [ makePathInstances [FIELDS] ''File
-  , makePathInstances [] ''FileError
-  , makePathInstances [FIELDS] ''FileSource
-  , makePathInstances [FIELDS] ''ImageFile
-  , makePathInstances [FIELDS] ''ImageReady
-  , makePathInstances [FIELDS] ''ImageShape
-  , makePathInstances [] ''ImageType
-  , makePathInstances [FIELDS] ''ImageSize
-  , makePathInstances [] ''Dimension
-  , makePathInstances [FIELDS] ''ImageCrop
-  , makePathInstances [FIELDS] ''ImageKey
-  , makePathInstances [] ''Units
-  , makePathInstances [] ''Rotation
-  , makePathInstances [FIELDS] ''CacheMap
-  , makePathInstances [FIELDS] ''ContentType
-  , makeValueInstance [VIEW] [t|SaneSize ImageSize|]
+  [ makePathInstances' [FIELDS] ''File
+  , makePathInstances' [FIELDS] ''FileSource
+  , makePathInstances' [FIELDS] ''ImageFile
+  , makePathInstances' [FIELDS] ''ImageReady
+  , makePathInstances' [FIELDS] ''ImageShape
+  , makePathInstances' [FIELDS] ''ImageSize
+  , makePathInstances' [FIELDS] ''ImageCrop
+  , makePathInstances' [FIELDS] ''ImageKey
+  , makePathInstances' [FIELDS] ''CacheMap
+  , makePathInstances' [FIELDS] ''ContentType
   , derivePathInfo ''ImagePath
-  -- , derivePathInfo ''ImageKey
   , derivePathInfo ''ImageCrop
   , derivePathInfo ''ImageSize
-  -- , derivePathInfo ''ImageType
   , derivePathInfo ''Dimension
   , derivePathInfo ''Units
   , derivePathInfo ''Rotation
