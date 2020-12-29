@@ -1,32 +1,30 @@
--- | Beginning of a parser for the output of file(1).
-
 {-# LANGUAGE OverloadedStrings, TupleSections, UndecidableInstances #-}
-{-# OPTIONS -Wall -Wredundant-constraints #-}
+
+-- | Beginning of a parser for the output of file(1).
 
 module Data.FileCache.FileInfo
   ( fileInfoFromBytes
   , fileInfoFromPath
   ) where
 
-import Control.Exception (fromException, IOException, toException)
-import Control.Lens (_2, review, view)
-import Data.ByteString as BS (ByteString)
-import Data.ByteString.UTF8 (toString)
+import Control.Exception ( IOException )
+import Control.Lens ( view, Field2(_2) )
+import Data.ByteString as BS ( ByteString )
+import Data.ByteString.UTF8 ( toString )
 import Data.FileCache.Common
-  (FileCacheErrors, FileCacheErrors2, FileError(IOException, NoShape), fileError, FileError, HasImageShapeM(..),
-   ImageShape(..), ImageType(..), Rotation(..))
-import Data.ListLike (show)
-import Data.Maybe(catMaybes, fromMaybe, listToMaybe)
---import Data.String (fromString)
-import Data.Text (pack, Text)
-import Extra.Errors (liftUIO, Member, OneOf, oneOf, throwMember)
-import Extra.Except (ExceptT, MonadError, MonadIO, NonIOException(..), runExceptT, {-splitException,-} throwError)
+  ( ImageType(..), Rotation(..), HasImageShapeM(..), ImageShape(..),
+    FileCacheErrors, FileError(NoShape) )
+import Data.ListLike ( show )
+import Data.Maybe ( catMaybes, listToMaybe )
+import Data.Text ( pack, Text )
+import Extra.Errors ( liftUIO, throwMember, Member, OneOf )
+import Extra.Except ( MonadError, NonIOException )
 import Prelude hiding (show)
-import qualified System.Process.ListLike as LL ( readProcessWithExitCode)
-import Text.Parsec as Parsec ((<|>), char, choice, digit, many, many1, sepBy,
-                              spaces, try, parse, string, noneOf)
-import Text.Parsec.Text (Parser)
-import UnexceptionalIO.Trans (fromIO, run, SomeNonPseudoException, UIO, Unexceptional, unsafeFromIO)
+import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
+import Text.Parsec as Parsec
+    ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )
+import Text.Parsec.Text ( Parser )
+import UnexceptionalIO.Trans ( Unexceptional )
 
 instance (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => HasImageShapeM m BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)

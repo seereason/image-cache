@@ -5,9 +5,8 @@
 
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# OPTIONS -Wno-orphans #-}
 
-module Data.FileCache.Types
+module Data.FileCache.CommandError
   ( CommandError
   , CommandInfo(..)
   , HasCommandError(fromCommandError)
