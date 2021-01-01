@@ -90,12 +90,12 @@ fileCachePathIO file = do
 
 type FileCacheT r s m = RWST r () s m
 
-runFileCacheT :: r -> s -> FileCacheT r s m a -> m (a, s, ())
+runFileCacheT :: (HasFileCacheTop r, HasCacheAcid r) => r -> s -> FileCacheT r s m a -> m (a, s, ())
 runFileCacheT r s0 action = runRWST action r s0
 
-evalFileCacheT :: Functor m => r -> s -> FileCacheT r s m a -> m a
+evalFileCacheT :: (HasFileCacheTop r, HasCacheAcid r) => Functor m => r -> s -> FileCacheT r s m a -> m a
 evalFileCacheT r s0 action = view _1 <$> runFileCacheT r s0 action
-execFileCacheT :: Functor m => r -> s -> FileCacheT r s m a-> m s
+execFileCacheT :: (HasFileCacheTop r, HasCacheAcid r) => Functor m => r -> s -> FileCacheT r s m a-> m s
 execFileCacheT r s0 action = view _2 <$> runFileCacheT r s0 action
 
 askCacheAcid :: (MonadReader r m, HasCacheAcid r) => m CacheAcid
