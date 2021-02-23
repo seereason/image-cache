@@ -6,14 +6,14 @@ module Data.FileCache.Process
   ) where
 
 import Control.Exception ( IOException )
+import Control.Monad.Except ( MonadError )
 import qualified Data.ByteString as BS ( ByteString )
 import Data.FileCache.Common ( FileError )
 import Data.FileCache.LogException ( logException )
 import Data.ListLike ( StringLike(show) )
 import Data.String ( fromString )
-import Extra.Errors ( liftUIO, throwMember, Member, OneOf )
-import qualified Extra.Errors as Errors ()
-import Extra.Except ( MonadError, NonIOException )
+import SeeReason.Errors ( liftUIO, throwMember, Member, NonIOException, OneOf )
+import qualified SeeReason.Errors as Errors ()
 import GHC.Stack ( HasCallStack )
 import Prelude ( (++), Monad((>>=), (>>), return), IO )
 import System.Exit ( ExitCode(..) )

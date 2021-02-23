@@ -17,8 +17,8 @@ import Data.FileCache.Common
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, listToMaybe )
 import Data.Text ( pack, Text )
-import Extra.Errors ( liftUIO, throwMember, Member, OneOf )
-import Extra.Except ( MonadError, NonIOException )
+import SeeReason.Errors ( liftUIO, throwMember, Member, NonIOException, OneOf )
+import Extra.Except ( MonadError )
 import Prelude hiding (show)
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
 import Text.Parsec as Parsec

@@ -27,7 +27,7 @@ import Data.FileCache.ImageFile
       ImageKey_2(..) )
 import Data.FileCache.File ( File(_fileChksum) )
 import Data.Map ( fromList, Map, toList )
-import Data.SafeCopy ( extension, Migrate(..), SafeCopy(..), SafeCopy', safeGet, safePut )
+import Data.SafeCopy ( extension, Migrate(..), SafeCopy(..), safeGet, safePut )
 import Data.Serialize ( Serialize(..) )
 import GHC.Generics ( Generic )
 
@@ -91,7 +91,7 @@ data CacheMap_2 key val =
     CacheMap_2 {_unCacheMap_2 :: Map key (CacheValue_1 val)}
     deriving (Generic, Eq, Ord)
 
-instance (Ord key, SafeCopy' key, SafeCopy' val) => SafeCopy (CacheMap_2 key val) where
+instance (Ord key, SafeCopy key, SafeCopy val) => SafeCopy (CacheMap_2 key val) where
   version = 2
   kind = extension
   errorTypeName _ = "Data.FileCache.Types.CacheMap_2"
@@ -108,4 +108,4 @@ data CacheValue_1 val
 
 deriving instance Show val => Show (CacheValue_1 val)
 
-instance SafeCopy' val => SafeCopy (CacheValue_1 val) where version = 1
+instance SafeCopy val => SafeCopy (CacheValue_1 val) where version = 1
