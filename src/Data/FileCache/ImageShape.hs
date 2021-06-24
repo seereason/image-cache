@@ -19,7 +19,6 @@ module Data.FileCache.ImageShape
   , scaleImageShape
   , cropImageShape
   , rotateImageShape
-  , ImageShape_0(ImageShape_0)
   ) where
 
 import Control.Lens ( Identity(runIdentity) )
@@ -34,7 +33,7 @@ import Data.FileCache.ImageType ( HasImageType(..), ImageType(JPEG) )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%) )
-import Data.SafeCopy ( extension, safeGet, safePut, Migrate(..), SafeCopy(version, kind) )
+import Data.SafeCopy ( base, safeGet, safePut, Migrate(..), SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
@@ -55,7 +54,7 @@ data ImageShape
       } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
 instance Serialize ImageShape where get = safeGet; put = safePut
-instance SafeCopy ImageShape where version = 1; kind = extension
+instance SafeCopy ImageShape where version = 1; kind = base
 
 instance Pretty ImageShape where
   pPrint (ImageShape typ w h rot) =
@@ -175,14 +174,3 @@ cropImageShape crop shape | crop == def = shape
 cropImageShape (ImageCrop{..}) shape =
   shape { _imageShapeWidth = _imageShapeWidth shape - (leftCrop + rightCrop)
         , _imageShapeHeight = _imageShapeHeight shape - (topCrop + bottomCrop) }
-
--- MIGRATIONS
-
-instance Migrate ImageShape where
-  type MigrateFrom ImageShape = ImageShape_0
-  -- We need to go through and repair the _imageFileOrientation field
-  -- after this migration occurs, probably in SetImageFileTypes.
-  migrate (ImageShape_0 typ w h) = ImageShape typ w h ZeroHr
-
-data ImageShape_0 = ImageShape_0 ImageType Int Int deriving Generic
-instance SafeCopy ImageShape_0

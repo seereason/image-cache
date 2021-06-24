@@ -22,7 +22,7 @@ import Control.Lens ( Prism' )
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.ImageKey ( ImageKey )
 import Data.FileCache.ImageFile ( ImageReady )
-import Data.SafeCopy ( extension, safeGet, safePut, Migrate(..), SafeCopy(version, kind) )
+import Data.SafeCopy ( base, safeGet, safePut, Migrate(..), SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
@@ -65,7 +65,7 @@ data FileError
 instance IsString FileError where fromString = FromString
 
 instance Exception FileError
-instance SafeCopy FileError where version = 3; kind = extension
+instance SafeCopy FileError where version = 3; kind = base
 instance Serialize FileError where get = safeGet; put = safePut
 
 --deriving instance Data FileError
@@ -91,49 +91,3 @@ type FileCacheErrors e m = (Unexceptional m, MonadError (OneOf e) m, Member File
 -- A little looser
 type FileCacheErrors2 e m = (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member NonIOException e, Show (OneOf e), Typeable (OneOf e), Typeable e)
 type FileCacheErrors3 e m = (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e, Show (OneOf e), Typeable (OneOf e), Typeable e)
-
--- MIGRATIONS
-
-data FileError_1
-    = IOException_1 Text
-    | ErrorCall_1 Text
-    | CommandFailure_1 CommandError
-    | CacheDamage_1
-    deriving (Eq, Ord, Generic)
-
-instance Migrate FileError_2 where
-  type MigrateFrom FileError_2 = FileError_1
-  migrate (IOException_1 _) = error "unexpected FileError migration"
-  migrate (ErrorCall_1 _) = error "unexpected FileError migration"
-  migrate (CommandFailure_1 info) = CommandFailure_2 info
-  migrate CacheDamage_1 = CacheDamage_2 ""
-
-instance SafeCopy FileError_1 where version = 1
-
-data FileError_2
-    = IOException_2 IOError -- ^ Caught an IOException
-    | ErrorCall_2 E.ErrorCall -- ^ Caught a call to error
-    | FromString_2 String -- ^ FileError created via IsString(fromstring)
-    | UnexpectedException_2 String
-      -- ^ Something unanticipated, not an IOException.  Because we
-      -- derive Eq we can't put a SomeException here, so its a string.
-    | CommandFailure_2 CommandError -- ^ A shell command failed
-    | CacheDamage_2 Text -- ^ The contents of the cache is wrong
-    | NoShape_2 Text
-      -- ^ Could not determine the dimensions of an image.  This comes
-      -- from failed attempt to parse the output of the unix file(1)
-      -- command, or attempts to scale or edit inappropriate file
-      -- types such as pdf.
-    deriving (Eq, Ord, Generic)
-
-instance SafeCopy FileError_2 where version = 2; kind = extension
-
-instance Migrate FileError where
-  type MigrateFrom FileError = FileError_2
-  migrate (IOException_2 e) = IOException e
-  migrate (ErrorCall_2 e) = ErrorCall e
-  migrate (FromString_2 s) = FromString s
-  migrate (UnexpectedException_2 s) = UnexpectedException s
-  migrate (CommandFailure_2 e) = CommandFailure e
-  migrate (CacheDamage_2 _) = CacheDamageMigrated
-  migrate (NoShape_2 t) = NoShape t

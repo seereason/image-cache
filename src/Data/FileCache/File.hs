@@ -20,7 +20,7 @@ import Data.FileCache.ImageType ( HasFileChecksum(..), Checksum, HasFileExtensio
 import Data.FileCache.Happstack ( ContentType(..) )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ( extension, safeGet, safePut, Migrate(..), SafeCopy(kind, version) )
+import Data.SafeCopy ( base, safeGet, safePut, Migrate(..), SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( pack, unpack )
 import Data.Typeable ( Typeable )
@@ -44,7 +44,7 @@ instance HasFileExtension File where fileExtension = _fileExt
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File " <> take 7 (unpack cksum) <> unpack ext)
-instance SafeCopy File where version = 3; kind = extension
+instance SafeCopy File where version = 3; kind = base
 instance Serialize File where get = safeGet; put = safePut
 deriving instance Show File
 deriving instance Read File
@@ -80,18 +80,3 @@ instance Arbitrary File where
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
 #endif
-
-instance Migrate File where
-  type MigrateFrom File = File_2
-  migrate (File_2 src cksum msgs ext) =
-    File {_fileSource = fromMaybe Legacy src, _fileChksum = pack cksum, _fileMessages = msgs, _fileExt = pack ext}
-
--- |A local cache of a file obtained from a 'FileSource'.
-data File_2
-    = File_2 { _fileSource_2 :: Maybe FileSource
-             , _fileChksum_2 :: String
-             , _fileMessages_2 :: [String]
-             , _fileExt_2 :: String
-             } deriving (Generic, Eq, Ord)
-
-instance SafeCopy File_2 where version = 2

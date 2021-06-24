@@ -15,7 +15,7 @@ module Data.FileCache.ImageCrop
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ( extension, safeGet, safePut, Migrate(..), SafeCopy(kind, version) )
+import Data.SafeCopy ( base, safeGet, safePut, Migrate(..), SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
@@ -38,7 +38,7 @@ data Rotation = ZeroHr | ThreeHr | SixHr | NineHr deriving (Generic, Eq, Ord, Sh
 
 instance Default ImageCrop where def = ImageCrop 0 0 0 0 ZeroHr
 instance Serialize ImageCrop where get = safeGet; put = safePut
-instance SafeCopy ImageCrop where kind = extension; version = 1
+instance SafeCopy ImageCrop where kind = base; version = 1
 deriving instance Data ImageCrop
 deriving instance Read ImageCrop
 deriving instance Show ImageCrop
@@ -51,24 +51,3 @@ instance Pretty ImageCrop where
     pPrint (ImageCrop 0 0 0 0 ZeroHr) = text "(no crop)"
     pPrint (ImageCrop t b l r ZeroHr) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ")"
     pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
-
--- MIGRATIONS
-
-data ImageCrop_0
-    = ImageCrop_0
-      { topCrop_0 :: Int
-      , bottomCrop_0 :: Int
-      , leftCrop_0 :: Int
-      , rightCrop_0 :: Int
-      , rotation_0 :: Int         -- 0, 90, 180, 270
-      } deriving (Generic, Eq, Ord)
-
-instance Migrate ImageCrop where
-  type MigrateFrom ImageCrop = ImageCrop_0
-  migrate (ImageCrop_0 t b l r rot) =
-    ImageCrop t b l r (case rot of
-                         90 -> ThreeHr
-                         180 -> SixHr
-                         270 -> NineHr
-                         _ -> ZeroHr)
-instance SafeCopy ImageCrop_0 where version = 0

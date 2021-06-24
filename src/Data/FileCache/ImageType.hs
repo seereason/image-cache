@@ -19,7 +19,7 @@ module Data.FileCache.ImageType
 
 import Data.Data ( Data )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ( extension, safeGet, safePut, Migrate(..), SafeCopy(kind, version) )
+import Data.SafeCopy ( base, safeGet, safePut, Migrate(..), SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( Text )
 import Data.Typeable ( Typeable )
@@ -37,7 +37,7 @@ deriving instance Read ImageType
 deriving instance Show ImageType
 deriving instance Typeable ImageType
 instance Serialize ImageType where get = safeGet; put = safePut
-instance SafeCopy ImageType where version = 1; kind = extension
+instance SafeCopy ImageType where version = 1; kind = base
 instance Pretty ImageType where pPrint = text . show
 
 type Extension = Text
@@ -70,15 +70,3 @@ instance PathInfo ImageType where
     (segment ("i" <> fileExtension PNG) >> return PNG) <|>
     (segment ("i" <> fileExtension PDF) >> return PDF) <|>
     (segment ("i" <> fileExtension Unknown) >> return Unknown)
-
--- MIGRATIONS
-
-data ImageType_0 = PPM_0 | JPEG_0 | GIF_0 | PNG_0 | Unknown_0 deriving (Generic, Eq, Ord)
-instance SafeCopy ImageType_0 where version = 0
-instance Migrate ImageType where
-  type MigrateFrom ImageType = ImageType_0
-  migrate = \case PPM_0 -> PPM
-                  JPEG_0 -> JPEG
-                  GIF_0 -> GIF
-                  PNG_0 -> PNG
-                  Unknown_0 -> Unknown
