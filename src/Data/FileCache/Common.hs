@@ -20,8 +20,7 @@ module Data.FileCache.Common
   , module Data.FileCache.CacheMap
   ) where
 
-import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType, ViewType), Value(..) )
-import Control.Lens.Path.TH ( pathInstances )
+import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType, ViewType), pathInstances, Value(..) )
 import Control.Monad.Except (throwError)
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.Rational

@@ -20,8 +20,7 @@ module Data.FileCache.ImageSize
   ) where
 
 import Control.Lens ( iso, _Show )
-import Control.Lens.Path ( newtypeIso, View(..) )
-import Control.Lens.Path.View ( viewIso )
+import Control.Lens.Path ( newtypeIso, View(..), viewIso )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.FileCache.Rational ( showRational )

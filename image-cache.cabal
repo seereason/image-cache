@@ -54,7 +54,7 @@ Library
     hslogger,
     HUnit,
     lens,
-    lens-path >= 3.20,
+    lens-path >= 3.23,
     mtl,
     network-uri,
     parsec,
