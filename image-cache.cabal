@@ -91,7 +91,7 @@ Library
     Build-Depends:
       acid-state >= 0.16,
       filemanip-extra,
-      JuicyPixels >= 3.3.5,
+      JuicyPixels,
       ListLike,
       process >= 1.4.3,
       process-extras >= 0.7,
