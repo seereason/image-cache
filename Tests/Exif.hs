@@ -1,7 +1,8 @@
 {-# LANGUAGE CPP #-}
 module Exif (Exif.tests) where
 
-import Data.FileCache.Server
+import Data.FileCache.ImageIO (getEXIFOrientationCode)
+import Data.FileCache.Server hiding (ErrorCall)
 import Control.Exception (ErrorCall(ErrorCall), try, evaluate)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 (pack)

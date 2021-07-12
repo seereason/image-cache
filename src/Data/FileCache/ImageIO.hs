@@ -9,22 +9,17 @@ module Data.FileCache.ImageIO
   , editImage'
   ) where
 
+import Codec.Picture.Jpg
+import Codec.Picture.Metadata hiding (Unknown)
+import Codec.Picture.Metadata.Exif
 import Control.Exception ( IOException )
-import Control.Monad ( when )
+import Control.Lens (preview, _Right, _2, to, _Just)
+import Data.Generics.Sum (_Ctor)
+--import Control.Monad ( when )
 import Control.Monad.Trans.Except ( runExceptT )
-import Data.Binary.Get
-    ( getLazyByteString,
-      Get,
-      skip,
-      bytesRead,
-      getWord16be,
-      getWord32be,
-      getWord16le,
-      getWord32le,
-      runGetOrFail )
 import qualified Data.ByteString as BS ( ByteString, empty, readFile )
-import Data.ByteString.Lazy ( fromStrict, toStrict )
-import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
+--import Data.ByteString.Lazy ( fromStrict, toStrict )
+--import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import Data.Char ( isSpace )
 import Data.Default ( def )
 import Data.FileCache.Process ( readCreateProcessWithExitCode', pipeline )
@@ -37,11 +32,10 @@ import Data.Monoid ( (<>) )
 import Data.String ( fromString )
 import Data.Text as T ( Text )
 import Data.Text.Encoding ( decodeUtf8 )
-import Data.Word ( Word16, Word32 )
 import SeeReason.Errors ( liftUIO, throwMember, Member, NonIOException, OneOf )
 import qualified SeeReason.Errors as Errors ()
 import Extra.Except ( MonadError(throwError), tryError )
-import GHC.Int ( Int64 )
+import GHC.Generics (Generic)
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
@@ -49,7 +43,7 @@ import Prelude hiding (show)
 import System.Exit ( ExitCode(..) )
 import System.Log.Logger ( Priority(ERROR) )
 import System.Process ( proc, shell, showCommandForUser, CreateProcess )
-import System.Process.ByteString.Lazy as LBS ( readCreateProcessWithExitCode )
+import System.Process.ByteString as BS ( readCreateProcessWithExitCode )
 import System.Process.ListLike as LL ( readCreateProcess )
 import Text.Parsec
     ( Parsec,
@@ -120,8 +114,10 @@ uprightImage' bs =
   -- Use liftUIO to turn the IOException into ExceptT FileError m,
   -- then flatten the two layers of ExceptT FileError into one, then
   -- turn the remaining one into a Maybe.
-  either (\(_ :: OneOf e) -> Nothing) (Just . toStrict) <$> runExceptT (normalizeOrientationCode @e (fromStrict bs))
+  either (\(_ :: OneOf e) -> Nothing) Just <$> runExceptT (normalizeOrientationCode @e bs)
     -- runExceptT (runExceptT (liftUIO (normalizeOrientationCode (fromStrict bs))) >>= liftEither)
+
+deriving instance Generic ExifData
 
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the
@@ -134,100 +130,28 @@ uprightImage' bs =
 -- transformation on the jpeg image.
 normalizeOrientationCode ::
   forall e m. (Unexceptional m, Member FileError e, Member IOException e, Member NonIOException e, MonadError (OneOf e) m)
-  => LBS.ByteString
-  -> m LBS.ByteString
+  => BS.ByteString
+  -> m BS.ByteString
 normalizeOrientationCode bs = do
-  let result = runGetOrFail getEXIFOrientationCode bs :: (Either (LBS.ByteString, Int64, String) (LBS.ByteString, Int64, (Int, Int64, Bool)))
-  case result of
-    Right (_, _, (2, pos, flag)) -> transform ["-flip", "horizontal"] pos flag
-    Right (_, _, (3, pos, flag)) -> transform ["-rotate", "180"] pos flag
-    Right (_, _, (4, pos, flag)) -> transform ["-flip", "vertical"] pos flag
-    Right (_, _, (5, pos, flag)) -> transform ["-transpose"] pos flag
-    Right (_, _, (6, pos, flag)) -> transform ["-rotate", "90"] pos flag
-    Right (_, _, (7, pos, flag)) -> transform ["-transverse"] pos flag
-    Right (_, _, (8, pos, flag)) -> transform ["-rotate", "270"] pos flag
-    Right x -> throwMember $ fromString @FileError $ "Unexpected exif orientation code: " <> show x
-    Left x -> throwMember $ fromString @FileError $ "Failure parsing exif orientation code: " <> show x
+  case preview (_Right . _2 . to (Codec.Picture.Metadata.lookup (Exif TagOrientation)) . _Just . _Ctor @"ExifShort") (decodeJpegWithMetadata bs) of
+    Just 2 -> transform ["-F"] -- ["-flip", "horizontal"]
+    Just 3 -> transform ["-1"] -- ["-rotate", "180"]
+    Just 4 -> transform ["-f"] -- ["-flip", "vertical"]
+    Just 5 -> transform ["-t"] -- ["-transpose"]
+    Just 6 -> transform ["-9"] -- ["-rotate", "90"]
+    Just 7 -> transform ["-T"] -- ["-transverse"]
+    Just 8 -> transform ["-2"] -- ["-rotate", "270"]
+    Just x -> throwMember $ fromString @FileError $ "Unexpected exif orientation code: " <> show x
+    Nothing -> throwMember $ fromString @FileError "Failure parsing exif orientation code"
     where
-      transform :: [String] -> Int64 -> Bool -> m LBS.ByteString
-      transform args pos isMotorola = do
-        let cp = proc cmd args'
-            cmd = "jpegtran"
-            args' = (["-copy", "all"] ++ args)
-            hd = LBS.take pos bs            -- everything before the orientation code
-            flag = LBS.pack (if isMotorola then [0x0, 0x1] else [0x1, 0x0]) -- orientation code 1
-            tl = LBS.drop (pos + 2) bs      -- everything after the orientation code
-            bs' = LBS.concat [hd, flag, tl]
-        (result, out, err) <- liftUIO (LBS.readCreateProcessWithExitCode (proc cmd args') bs')
+      transform :: [String] -> m BS.ByteString
+      transform args = do
+        let cp = proc cmd args
+            cmd = "exiftran"
+        (result, out, err) <- liftUIO (BS.readCreateProcessWithExitCode (proc cmd args) bs)
         case result of
           ExitSuccess -> return out
-          ExitFailure _ -> throwMember $ CommandFailure [CommandErr (toStrict err), CommandCreateProcess cp, CommandExitCode result]
-
--- | Read the orientation code of a JPEG file, returning its value,
--- the offset of the two byte code in the file, and the "isMotorola"
--- flag which determines something about the endianness.
-getEXIFOrientationCode :: Get (Int, Int64, Bool)
-getEXIFOrientationCode = do
-  getLazyByteString 4 >>= doJPEGHeader
-  headerLength <- getWord16be >>= markerParameterLength
-  getLazyByteString 6 >>= testEXIFHead
-  isMotorola <- getLazyByteString 2 >>= discoverByteOrder
-  getLazyByteString 2 >>= checkTagMark isMotorola
-  offset <- getWord32Motorola isMotorola >>= testIFDOffset headerLength
-  skip (fromIntegral offset - 8)
-  numberOfTags <- getWord16Motorola isMotorola >>= testNumberOfTags
-  findOrientationTag isMotorola (headerLength - 8) numberOfTags (offset + 2)
-    where
-      doJPEGHeader :: Monad m => LBS.ByteString -> m ()
-      doJPEGHeader x = when (LBS.unpack x /= [0xff, 0xd8, 0xff, 0xe1] && LBS.unpack x /= [0xff, 0xd8, 0xff, 0xe0]) (fail $ "Invalid JPEG header: " ++ show (LBS.unpack x))
-
-      markerParameterLength :: Word16 -> Get Int64
-      markerParameterLength w
-          | w < 8 = fail $ "Length field much too short: " ++ show w
-          | w < 20 = fail $ "Length field too short: " ++ show w
-          | otherwise = return $ fromIntegral $ w - 8
-
-      testEXIFHead :: LBS.ByteString -> Get ()
-      testEXIFHead x = when (LBS.unpack x /= [0x45, 0x78, 0x69, 0x66, 0x0, 0x0]) (fail $ "Invalid EXIF header: " ++ show (LBS.unpack x))
-
-      discoverByteOrder :: LBS.ByteString -> Get Bool
-      discoverByteOrder x =
-          case LBS.unpack x of
-            [0x49, 0x49] -> return True
-            [0x4d, 0x4d] -> return False
-            s -> fail $ "Invalid byte order: " ++ show s
-
-      checkTagMark :: Bool -> LBS.ByteString -> Get ()
-      checkTagMark True x = when (LBS.unpack x /= [0x2a, 0x0]) (fail $ "Invalid tag mark True: " ++ show (LBS.unpack x))
-      checkTagMark False x = when (LBS.unpack x /= [0x0, 0x2a]) (fail $ "Invalid tag mark False: " ++ show (LBS.unpack x))
-
-      testIFDOffset :: Int64 -> Word32 -> Get Word32
-      testIFDOffset len x = if x > 0xffff || fromIntegral x > len - 2 then fail ("Invalid IFD offset: " ++ show x) else return x
-
-      testNumberOfTags :: Word16 -> Get Word16
-      testNumberOfTags n = if n > 0 then return n else fail "No tags"
-
-findOrientationTag :: Bool -> Int64 -> Word16 -> Word32 -> Get (Int, Int64, Bool)
-findOrientationTag isMotorola headerLength numberOfTags offset = do
-    when  (fromIntegral offset > headerLength - 12 || numberOfTags < 1) (fail "No orientation tag")
-    tagnum <- getWord16Motorola isMotorola
-    case tagnum of
-      0x0112 -> do
-        skip 6
-        pos <- bytesRead
-        flag <- getWord16Motorola isMotorola
-        if flag < 1 || flag > 8 then fail "Invalid orientation flag" else return (fromIntegral flag, pos, isMotorola)
-      _ -> do
-        skip 10
-        findOrientationTag isMotorola headerLength (numberOfTags - 1) (offset + 12)
-
-getWord16Motorola :: Bool -> Get Word16
-getWord16Motorola True = getWord16le
-getWord16Motorola False = getWord16be
-
-getWord32Motorola :: Bool -> Get Word32
-getWord32Motorola True = getWord32le
-getWord32Motorola False = getWord32be
+          ExitFailure _ -> throwMember $ CommandFailure [CommandErr err, CommandCreateProcess cp, CommandExitCode result]
 
 data Format = Binary | Gray | Color
 data RawOrPlain = Raw | Plain

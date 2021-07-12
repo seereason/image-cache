@@ -49,17 +49,17 @@ fileCacheDir' = FileCacheTop "Tests/filecache"
 oldfile :: FilePath
 oldfile = "/usr/share/doc/cron/THANKS"
 
-type AcidM m = RWST (AcidState (CacheMap String String FileError)) () () m
-type FileM m = FileCacheT (AcidState (CacheMap String String FileError)) () () m
+type AcidM m = RWST (AcidState CacheMap) () () m
+type FileM m = FileCacheT (AcidState CacheMap) () m
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
-instance (MonadIO m, MonadCatch m, MonadError FileError m) => HasCacheAcid String String FileError (AcidM m) where
-    askCacheAcid = ask
-    buildCacheValue = return . Cached . reverse
+instance (MonadIO m, MonadCatch m, MonadError FileError m) => HasCacheAcid (AcidM m ()) where
+    cacheAcid = ask
+    -- buildCacheValue = return . Cached . reverse
 
-instance HasCacheAcid String String FileError m => HasCacheAcid String String FileError (ReaderT FilePath m) where
-    cacheAcid = lift askCacheAcid
+instance HasCacheAcid m => HasCacheAcid (ReaderT FilePath m) where
+    cacheAcid = lift cacheAcid
 
 runMonadCacheT ::
     Monad m

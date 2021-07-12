@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.18
+Version:        0.19
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -74,7 +74,7 @@ Library
     unexceptionalio-trans,
     web-routes,
     web-routes-th
-  if !impl(ghcjs)
+  if impl(ghc)
     Exposed-Modules:
       Data.FileCache.Acid
       -- Data.FileCache.Background
@@ -91,6 +91,7 @@ Library
     Build-Depends:
       acid-state,
       filemanip-extra,
+      JuicyPixels,
       ListLike,
       process >= 1.4.3,
       process-extras >= 0.7,
@@ -121,7 +122,7 @@ test-suite image-cache-tests
     filepath,
     HaTeX,
     HUnit,
-    image-cache,
+    image-cache >= 0.19,
     mtl,
     text
   if !impl(ghcjs)
