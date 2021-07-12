@@ -7,25 +7,26 @@ let
   f = { mkDerivation, acid-state, base, binary, bytestring, cereal
       , containers, data-default, directory, either, exceptions
       , filemanip-extra, filepath, generic-data, generic-lens, HaTeX
-      , hslogger, HUnit, lens, lens-path, mtl, network-uri, parsec
-      , pretty, process, process-extras, pureMD5, QuickCheck
-      , regex-compat-tdfa, regex-tdfa, safecopy, sr-extra, stdenv, syb
-      , template-haskell, text, th-lift, th-orphans, transformers
-      , unexceptionalio, unexceptionalio-trans, unix, Unixutils
+      , hslogger, HUnit, JuicyPixels, lens, lens-path, ListLike, mtl
+      , network-uri, parsec, pretty, process, process-extras, pureMD5
+      , QuickCheck, regex-compat-tdfa, regex-tdfa, safecopy, sr-errors
+      , sr-extra, stdenv, syb, template-haskell, text, th-lift
+      , th-orphans, transformers, unexceptionalio-trans, unix, Unixutils
       , utf8-string, web-routes, web-routes-th
       }:
       mkDerivation {
         pname = "image-cache";
-        version = "0.15";
+        version = "0.19";
         src = ./.;
         libraryHaskellDepends = [
           acid-state base binary bytestring cereal containers data-default
           directory exceptions filemanip-extra filepath generic-data
-          generic-lens hslogger HUnit lens lens-path mtl network-uri parsec
-          pretty process process-extras pureMD5 QuickCheck regex-compat-tdfa
-          regex-tdfa safecopy sr-extra syb template-haskell text th-lift
-          th-orphans transformers unexceptionalio unexceptionalio-trans unix
-          Unixutils utf8-string web-routes web-routes-th
+          generic-lens hslogger HUnit JuicyPixels lens lens-path ListLike mtl
+          network-uri parsec pretty process process-extras pureMD5 QuickCheck
+          regex-compat-tdfa regex-tdfa safecopy sr-errors sr-extra syb
+          template-haskell text th-lift th-orphans transformers
+          unexceptionalio-trans unix Unixutils utf8-string web-routes
+          web-routes-th
         ];
         testHaskellDepends = [
           acid-state base binary bytestring containers directory either
