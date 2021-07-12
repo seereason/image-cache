@@ -98,6 +98,7 @@ Library
       QuickCheck,
       regex-tdfa,
       regex-compat-tdfa,
+      temporary,
       unix,
       Unixutils,
       utf8-string

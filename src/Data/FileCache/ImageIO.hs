@@ -9,15 +9,14 @@ module Data.FileCache.ImageIO
   , editImage'
   ) where
 
-import Codec.Picture.Jpg
-import Codec.Picture.Metadata hiding (Unknown)
-import Codec.Picture.Metadata.Exif
+import Codec.Picture.Jpg (decodeJpegWithMetadata)
+import Codec.Picture.Metadata (Keys(Exif), lookup)
+import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
 import Control.Exception ( IOException )
 import Control.Lens (preview, _Right, _2, to, _Just)
 import Data.Generics.Sum (_Ctor)
---import Control.Monad ( when )
 import Control.Monad.Trans.Except ( runExceptT )
-import qualified Data.ByteString as BS ( ByteString, empty, readFile )
+import qualified Data.ByteString as BS ( ByteString, empty, hPutStr, readFile )
 --import Data.ByteString.Lazy ( fromStrict, toStrict )
 --import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import Data.Char ( isSpace )
@@ -32,15 +31,17 @@ import Data.Monoid ( (<>) )
 import Data.String ( fromString )
 import Data.Text as T ( Text )
 import Data.Text.Encoding ( decodeUtf8 )
-import SeeReason.Errors ( liftUIO, throwMember, Member, NonIOException, OneOf )
+import SeeReason.Errors as Err ( liftUIO, throwMember, Member, NonIOException, OneOf, Set(set) )
 import qualified SeeReason.Errors as Errors ()
-import Extra.Except ( MonadError(throwError), tryError )
+import Extra.Except ( ExceptT, liftIO, MonadError(throwError), tryError )
 import GHC.Generics (Generic)
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
 import Prelude hiding (show)
 import System.Exit ( ExitCode(..) )
+import System.IO (Handle, hFlush, hClose)
+import System.IO.Temp (withSystemTempFile)
 import System.Log.Logger ( Priority(ERROR) )
 import System.Process ( proc, shell, showCommandForUser, CreateProcess )
 import System.Process.ByteString as BS ( readCreateProcessWithExitCode )
@@ -114,7 +115,7 @@ uprightImage' bs =
   -- Use liftUIO to turn the IOException into ExceptT FileError m,
   -- then flatten the two layers of ExceptT FileError into one, then
   -- turn the remaining one into a Maybe.
-  either (\(_ :: OneOf e) -> Nothing) Just <$> runExceptT (normalizeOrientationCode @e bs)
+  liftUIO $ either (\(_ :: FileError) -> Nothing) Just <$> runExceptT (normalizeOrientationCode bs)
     -- runExceptT (runExceptT (liftUIO (normalizeOrientationCode (fromStrict bs))) >>= liftEither)
 
 deriving instance Generic ExifData
@@ -128,10 +129,15 @@ deriving instance Generic ExifData
 --
 -- This is an IO operation because it runs jpegtran(1) to perform the
 -- transformation on the jpeg image.
-normalizeOrientationCode ::
-  forall e m. (Unexceptional m, Member FileError e, Member IOException e, Member NonIOException e, MonadError (OneOf e) m)
-  => BS.ByteString
-  -> m BS.ByteString
+--
+-- % let lns = (_Right . _2 . to (Codec.Picture.Metadata.lookup (Exif TagOrientation)) . _Just . _Ctor @"ExifShort")
+-- % bs <- Data.ByteString.readFile "../happstack-ghcjs/IMAGES/IMG_4705.JPG"
+-- % preview lns (decodeJpegWithMetadata bs)
+-- Just 6
+-- % Right bs' <- runExceptT (normalizeOrientationCode bs)
+-- % preview lns (decodeJpegWithMetadata bs')
+-- Just 1
+normalizeOrientationCode :: BS.ByteString -> ExceptT FileError IO BS.ByteString
 normalizeOrientationCode bs = do
   case preview (_Right . _2 . to (Codec.Picture.Metadata.lookup (Exif TagOrientation)) . _Just . _Ctor @"ExifShort") (decodeJpegWithMetadata bs) of
     Just 2 -> transform ["-F"] -- ["-flip", "horizontal"]
@@ -141,17 +147,21 @@ normalizeOrientationCode bs = do
     Just 6 -> transform ["-9"] -- ["-rotate", "90"]
     Just 7 -> transform ["-T"] -- ["-transverse"]
     Just 8 -> transform ["-2"] -- ["-rotate", "270"]
-    Just x -> throwMember $ fromString @FileError $ "Unexpected exif orientation code: " <> show x
-    Nothing -> throwMember $ fromString @FileError "Failure parsing exif orientation code"
+    Just x -> throwError $ fromString @FileError ("Unexpected exif orientation code: " <> show x)
+    Nothing -> throwError $ fromString @FileError "Failure parsing exif orientation code"
     where
-      transform :: [String] -> m BS.ByteString
-      transform args = do
-        let cp = proc cmd args
-            cmd = "exiftran"
-        (result, out, err) <- liftUIO (BS.readCreateProcessWithExitCode (proc cmd args) bs)
+      transform :: [String] -> ExceptT FileError IO BS.ByteString
+      transform args = withSystemTempFile "exiftran" (\path handle -> run args path handle)
+      run :: [String] -> FilePath -> Handle -> ExceptT FileError IO BS.ByteString
+      run args path handle = do
+        liftIO $ BS.hPutStr handle bs
+        liftIO $ hFlush handle
+        liftIO $ hClose handle
+        let cp = proc "exiftran" (["-i"] <> args <> [path])
+        (result, _out, err) <- liftIO $ BS.readCreateProcessWithExitCode cp bs
         case result of
-          ExitSuccess -> return out
-          ExitFailure _ -> throwMember $ CommandFailure [CommandErr err, CommandCreateProcess cp, CommandExitCode result]
+          ExitSuccess -> liftIO $ BS.readFile path
+          ExitFailure _ -> throwError $ fromString @FileError (show (CommandFailure [CommandErr err, CommandCreateProcess cp, CommandExitCode result]))
 
 data Format = Binary | Gray | Color
 data RawOrPlain = Raw | Plain
