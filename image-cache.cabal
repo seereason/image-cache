@@ -74,7 +74,7 @@ Library
     unexceptionalio-trans,
     web-routes,
     web-routes-th
-  if impl(ghc)
+  if !impl(ghcjs)
     Exposed-Modules:
       Data.FileCache.Acid
       -- Data.FileCache.Background
@@ -106,29 +106,30 @@ Library
   else
     Build-Depends: Cabal
 
---test-suite image-cache-tests
---  Buildable: False
---  type: exitcode-stdio-1.0
---  Hs-Source-Dirs: Tests
---  Main-Is: Main.hs
---  Other-Modules: Cache Exif LaTeX
---  Build-Depends:
---    acid-state,
---    base >= 4,
---    binary,
---    bytestring,
---    containers,
---    directory,
---    either,
---    exceptions,
---    filepath,
---    HaTeX,
---    HUnit,
---    image-cache >= 0.19,
---    mtl,
---    text
---  if impl(ghc)
---    Build-Depends:
---      filemanip-extra
---    build-tools:
---      fbida
+test-suite image-cache-tests
+  if !impl(ghcjs)
+    Buildable: False
+  else
+    Buildable: False
+  type: exitcode-stdio-1.0
+  Hs-Source-Dirs: Tests
+  Main-Is: Main.hs
+  Other-Modules: Cache Exif LaTeX
+  Build-Depends:
+    acid-state,
+    base >= 4,
+    binary,
+    bytestring,
+    containers,
+    directory,
+    either,
+    exceptions,
+    filemanip-extra,
+    filepath,
+    HaTeX,
+    HUnit,
+    image-cache >= 0.19,
+    mtl,
+    text
+  build-tools:
+    fbida
