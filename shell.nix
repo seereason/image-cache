@@ -5,7 +5,7 @@ let
   inherit (nixpkgs) pkgs;
 
   f = { mkDerivation, acid-state, base, binary, bytestring, cereal
-      , containers, data-default, directory, either, exceptions
+      , containers, data-default, directory, either, exceptions, fbida
       , filemanip-extra, filepath, generic-data, generic-lens, HaTeX
       , hslogger, HUnit, JuicyPixels, lens, lens-path, ListLike, mtl
       , network-uri, parsec, pretty, process, process-extras, pureMD5
@@ -28,6 +28,7 @@ let
           unexceptionalio-trans unix Unixutils utf8-string web-routes
           web-routes-th
         ];
+        libraryToolDepends = [ fbida ];
         testHaskellDepends = [
           acid-state base binary bytestring containers directory either
           exceptions filemanip-extra filepath HaTeX HUnit mtl text

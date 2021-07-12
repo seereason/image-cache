@@ -89,9 +89,9 @@ Library
       Data.FileCache.Test
       Data.FileCache.Upload
     Build-Depends:
-      acid-state,
+      acid-state >= 0.16,
       filemanip-extra,
-      JuicyPixels,
+      JuicyPixels >= 3.3.5,
       ListLike,
       process >= 1.4.3,
       process-extras >= 0.7,
@@ -101,6 +101,8 @@ Library
       unix,
       Unixutils,
       utf8-string
+    build-tools:
+      fbida
   else
     Build-Depends: Cabal
 
@@ -125,6 +127,8 @@ test-suite image-cache-tests
     image-cache >= 0.19,
     mtl,
     text
-  if !impl(ghcjs)
+  if impl(ghc)
     Build-Depends:
       filemanip-extra
+    build-tools:
+      fbida
