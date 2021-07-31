@@ -63,7 +63,7 @@ Library
     process,
     pureMD5,
     safecopy >= 0.9.4.4,
-    sr-errors,
+    sr-errors >= 1.1,
     sr-extra >= 1.79,
     syb,
     template-haskell,

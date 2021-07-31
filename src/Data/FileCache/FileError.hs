@@ -87,7 +87,7 @@ instance HasFileError FileError where fileError = id
 -- @NonIO@ parts.  It also has FileException, an error type defined in
 -- this package.
 
-type FileCacheErrors e m = (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member NonIOException e, Member IOException e, Show (OneOf e), Typeable (OneOf e), Typeable e)
+type FileCacheErrors e m =  (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable (OneOf e), Typeable e, Member NonIOException e, Member IOException e, Member FileError e)
 -- A little looser
-type FileCacheErrors2 e m = (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member NonIOException e, Show (OneOf e), Typeable (OneOf e), Typeable e)
-type FileCacheErrors3 e m = (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e, Show (OneOf e), Typeable (OneOf e), Typeable e)
+type FileCacheErrors2 e m = (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable (OneOf e), Typeable e, Member NonIOException e, Member FileError e)
+type FileCacheErrors3 e m = (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable (OneOf e), Typeable e, Member NonIOException e, Member IOException e)

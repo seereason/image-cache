@@ -114,7 +114,7 @@ cacheLookImages ::
   => [ImageKey] -> m [(ImageKey, Maybe (Either FileError ImageFile))]
 cacheLookImages keys = mapM (\key -> (key,) <$> cacheLook key) keys
 
-instance HasFileError (OneOf (FileError ': e)) where fileError = Errors.oneOf
+instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
 
 -- | Compute the shapes of requested images
 cacheImageShape ::
