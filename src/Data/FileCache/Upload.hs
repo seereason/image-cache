@@ -32,9 +32,10 @@ import SeeReason.Errors ( liftUIO, runOneOf, Member, NonIOException, OneOf )
 import Extra.Except ( MonadError(throwError), MonadTrans(lift), ExceptT )
 import GHC.Stack ( HasCallStack )
 import Prelude hiding (show)
+import SeeReason.LogServer(alog)
 import System.Directory ( doesFileExist )
 import System.FilePath.Extra ( writeFileReadable )
-import System.Log.Logger ( logM, Priority(..) )
+import System.Log.Logger ( Priority(..) )
 import UnexceptionalIO.Trans ( Unexceptional )
 import UnexceptionalIO.Trans as UIO ( unsafeFromIO )
 
@@ -82,7 +83,7 @@ cacheOriginalImage source x = do
   img <- buildOriginalImage source x
   let key = originalKey img
       val = ImageFileReady img
-  unsafeFromIO (logM "Data.FileCache.Server" DEBUG ("cachePut " ++ show key))
+  unsafeFromIO (alog DEBUG ("cachePut " ++ show key))
   cachePut_ key (Right val)
   return (key, val)
 

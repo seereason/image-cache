@@ -20,11 +20,12 @@ import Data.Text ( pack, Text )
 import SeeReason.Errors ( liftUIO, throwMember, Member, NonIOException, OneOf )
 import Extra.Except ( MonadError )
 import Prelude hiding (show)
+import SeeReason.LogServer (alog, Priority(DEBUG, ERROR))
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
 import Text.Parsec as Parsec
     ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )
 import Text.Parsec.Text ( Parser )
-import UnexceptionalIO.Trans ( Unexceptional )
+import UnexceptionalIO.Trans ( Unexceptional, unsafeFromIO )
 
 instance (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => HasImageShapeM m BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)
@@ -51,13 +52,15 @@ fileInfoFromPath (path, input) =
 
 -- Note - no IO here
 fileInfoFromOutput ::
-  forall e m. (Member FileError e, MonadError (OneOf e) m)
+  forall e m. (Member FileError e, MonadError (OneOf e) m, Unexceptional m)
   => FilePath
   -> BS.ByteString
   -> m ImageShape
-fileInfoFromOutput path output =
+fileInfoFromOutput path output = do
+  unsafeFromIO $ alog DEBUG ("fileInfoFromOutput " <> show path <> " " <> show output)
   case parse pFileOutput path output' of
-    Left _e ->
+    Left _e -> do
+      unsafeFromIO $ alog ERROR ("pFileOutput -> " <> show _e)
       return $ ImageShape {_imageShapeType = Unknown, _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
       -- throwError $ fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (PDF, []) -> return $ ImageShape PDF 0 0 ZeroHr

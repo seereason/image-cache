@@ -66,12 +66,13 @@ import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( fromRat, showFFloat )
 import Prelude hiding (length, show)
+import SeeReason.LogServer (alog)
 import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( (</>), makeRelative, takeDirectory )
 import System.FilePath.Extra ( writeFileReadable )
 import System.IO (hFlush, stdout)
-import System.Log.Logger (logM, Priority(..))
+import System.Log.Logger (Priority(..))
 import System.Posix.Files (createLink)
 import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
 import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser, shell )
@@ -130,10 +131,10 @@ queueImageBuild ::
 queueImageBuild pairs = do
   -- Write empty files into cache
   -- mapM (runExceptT . fileCachePathIO) pairs >>= mapM_ (either (throwError . review fileError) (liftUIO . flip writeFile mempty))
-  unsafeFromIO $ logM "Data.FileCache.Server" DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
+  unsafeFromIO $ alog DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
   chan <- lift (imageBuilder <$> ask)
   liftUIO (writeChan chan pairs)
-  unsafeFromIO $ logM "Data.FileCache.Server" DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
+  unsafeFromIO $ alog DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
@@ -148,13 +149,13 @@ startImageBuilder = do
   where
     -- This is the background task
     doError (e :: SomeNonPseudoException) =
-      unsafeFromIO $ logM "Data.FileCache.Server" ERROR ("Failure reading image cache request channel: " ++ show e)
+      unsafeFromIO $ alog ERROR ("Failure reading image cache request channel: " ++ show e)
     doImages :: r -> [(ImageKey, ImageShape)] -> UIO ()
     doImages r pairs = do
-      unsafeFromIO $ logM "Data.FileCache.Server" DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
+      unsafeFromIO $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
       -- the threadDelay is to test the behavior of the server for lengthy image builds
       r <- mapM (\(key, shape) -> runExceptT @e (runReaderT (cacheImageFile key shape {- >> unsafeFromIO (threadDelay 5000000)-}) r)) pairs
-      mapM_ (\case ((key, shape), Left e) -> unsafeFromIO (logM "Data.FileCache.Server" ERROR ("doImages - error building " <> show key <> ": " ++ show e))
-                   ((key, shape), Right (Left e)) -> unsafeFromIO (logM "Data.FileCache.Server" ERROR ("doImages - error in cache for " <> show key <> ": " ++ show e))
-                   ((key, shape), Right (Right _e)) -> unsafeFromIO (logM "Data.FileCache.Server" ERROR ("doImages - completed " <> show key)))
+      mapM_ (\case ((key, shape), Left e) -> unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
+                   ((key, shape), Right (Left e)) -> unsafeFromIO (alog ERROR ("doImages - error in cache for " <> show key <> ": " ++ show e))
+                   ((key, shape), Right (Right _e)) -> unsafeFromIO (alog ERROR ("doImages - completed " <> show key)))
         (zip pairs r)

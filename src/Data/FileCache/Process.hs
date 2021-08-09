@@ -16,8 +16,9 @@ import SeeReason.Errors ( liftUIO, throwMember, Member, NonIOException, OneOf )
 import qualified SeeReason.Errors as Errors ()
 import GHC.Stack ( HasCallStack )
 import Prelude ( (++), Monad((>>=), (>>), return), IO )
+import SeeReason.LogServer (alog)
 import System.Exit ( ExitCode(..) )
-import System.Log.Logger ( logM, Priority(..) )
+import System.Log.Logger ( Priority(..) )
 import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
 import System.Process ( showCommandForUser, CmdSpec(..), CreateProcess(cmdspec) )
 import System.Process.ByteString.Lazy as LBS ()
@@ -55,6 +56,6 @@ pipeline (p : ps) bytes =
     doResult (ExitSuccess, out, _) = pipeline ps out
     doResult (code, _, err) =
       let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
-        unsafeFromIO (logM "Data.FileCache.Server" ERROR message) >>
+        unsafeFromIO (alog ERROR message) >>
         -- Not actually an IOExeption, this is a process error exit
         throwMember (fromString message :: FileError)
