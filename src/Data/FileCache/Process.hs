@@ -7,7 +7,7 @@ module Data.FileCache.Process
 
 import Control.Exception ( IOException )
 import Control.Monad.Except ( MonadError )
-import qualified Data.ByteString as BS ( ByteString )
+import qualified Data.ByteString.Lazy as BS ( ByteString )
 import Data.FileCache.Common ( FileError )
 import Data.FileCache.LogException ( logException )
 import Data.ListLike ( StringLike(show) )

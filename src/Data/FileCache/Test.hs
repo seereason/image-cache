@@ -11,14 +11,13 @@ module Data.FileCache.Test
 import Control.Exception ( IOException )
 import Control.Monad ( when )
 import Control.Monad.Reader ( MonadReader )
-import qualified Data.ByteString as BS ( ByteString, empty, readFile )
-import Data.ByteString.Lazy ( fromStrict )
+import qualified Data.ByteString.Lazy as BS ( ByteString, empty, readFile )
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
+import Data.FileCache.FileInfo ()
 import Data.FileCache.CacheMap ( ImageCached(ImageCached, _imageCachedFile, _imageCachedKey) )
 import Data.FileCache.ImageIO ( validateJPG )
 import Data.FileCache.FileCache ( HasImageFilePath, fileCachePath, cacheLook )
-import Data.FileCache.FileInfo
 import Data.FileCache.Common
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, lookup, toList, fromList )
@@ -83,7 +82,7 @@ validateImageFile key (ImageFileReady i@(ImageReady {..})) = do
     checkFile _file _path (Left e) =
       unsafeFromIO (putStrLn ("error loading " ++ show _imageFile ++ ": " ++ show e))
     checkFile file _path (Right bs)
-      | T.pack (show (md5 (fromStrict bs))) /= (_fileChksum file) =
+      | T.pack (show (md5 bs)) /= (_fileChksum file) =
           unsafeFromIO (putStrLn ("checksum mismatch in file " ++ show file))
     checkFile _file _path _bs = return ()
 

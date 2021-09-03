@@ -19,7 +19,7 @@ module Data.FileCache.ImageType
 
 import Data.Data ( Data )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ( base, safeGet, safePut, Migrate(..), SafeCopy(kind, version) )
+import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( Text )
 import Data.Typeable ( Typeable )

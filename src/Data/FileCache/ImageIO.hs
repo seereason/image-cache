@@ -16,7 +16,7 @@ import Control.Exception ( IOException )
 import Control.Lens (preview, _Right, _2, to, _Just)
 import Data.Generics.Sum (_Ctor)
 import Control.Monad.Trans.Except ( runExceptT )
-import qualified Data.ByteString as BS ( ByteString, empty, hPutStr, readFile )
+import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFile, toStrict )
 --import Data.ByteString.Lazy ( fromStrict, toStrict )
 --import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import Data.Char ( isSpace )
@@ -30,8 +30,9 @@ import Data.ListLike ( StringLike(show) )
 import Data.Monoid ( (<>) )
 import Data.String ( fromString )
 import Data.Text as T ( Text )
-import Data.Text.Encoding ( decodeUtf8 )
-import SeeReason.Errors as Err ( liftUIO, throwMember, Member, NonIOException, OneOf, Set(set) )
+import Data.Text.Lazy (toStrict)
+import Data.Text.Lazy.Encoding ( decodeUtf8 )
+import SeeReason.Errors as Err ( liftUIO, throwMember, Member, NonIOException, OneOf )
 import qualified SeeReason.Errors as Errors ()
 import Extra.Except ( ExceptT, liftIO, MonadError(throwError), tryError )
 import GHC.Generics (Generic)
@@ -44,7 +45,7 @@ import System.IO (Handle, hFlush, hClose)
 import System.IO.Temp (withSystemTempFile)
 import System.Log.Logger ( Priority(ERROR) )
 import System.Process ( proc, shell, showCommandForUser, CreateProcess )
-import System.Process.ByteString as BS ( readCreateProcessWithExitCode )
+import System.Process.ByteString.Lazy as BS ( readCreateProcessWithExitCode )
 import System.Process.ListLike as LL ( readCreateProcess )
 import Text.Parsec
     ( Parsec,
@@ -108,7 +109,7 @@ instance MakeByteString URI where
 -- Note that the compiler reports "Redundant constraint: MonadError
 -- (OneOf e) m", but in fact its not redundant.
 uprightImage' ::
-  forall e m. (Unexceptional m, MonadError (OneOf e) m, Member IOException e, Member NonIOException e, Member FileError e)
+  forall e m. (Unexceptional m, MonadError (OneOf e) m, Member IOException e, Member NonIOException e)
   => BS.ByteString
   -> m (Maybe BS.ByteString)
 uprightImage' bs =
@@ -139,7 +140,7 @@ deriving instance Generic ExifData
 -- Just 1
 normalizeOrientationCode :: BS.ByteString -> ExceptT FileError IO BS.ByteString
 normalizeOrientationCode bs = do
-  case preview (_Right . _2 . to (Codec.Picture.Metadata.lookup (Exif TagOrientation)) . _Just . _Ctor @"ExifShort") (decodeJpegWithMetadata bs) of
+  case preview (_Right . _2 . to (Codec.Picture.Metadata.lookup (Exif TagOrientation)) . _Just . _Ctor @"ExifShort") (decodeJpegWithMetadata (BS.toStrict bs)) of
     Just 2 -> transform ["-F"] -- ["-flip", "horizontal"]
     Just 3 -> transform ["-1"] -- ["-rotate", "180"]
     Just 4 -> transform ["-f"] -- ["-flip", "vertical"]
@@ -177,7 +178,7 @@ validateJPG :: FilePath -> IO (Either FileError (Integer, Integer))
 validateJPG path = do
   (_code, bs, _) <- LL.readCreateProcess (proc "jpegtopnm" [path]) mempty :: IO (ExitCode, BS.ByteString, BS.ByteString)
   (_code, s1', _) <- LL.readCreateProcess (proc "pnmfile" []) bs :: IO (ExitCode, BS.ByteString, BS.ByteString)
-  let s1 = decodeUtf8 s1'
+  let s1 = toStrict (decodeUtf8 s1')
   case parse parsePnmfileOutput path s1 of
     Left _e -> return (Left (UnexpectedPnmfileOutput s1))
     Right (Pnmfile _ _ (w, h, _)) -> do

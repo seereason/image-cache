@@ -18,8 +18,7 @@ import Control.Exception ( IOException )
 import Control.Lens ( Ixed(ix), preview, _Right, over )
 import Control.Monad.Reader ( MonadReader )
 import Control.Monad.Trans.Except ( runExceptT )
-import qualified Data.ByteString as BS ( ByteString, readFile )
-import Data.ByteString.Lazy ( fromStrict )
+import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.Either ( isLeft )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
@@ -239,7 +238,7 @@ buildImageFile ::
 buildImageFile key shape = do
   (key', bs) <- buildImageBytes Nothing key -- key' may differ from key due to removal of no-ops
   let file = File { _fileSource = Derived
-                  , _fileChksum = T.pack $ show $ md5 $ fromStrict bs
+                  , _fileChksum = T.pack $ show $ md5 bs
                   , _fileMessages = []
                   , _fileExt = fileExtension (_imageShapeType shape) }
   let img = ImageFileReady (ImageReady { _imageFile = file, _imageShape = shape })
@@ -302,7 +301,7 @@ buildImageBytesFromFile ::
   (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m,
    MonadReader r m, HasCacheAcid r, HasFileCacheTop r, HasCallStack)
   => Maybe FileSource -> ImageKey -> Text -> ImageType -> m BS.ByteString
-buildImageBytesFromFile source key csum typ = do
+buildImageBytesFromFile source key csum _typ = do
   -- If we get a cache miss for an ImageOriginal key something
   -- has gone wrong.  Try to rebuild from the file if it exists.
   path <- fileCachePath (ImagePath key)
@@ -314,7 +313,7 @@ buildImageBytesFromFile source key csum typ = do
       throwMember e
     True -> do
       bs <- makeByteString path
-      let csum' = T.pack $ show $ md5 $ fromStrict bs
+      let csum' = T.pack $ show $ md5 bs
       case csum' == csum of
         False -> do
           let e = DamagedOriginalFile key path
@@ -340,7 +339,7 @@ rebuildImageBytes ::
   forall e r m. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m,
                  MonadReader r m, HasCacheAcid r, HasFileCacheTop r, HasCallStack)
   => Maybe FileSource -> ImageKey -> ImageType -> FileError -> m BS.ByteString
-rebuildImageBytes source key typ e | retry e = do
+rebuildImageBytes source key _typ e | retry e = do
   unsafeFromIO (alog ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
   path <- fileCachePath (ImagePath key)
   -- This and other operations like it may throw an

@@ -9,14 +9,14 @@ module Data.FileCache.FileInfo
 
 import Control.Exception ( IOException )
 import Control.Lens ( view, Field2(_2) )
-import Data.ByteString as BS ( ByteString )
-import Data.ByteString.UTF8 ( toString )
+import Data.ByteString.Lazy as BS ( ByteString, toStrict )
 import Data.FileCache.Common
   ( ImageType(..), Rotation(..), HasImageShapeM(..), ImageShape(..),
     FileCacheErrors, FileError(NoShape) )
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, listToMaybe )
-import Data.Text ( pack, Text )
+import Data.Text ( Text )
+import Data.Text.Encoding (decodeUtf8)
 import SeeReason.Errors ( liftUIO, throwMember, Member, NonIOException, OneOf )
 import Extra.Except ( MonadError )
 import Prelude hiding (show)
@@ -45,20 +45,20 @@ fileInfoFromPath ::
   => (FilePath, BS.ByteString)
   -> m ImageShape
 fileInfoFromPath (path, input) =
-  liftUIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput path . view _2)
+  liftUIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput path . decodeUtf8 . toStrict . view _2)
   where
     cmd = "file"
     args = ["-b", path]
 
--- Note - no IO here
+-- Parse the output of file -b.   Note - no IO here
 fileInfoFromOutput ::
   forall e m. (Member FileError e, MonadError (OneOf e) m, Unexceptional m)
   => FilePath
-  -> BS.ByteString
+  -> Text
   -> m ImageShape
 fileInfoFromOutput path output = do
   unsafeFromIO $ alog DEBUG ("fileInfoFromOutput " <> show path <> " " <> show output)
-  case parse pFileOutput path output' of
+  case parse pFileOutput path output of
     Left _e -> do
       unsafeFromIO $ alog ERROR ("pFileOutput -> " <> show _e)
       return $ ImageShape {_imageShapeType = Unknown, _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
@@ -73,8 +73,6 @@ fileInfoFromOutput path output = do
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}
         _ -> throwMember (NoShape ("fileInfoFromOutput path=" <> show path <> " output=" <> show output))
   where
-    output' :: Text
-    output' = pack (toString output)
     findShape :: ImageAttribute -> Maybe (Int, Int)
     findShape (Shape shape) = Just shape
     findShape _ = Nothing

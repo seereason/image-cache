@@ -14,8 +14,7 @@ import Control.Monad ( unless )
 import Control.Monad.RWS ( MonadState, modify )
 import Control.Monad.Reader ( MonadReader )
 import Control.Monad.Trans.Except ( runExceptT )
-import qualified Data.ByteString as BS ( ByteString, empty, readFile )
-import Data.ByteString.Lazy ( fromStrict )
+import qualified Data.ByteString.Lazy as BS ( empty )
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
@@ -97,7 +96,7 @@ buildOriginalImage ::
   -> m ImageReady
 buildOriginalImage source x = do
   bs <- makeByteString x
-  let csum = T.pack $ show $ md5 $ fromStrict bs
+  let csum = T.pack $ show $ md5 bs
   shape@ImageShape {..} <- imageShapeM bs
   -- FIXME: The image-replace command in appraisalscope will pass
   -- Nothing to the source parameter.  Could the correct source

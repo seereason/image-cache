@@ -14,7 +14,7 @@ module Data.FileCache.CommandError
   ) where
 
 import Control.Exception (ErrorCall(..))
-import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (ByteString)
 import Data.Function (on)
 import Data.SafeCopy
 import Data.Serialize (Serialize(..))

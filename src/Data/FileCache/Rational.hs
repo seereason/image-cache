@@ -18,11 +18,11 @@ module Data.FileCache.Rational
   , rsqrt
   ) where
 
-import Control.Lens ( Lens', Iso', iso, lens, Prism', prism'  )
+import Control.Lens ( iso, Prism', prism'  )
 import Data.ListLike (fromString, toString)
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
-import Data.Text ( Text, pack, strip, unpack )
+import Data.Text ( Text, strip )
 import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ()
 import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
