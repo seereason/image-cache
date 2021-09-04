@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
 
 module Data.FileCache.Derive
-  ( CacheFlag(RetryErrors, RetryShapes)
+  ( CacheFlag(RetryErrors)
   , getImageFiles
   , getImageFile
   , cacheDerivedImagesForeground
@@ -70,8 +70,8 @@ getImageFiles = cacheDerivedImagesForeground mempty
 -- getImageFile' key = getImageFile key >>= either (throwError . review fileError) return
 
 data CacheFlag
-  = RetryErrors
-  | RetryShapes
+  = RetryErrors -- ^ If the cache contains a FileError try the operation again
+  | RetryShapes -- ^ Not used
   deriving (Eq, Ord, Show)
 
 -- Is this guaranteed to have a map entry for every key passed in?
