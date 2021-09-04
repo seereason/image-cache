@@ -148,7 +148,7 @@ cacheImageShape _ (key, Just (Right (ImageFileShape shape))) = do
   -- This value shouldn't be here in normal operation
   return (key, Right (ImageFileShape shape))
 cacheImageShape _ (key, Just (Right (ImageFileReady img))) = do
-  unsafeFromIO $ alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
+  -- unsafeFromIO $ alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
   return (key, Right (ImageFileReady img))
 
 {-
