@@ -47,7 +47,8 @@ instance (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member IO
 -- FileCacheTop and its checksum.
 cacheOriginalImages ::
   forall x e r m. (MakeByteString x, Ord x,
-                   Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e,
+                   Unexceptional m, MonadError (OneOf e) m,
+                   Member NonIOException e, Member IOException e,
                    MonadReader r m, HasCacheAcid r, HasFileCacheTop r,
                    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
   => [(FileSource, x)] -> m ()
@@ -59,8 +60,8 @@ cacheOriginalImages pairs =
 
 cacheOriginalImage' ::
   forall x e r m.
-  (MakeByteString x, Unexceptional m,
-   MonadError (OneOf e) m, Member NonIOException e, Member IOException e,
+  (MakeByteString x, Unexceptional m, MonadError (OneOf e) m,
+   Member NonIOException e, Member IOException e,
    MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => Maybe FileSource
   -> x
