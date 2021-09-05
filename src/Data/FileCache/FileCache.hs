@@ -56,19 +56,9 @@ instance HasImageFilePath ImageCached where
   toURIDir c = toURIDir (imagePath c)
   toFilePath c@(ImageCached _ _) = toFilePath (imagePath c)
 
-instance HasImageFilePath (ImageKey, ImageFile) where
-  toURIDir (key, ImageFileShape shape) = toURIDir (key, shape)
-  toURIDir (key, ImageFileReady ready) = toURIDir (key, ready)
-  toFilePath (key, ImageFileShape shape) = toFilePath (key, shape)
-  toFilePath (key, ImageFileReady ready) = toFilePath (key, ready)
-
-instance HasImageFilePath (ImageKey, ImageReady) where
-  toURIDir (key, ImageReady _ shape) = toURIDir (key, shape)
-  toFilePath (key, ImageReady _ shape) = toFilePath (key, shape)
-
-instance HasImageFilePath (ImageKey, ImageShape) where
-  toURIDir (key, shape) = toURIDir (ImagePath key)
-  toFilePath (key, shape) = toFilePath (ImagePath key)
+instance HasImageFilePath ImageKey where
+  toURIDir key = toURIDir (ImagePath key)
+  toFilePath key = toFilePath (ImagePath key)
 
 -- | The full path name for the local cache of the file.
 fileCachePath :: (HasImageFilePath a, MonadReader r m, HasFileCacheTop r) => a -> m FilePath
