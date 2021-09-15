@@ -6,13 +6,14 @@ module Data.FileCache.Derive
   ( CacheFlag(RetryErrors)
   , getImageFile
   , getImageFiles
+  , getImageShapes
 {-
   , cacheDerivedImagesForeground
   , cacheImageFile
   , cacheImageShape
-  , cacheLookImages
   , buildImageShape
 -}
+  , cacheLookImages
   ) where
 
 import Control.Exception ( IOException )
@@ -29,7 +30,7 @@ import Data.FileCache.FileCache
 import Data.FileCache.Common
 import Data.FileCache.Upload ( cacheOriginalImage )
 import Data.ListLike ( length, show )
-import Data.Map.Strict as Map ( Map, fromList )
+import Data.Map.Strict as Map ( Map, fromList, toList )
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
@@ -63,10 +64,25 @@ getImageFile ::
 getImageFile flags key =
   cacheLook key >>= cacheImageShape flags key >>= either (pure . Left) (buildImage key)
 
+getImageShapes ::
+  forall r e m. (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable e, Member NonIOException e, Member IOException e, MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
+  => Set CacheFlag -> [ImageKey] -> m (Map ImageKey (Either FileError ImageFile))
+getImageShapes flags keys =
+  (Map.fromList . zip keys) <$> mapM (\key -> cacheLook key >>= (cacheImageShape flags key :: Maybe (Either FileError ImageFile) -> m (Either FileError ImageFile)) {-maybe (cacheImageShape flags key) pure-}) keys
+
 getImageFiles ::
   forall r e m. (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable e, Member NonIOException e, Member IOException e, MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
   => Set CacheFlag -> [ImageKey] -> m (Map ImageKey (Either FileError ImageFile))
-getImageFiles flags keys = (Map.fromList . zip keys) <$> mapM (getImageFile flags) keys
+getImageFiles flags keys =
+  mapWithKeyM f =<< getImageShapes flags keys
+  where
+    f :: ImageKey -> Either FileError ImageFile -> m (ImageKey, Either FileError ImageFile)
+    f key (Right (ImageFileShape shape)) = (key,) <$> cacheImageFile key shape
+    f key (Right ready@(ImageFileReady _)) = pure $ (key, Right ready)
+    f key (Left e) = pure (key, Left e)
+
+mapWithKeyM :: forall k v m. (Ord k, Monad m) => (k -> v -> m (k, v)) -> Map k v -> m (Map k v)
+mapWithKeyM f mp = fromList <$> mapM (uncurry f) (Map.toList mp :: [(k, v)])
 
 #if 0
 cacheDerivedImagesBackground ::
@@ -128,7 +144,7 @@ cacheImageShape flag key (Just (Left e)) = do
   unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
   cacheImageShape flag key Nothing
 cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
-  unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
+  -- unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
 cacheImageShape _ _ (Just (Right (ImageFileReady img))) = do
