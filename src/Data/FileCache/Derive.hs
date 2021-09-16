@@ -35,7 +35,6 @@ import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
 import Data.Typeable ( Typeable, typeOf )
 import SeeReason.Errors( liftUIO, Member, NonIOException, OneOf, throwMember, tryMember )
-import qualified SeeReason.Errors as Errors ( oneOf )
 import Extra.Except ( MonadError )
 import GHC.Stack ( HasCallStack )
 import Numeric ( fromRat )
@@ -156,10 +155,15 @@ cacheImageFile ::
   -> ImageShape
   -> m (Either FileError ImageFile)
 cacheImageFile key shape = do
-  -- Errors that occur in buildImageFile are stored in the cache, errors
-  -- that occur in cachePut are returned.  Actually that's not right.
-  tryMember @FileError (buildImageFile key shape) >>= cachePut key
-  -- either Left id <$> runExceptT (evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key))
+  -- Check the cache one last time - this image might appear more than once in this request
+  cacheLook key >>=
+    maybe (pure (Left (UnexpectedException "Impossible cache miss")))
+          (either (pure . Left)
+            (\case file@(ImageFileReady img) ->
+                     pure (Right file) -- It was already built
+                   file@(ImageFileShape shape') ->
+                     -- Proceed with the build
+                     tryMember @FileError (buildImageFile key shape') >>= cachePut key))
 
 -- | These are meant to be inexpensive operations that determine the
 -- shape of the desired image, with the actual work of building them

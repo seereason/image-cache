@@ -17,7 +17,7 @@ module Data.FileCache.Acid
   , Complete(..)
   ) where
 
-import Control.Lens ( has, view, (%=), (%%=), at, to, ix )
+import Control.Lens ( has, view, (.=), (%=), (%%=), at, to, ix )
 import Control.Monad.RWS ( MonadState(put) )
 import Control.Monad.Reader ( MonadReader(ask) )
 import Data.Acid ( openLocalStateFrom, makeAcidic, AcidState, Query, Update )
@@ -63,8 +63,8 @@ deleteValue key = field @"_unCacheMap" %= Map.delete key
 deleteValues :: Set ImageKey -> Update CacheMap ()
 deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (const ()) keys))
 
-replace :: CacheMap  -> Update CacheMap ()
-replace = put
+replace :: Map ImageKey (Either FileError ImageFile) -> Update CacheMap ()
+replace mp = field @"_unCacheMap" .= mp
 
 request :: ImageKey -> ImageShape -> Update CacheMap ()
 request key shape = field @"_requested" %= Map.insert key shape
