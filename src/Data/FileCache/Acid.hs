@@ -11,16 +11,20 @@ module Data.FileCache.Acid
   , DeleteValue(..)
   , DeleteValues(..)
   , Replace(..)
+  , Request(..)
+  , Requested(..)
+  , Dequeue(..)
+  , Complete(..)
   ) where
 
-import Control.Lens ( view, (%=), At(at) )
+import Control.Lens ( has, view, (%=), (%%=), at, to, ix )
 import Control.Monad.RWS ( MonadState(put) )
 import Control.Monad.Reader ( MonadReader(ask) )
 import Data.Acid ( openLocalStateFrom, makeAcidic, AcidState, Query, Update )
 import Data.FileCache.CacheMap ( CacheMap(CacheMap) )
-import Data.FileCache.Common ( ImageKey, ImageFile, FileError )
+import Data.FileCache.Common ( ImageKey, ImageFile, ImageShape, FileError )
 import Data.Generics.Product ( field )
-import Data.Map.Strict as Map ( Map, union, delete, difference, intersection, fromSet, insert )
+import Data.Map.Strict as Map ( Map, union, delete, difference, intersection, fromSet, insert, minViewWithKey )
 import Data.Set as Set ( Set )
 
 -- * Events
@@ -62,10 +66,26 @@ deleteValues keys = field @"_unCacheMap" %= (`Map.difference` (Map.fromSet (cons
 replace :: CacheMap  -> Update CacheMap ()
 replace = put
 
-$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues, 'replace])
+request :: ImageKey -> ImageShape -> Update CacheMap ()
+request key shape = field @"_requested" %= Map.insert key shape
+
+requested :: ImageKey -> Query CacheMap Bool
+requested key = view (field @"_requested" . at key . to (maybe False (const True)))
+
+dequeue :: Update CacheMap (Maybe (ImageKey, ImageShape))
+dequeue = field @"_requested" %%= f
+  where
+    f :: Map ImageKey ImageShape -> ((Maybe (ImageKey, ImageShape)), Map ImageKey ImageShape)
+    f mp = maybe (Nothing, mp) (\((key, shape), mp') -> (Just (key, shape), mp')) (minViewWithKey mp)
+
+complete :: ImageKey -> Update CacheMap ()
+complete key = field @"_requested" %= Map.delete key
+
+$(makeAcidic ''CacheMap ['putValue, 'putValues, 'lookValue, 'lookValues, 'lookMap, 'deleteValue, 'deleteValues, 'replace,
+                         'request, 'requested, 'dequeue, 'complete])
 
 openCache :: FilePath -> IO (AcidState CacheMap)
 openCache path = openLocalStateFrom path initCacheMap
 
 initCacheMap :: CacheMap
-initCacheMap = CacheMap mempty
+initCacheMap = CacheMap mempty mempty
