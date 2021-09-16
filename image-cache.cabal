@@ -79,7 +79,7 @@ Library
   if !impl(ghcjs)
     Exposed-Modules:
       Data.FileCache.Acid
-      -- Data.FileCache.Background
+      Data.FileCache.Background
       Data.FileCache.Derive
       Data.FileCache.FileCache
       Data.FileCache.FileCacheTop

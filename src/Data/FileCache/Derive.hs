@@ -7,10 +7,10 @@ module Data.FileCache.Derive
   , getImageFile
   , getImageFiles
   , getImageShapes
-{-
-  , cacheDerivedImagesForeground
   , cacheImageFile
   , cacheImageShape
+{-
+  , cacheDerivedImagesForeground
   , buildImageShape
 -}
   , cacheLookImages
@@ -19,10 +19,9 @@ module Data.FileCache.Derive
 import Control.Exception ( IOException )
 import Control.Lens ( _Right, over )
 import Control.Monad.Reader ( MonadReader )
---import Control.Monad.Trans.Except ( ExceptT, runExceptT )
 import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
 import Data.Digest.Pure.MD5 ( md5 )
---import Data.FileCache.Background
+-- import Data.FileCache.Background
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
 import Data.FileCache.ImageIO
@@ -35,7 +34,7 @@ import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
 import Data.Typeable ( Typeable, typeOf )
-import SeeReason.Errors( liftUIO, Member, NonIOException, OneOf, runOneOf, throwMember )
+import SeeReason.Errors( liftUIO, Member, NonIOException, OneOf, throwMember, tryMember )
 import qualified SeeReason.Errors as Errors ( oneOf )
 import Extra.Except ( MonadError )
 import GHC.Stack ( HasCallStack )
@@ -84,37 +83,11 @@ getImageFiles flags keys =
 mapWithKeyM :: forall k v m. (Ord k, Monad m) => (k -> v -> m (k, v)) -> Map k v -> m (Map k v)
 mapWithKeyM f mp = fromList <$> mapM (uncurry f) (Map.toList mp :: [(k, v)])
 
-#if 0
-cacheDerivedImagesBackground ::
-  forall r e m. (FileCacheErrors e m, MonadReader r m, HasCacheAcid r,
-                 HasFileCacheTop r)
-  => Set CacheFlag
-  -> [ImageKey]
-  -> m (Map ImageKey (Either FileError ImageFile))
-cacheDerivedImagesBackground flags keys =
-  cacheLookImages keys >>=
-  mapM (cacheImageShape flags) >>=
-  runExceptT . backgroundBuilds >>=
-  either throwError (return . Map.fromList)
-
-backgroundBuilds ::
-  (Unexceptional m, HasFileError e, HasIOException e, HasNonIOException e,
-   MonadReader r m, HasFileCacheTop r)
-  => [(ImageKey, Either FileError ImageFile)]
-  -> ExceptT e m [(ImageKey, Either FileError ImageFile)]
-backgroundBuilds pairs =
-  queueImageBuild (mapMaybe isShape pairs) >> return pairs
-  where isShape (key, Right (ImageFileShape shape)) = Just (key, shape)
-        isShape _ = Nothing
-#endif
-
 -- | See if images are already in the cache
 cacheLookImages ::
   (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e, MonadReader r m, HasCacheAcid r)
   => [ImageKey] -> m [Maybe (Either FileError ImageFile)]
 cacheLookImages keys = mapM cacheLook keys
-
-instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
 
 -- | Compute the shapes of requested images
 cacheImageShape ::
@@ -125,13 +98,13 @@ cacheImageShape ::
   -> Maybe (Either FileError ImageFile)
   -> m (Either FileError ImageFile)
 cacheImageShape _ key Nothing = do
-  unsafeFromIO $ alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (miss)")
+  -- unsafeFromIO $ alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (miss)")
   cachePut_ key (noShape ("cacheImageShape " <> show key <> " :: " <> show (typeOf key)))
   buildAndCache
     where
       buildAndCache :: m (Either FileError ImageFile)
       buildAndCache =
-        runOneOf @(FileError ': e) (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
+        tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
 cacheImageShape flags key (Just (Left _))
   | Set.member RetryErrors flags = do
       unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (retry)")
@@ -139,11 +112,11 @@ cacheImageShape flags key (Just (Left _))
         where
           buildAndCache :: m (Either FileError ImageFile)
           buildAndCache =
-            runOneOf @(FileError ': e) (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
+            tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
 cacheImageShape flag key (Just (Left e)) = do
   unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
   cacheImageShape flag key Nothing
-cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
+cacheImageShape _ _key (Just (Right (ImageFileShape shape))) = do
   -- unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
@@ -185,7 +158,7 @@ cacheImageFile ::
 cacheImageFile key shape = do
   -- Errors that occur in buildImageFile are stored in the cache, errors
   -- that occur in cachePut are returned.  Actually that's not right.
-  runOneOf @(FileError ': e) (buildImageFile key shape) >>= cachePut key
+  tryMember @FileError (buildImageFile key shape) >>= cachePut key
   -- either Left id <$> runExceptT (evalFileCacheT r () (runExceptT (buildImageFile key shape) >>= cachePut key))
 
 -- | These are meant to be inexpensive operations that determine the

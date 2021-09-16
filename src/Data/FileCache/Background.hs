@@ -10,82 +10,32 @@ module Data.FileCache.Background
   -- , queueImageBuild
   ) where
 
---import Debug.Trace
 import Control.Concurrent (ThreadId{-, threadDelay-}, newChan, readChan, writeChan)
 import Control.Concurrent.Chan (Chan)
 import Control.Exception (IOException)
 import Control.Lens
-import Control.Monad (forever, unless, when)
-import Control.Monad.RWS (modify, MonadState, put, RWST(runRWST))
+import Control.Monad (forever, when)
 import Control.Monad.Reader (MonadReader(ask), runReaderT)
-import Control.Monad.Trans.Except (runExceptT)
-import Data.Acid ( AcidState, makeAcidic, openLocalStateFrom, Query, Update, query, update )
-import Data.Binary.Get ( getLazyByteString, Get, skip, bytesRead, getWord16be, getWord32be, getWord16le, getWord32le, runGetOrFail )
-import qualified Data.ByteString as BS ( ByteString, empty, readFile )
-import Data.ByteString.Lazy ( fromStrict, toStrict )
-import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
---import qualified Data.ByteString.UTF8 as P ( toString )
-import Data.Char ( isSpace )
-import Data.Default (def)
-import Data.Digest.Pure.MD5 (md5)
-import Data.Either (isLeft)
-import Data.FileCache.Process
+import Control.Monad.Except (ExceptT, MonadError, runExceptT)
 import Data.FileCache.FileCacheTop
-import Data.FileCache.Acid
-import Data.FileCache.Derive (cacheImageFile, cacheLookImages)
-import Data.FileCache.CacheMap
+import Data.FileCache.Derive (cacheImageFile)
 import Data.FileCache.Derive
-import Data.FileCache.ImageIO
-import Data.FileCache.FileCache
+import Data.FileCache.FileError (FileError(UnexpectedException))
 import Data.FileCache.Common
-import Data.FileCache.FileInfo (fileInfoFromPath)
-import Data.FileCache.LogException (logException)
-import Data.FileCache.CommandError (CommandInfo(..))
-import Data.FileCache.Upload
-import Data.Generics.Product ( field )
-import Data.List ( intercalate )
 import Data.ListLike ( length, show )
-import Data.Map.Strict as Map ( delete, difference, fromList, Map, fromSet, insert, intersection, lookup, toList, union )
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Map.Strict as Map ( fromList, Map )
+import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
-import Data.Proxy ( Proxy )
-import Data.Ratio ((%))
-import Data.Set as Set (member, Set)
-import Data.String (fromString)
-import Data.Text as T ( pack, Text, unpack )
-import Data.Text.Encoding ( decodeUtf8, encodeUtf8 )
-import Data.Typeable (Typeable, typeOf)
-import Data.Word ( Word16, Word32 )
-import SeeReason.Errors (HasNonIOException, liftUIO, Member, NonIOException(..), OneOf, runOneOf, throwMember)
-import qualified SeeReason.Errors as Errors (oneOf)
-import Extra.Except (ExceptT, HasIOException, lift,
-                     MonadError, throwError, tryError)
-import GHC.Int ( Int64 )
+import Data.Set as Set (Set)
+import Extra.Except (throwError)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
-import Network.URI ( URI(..), uriToString )
-import Numeric ( fromRat, showFFloat )
 import Prelude hiding (length, show)
+import SeeReason.Errors (liftUIO, Member, NonIOException, OneOf, throwMember)
 import SeeReason.LogServer (alog)
-import System.Directory ( createDirectoryIfMissing, doesFileExist )
-import System.Exit ( ExitCode(..) )
-import System.FilePath ( (</>), makeRelative, takeDirectory )
-import System.FilePath.Extra ( writeFileReadable )
-import System.IO (hFlush, stdout)
 import System.Log.Logger (Priority(..))
-import System.Posix.Files (createLink)
-import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
-import System.Process ( CreateProcess(..), CmdSpec(..), proc, showCommandForUser, shell )
-import System.Process.ByteString.Lazy as LBS ( readCreateProcessWithExitCode )
-import System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcessWithExitCode, readCreateProcess )
-import Test.HUnit ( assertEqual, Test(..) )
-import Test.QuickCheck
-import Text.Parsec ( Parsec, (<|>), many, parse, char, digit, newline, noneOf, oneOf, satisfy, space, spaces, string, many1, optionMaybe )
-import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), prettyShow, text )
 import UnexceptionalIO.Trans (Unexceptional)
-import UnexceptionalIO.Trans as UIO hiding (lift, ErrorCall)
-import Web.Routes (fromPathInfo, toPathInfo)
-import Web.Routes.QuickCheck (pathInfoInverse_prop)
+import UnexceptionalIO.Trans as UIO hiding (lift)
 
 {-
 class HasSomeNonPseudoException e where
@@ -99,6 +49,7 @@ type ImageChan = Chan [(ImageKey, ImageShape)]
 class HasImageBuilder a where imageBuilder :: a -> Maybe ImageChan
 instance HasImageBuilder ImageChan where imageBuilder = Just
 instance HasImageBuilder (a, b, ImageChan) where imageBuilder = Just . view _3
+instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
 cacheDerivedImagesBackground ::
   forall r e m. (FileCacheErrors e m, MonadReader r m, HasCacheAcid r,
@@ -107,16 +58,14 @@ cacheDerivedImagesBackground ::
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
 cacheDerivedImagesBackground flags keys =
-  cacheLookImages keys >>=
-  mapM (cacheImageShape flags) >>=
+  mapM (\key -> (key,) <$> cacheImageShape flags key Nothing) keys >>=
   runExceptT . backgroundBuilds >>=
   either throwError (return . Map.fromList)
 
 backgroundBuilds ::
-  (Unexceptional m, HasFileError e, HasIOException e, HasNonIOException e,
-   MonadReader r m, HasImageBuilder r, HasFileCacheTop r)
+  (Unexceptional m, FileCacheErrors e m, MonadReader r m, HasImageBuilder r)
   => [(ImageKey, Either FileError ImageFile)]
-  -> ExceptT e m [(ImageKey, Either FileError ImageFile)]
+  -> m [(ImageKey, Either FileError ImageFile)]
 backgroundBuilds pairs =
   queueImageBuild (mapMaybe isShape pairs) >> return pairs
   where isShape (key, Right (ImageFileShape shape)) = Just (key, shape)
@@ -125,14 +74,14 @@ backgroundBuilds pairs =
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
-  (FileCacheErrors e m, MonadReader r m, HasImageBuilder r, HasFileCacheTop r, HasCallStack)
+  (FileCacheErrors e m, MonadReader r m, HasImageBuilder r, HasCallStack)
   => [(ImageKey, ImageShape)]
-  -> ExceptT (OneOf e) m ()
+  -> m ()
 queueImageBuild pairs = do
   -- Write empty files into cache
   -- mapM (runExceptT . fileCachePathIO) pairs >>= mapM_ (either (throwError . review fileError) (liftUIO . flip writeFile mempty))
   unsafeFromIO $ alog DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
-  chan <- lift (imageBuilder <$> ask)
+  chan <- maybe (throwMember (UnexpectedException "Chan Is Missing")) pure =<< (imageBuilder <$> ask)
   liftUIO (writeChan chan pairs)
   unsafeFromIO $ alog DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
@@ -140,22 +89,46 @@ queueImageBuild pairs = do
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startImageBuilder ::
-  forall r e m. (FileCacheErrors e m, MonadReader r m, HasCacheAcid r, HasFileCacheTop r, HasCallStack)
-  => m (ImageChan, ThreadId)
-startImageBuilder = do
-  r <- ask
+  forall e m rd.
+  (Unexceptional m, HasCacheAcid rd, HasFileCacheTop rd,
+   MonadError (OneOf e) m, Member NonIOException e, Member IOException e,
+   HasCallStack)
+  => rd
+  -> m (ImageChan, ThreadId)
+startImageBuilder rd = do
   (chan :: ImageChan) <- liftUIO newChan
-  (,) <$> pure chan <*> fork (forever (runExceptT (fromIO' (review someNonPseudoException) (readChan chan)) >>= either doError (doImages r)))
+  unsafeFromIO $ alog DEBUG "Starting background image builder"
+  (,) <$> pure chan <*> (fork (task chan >>= either (error . show) pure) :: m ThreadId)
   where
-    -- This is the background task
-    doError (e :: SomeNonPseudoException) =
-      unsafeFromIO $ alog ERROR ("Failure reading image cache request channel: " ++ show e)
-    doImages :: r -> [(ImageKey, ImageShape)] -> UIO ()
-    doImages r pairs = do
-      unsafeFromIO $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
-      -- the threadDelay is to test the behavior of the server for lengthy image builds
-      r <- mapM (\(key, shape) -> runExceptT @e (runReaderT (cacheImageFile key shape {- >> unsafeFromIO (threadDelay 5000000)-}) r)) pairs
-      mapM_ (\case ((key, shape), Left e) -> unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
-                   ((key, shape), Right (Left e)) -> unsafeFromIO (alog ERROR ("doImages - error in cache for " <> show key <> ": " ++ show e))
-                   ((key, shape), Right (Right _e)) -> unsafeFromIO (alog ERROR ("doImages - completed " <> show key)))
-        (zip pairs r)
+    task :: ImageChan -> UIO (Either (OneOf '[IOException, NonIOException]) ())
+    task chan = forever (runExceptT (liftUIO (readChan chan) >>= doImages rd))
+#if 0
+  (,) <$> pure chan <*> liftUIO (fork (forever (runExceptT (fromIO (readChan chan) :: ExceptT SomeNonPseudoException m [(ImageKey, ImageShape)]) >>= (doImages @e rd))))
+#endif
+
+-- readChan :: Chan a -> IO a
+-- liftUIO :: (Unexceptional m, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => IO a -> m a
+-- fromIO :: Unexceptional m => IO a -> ExceptT SomeNonPseudoException m a
+-- fork :: Unexceptional m => UIO () -> m ThreadId
+
+-- doImages' :: forall e rd. (HasCacheAcid rd, HasFileCacheTop rd, Member IOException e, Member NonIOException e) => rd -> Either SomeNonPseudoException [(ImageKey, ImageShape)] -> ExceptT (OneOf e) UIO ()
+-- doImages' = doImages
+
+-- | This is the background task.
+doImages ::
+  forall rd. (HasCacheAcid rd, HasFileCacheTop rd)
+  => rd
+  -> [(ImageKey, ImageShape)]
+  -> ExceptT (OneOf '[IOException, NonIOException]) UIO ()
+doImages rd pairs = do
+  unsafeFromIO $ when (length pairs > 0) $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
+  -- the threadDelay is to test the behavior of the server for lengthy image builds
+  (r :: [Either FileError ImageFile]) <- mapM (\(key, shape) -> runReaderT (cacheImageFile key shape {- >> unsafeFromIO (threadDelay 5000000)-}) rd) pairs
+  mapM_ (\case ((key, _shape), Left e) -> unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
+               -- ((key, shape), Right _file) -> unsafeFromIO (alog ERROR ("doImages - error in cache for " <> show key <> ": " ++ show e))
+               ((key, _shape), Right _file) -> unsafeFromIO (alog ERROR ("doImages - completed " <> show key)))
+    (zip pairs r)
+{-
+doImages _rd (Left e) = do
+  unsafeFromIO $ alog DEBUG ("Failure in readChan: " <> show e)
+-}
