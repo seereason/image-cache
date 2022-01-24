@@ -27,7 +27,7 @@ import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
 import Data.Typeable ( Typeable )
-import SeeReason.Errors ( Member, NonIOException, OneOf )
+import SeeReason.Errors as Errors ( Member, NonIOException, OneOf, oneOf )
 import Extra.Except ( MonadError, HasErrorCall(..) )
 import GHC.Generics ( Generic )
 --import Language.Haskell.TH.Instances ()
@@ -80,6 +80,8 @@ instance HasErrorCall FileError where fromErrorCall = ErrorCall
 -- they ought to be unbundled and removed going forward.
 class HasFileError e where fileError :: Prism' e FileError
 instance HasFileError FileError where fileError = id
+
+instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
 
 -- | Constraints typical of the functions in this package.  They occur
 -- when an IO operation is lifted into 'Unexceptional' by 'lyftIO',
