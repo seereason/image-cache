@@ -16,7 +16,7 @@ let
       }:
       mkDerivation {
         pname = "image-cache";
-        version = "0.22";
+        version = "0.22.1";
         src = ./.;
         libraryHaskellDepends = [
           acid-state base binary bytestring cereal containers data-default
