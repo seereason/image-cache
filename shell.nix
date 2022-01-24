@@ -5,34 +5,30 @@ let
   inherit (nixpkgs) pkgs;
 
   f = { mkDerivation, acid-state, base, binary, bytestring, cereal
-      , containers, data-default, directory, either, exceptions, fbida
-      , filemanip-extra, filepath, generic-data, generic-lens, HaTeX
-      , hslogger, HUnit, JuicyPixels, lens, lens-path, ListLike, mtl
-      , network-uri, parsec, pretty, process, process-extras, pureMD5
-      , QuickCheck, regex-compat-tdfa, regex-tdfa, safecopy, sr-errors
-      , sr-extra, stdenv, syb, template-haskell, text, th-lift
+      , containers, data-default, directory, exceptions, fbida
+      , filemanip-extra, filepath, generic-data, generic-lens, hslogger
+      , HUnit, JuicyPixels, lens, lens-path, ListLike, mtl, network-uri
+      , parsec, pretty, process, process-extras, pureMD5, QuickCheck
+      , regex-compat-tdfa, regex-tdfa, safecopy, sr-errors, sr-extra
+      , sr-log, stdenv, syb, template-haskell, temporary, text, th-lift
       , th-orphans, transformers, unexceptionalio-trans, unix, Unixutils
       , utf8-string, web-routes, web-routes-th
       }:
       mkDerivation {
         pname = "image-cache";
-        version = "0.19";
+        version = "0.22";
         src = ./.;
         libraryHaskellDepends = [
           acid-state base binary bytestring cereal containers data-default
           directory exceptions filemanip-extra filepath generic-data
           generic-lens hslogger HUnit JuicyPixels lens lens-path ListLike mtl
           network-uri parsec pretty process process-extras pureMD5 QuickCheck
-          regex-compat-tdfa regex-tdfa safecopy sr-errors sr-extra syb
-          template-haskell text th-lift th-orphans transformers
+          regex-compat-tdfa regex-tdfa safecopy sr-errors sr-extra sr-log syb
+          template-haskell temporary text th-lift th-orphans transformers
           unexceptionalio-trans unix Unixutils utf8-string web-routes
           web-routes-th
         ];
         libraryToolDepends = [ fbida ];
-        testHaskellDepends = [
-          acid-state base binary bytestring containers directory either
-          exceptions filemanip-extra filepath HaTeX HUnit mtl text
-        ];
         homepage = "http://src.seereason.com/image-cache";
         description = "Support for image file processing and caching";
         license = stdenv.lib.licenses.unfree;
