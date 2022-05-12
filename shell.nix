@@ -9,21 +9,21 @@ let
       , filemanip-extra, filepath, generic-data, generic-lens, hslogger
       , HUnit, JuicyPixels, lens, lens-path, ListLike, mtl, network-uri
       , parsec, pretty, process, process-extras, pureMD5, QuickCheck
-      , regex-compat-tdfa, regex-tdfa, safecopy, sr-errors, sr-extra
-      , sr-log, stdenv, syb, template-haskell, temporary, text, th-lift
+      , regex-compat-tdfa, regex-tdfa, safecopy, sr-errors, sr-log
+      , sr-utils, stdenv, syb, template-haskell, temporary, text, th-lift
       , th-orphans, transformers, unexceptionalio-trans, unix, Unixutils
       , utf8-string, web-routes, web-routes-th
       }:
       mkDerivation {
         pname = "image-cache";
-        version = "0.22.1";
+        version = "0.22.2";
         src = ./.;
         libraryHaskellDepends = [
           acid-state base binary bytestring cereal containers data-default
           directory exceptions filemanip-extra filepath generic-data
           generic-lens hslogger HUnit JuicyPixels lens lens-path ListLike mtl
           network-uri parsec pretty process process-extras pureMD5 QuickCheck
-          regex-compat-tdfa regex-tdfa safecopy sr-errors sr-extra sr-log syb
+          regex-compat-tdfa regex-tdfa safecopy sr-errors sr-log sr-utils syb
           template-haskell temporary text th-lift th-orphans transformers
           unexceptionalio-trans unix Unixutils utf8-string web-routes
           web-routes-th

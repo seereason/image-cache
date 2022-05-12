@@ -39,6 +39,20 @@ import GHC.Generics
 -- import Language.Haskell.TH.Instances ()
 import Prelude ( Traversable(sequence), concat, (<$>), (=<<) )
 
+$(concat <$>
+  sequence
+  [ pathInstances [FIELDS] =<< [t|File|]
+  , pathInstances [FIELDS] =<< [t|FileSource|]
+  , pathInstances [FIELDS] =<< [t|ImageFile|]
+  , pathInstances [FIELDS] =<< [t|ImageReady|]
+  , pathInstances [FIELDS] =<< [t|ImageShape|]
+  , pathInstances [FIELDS] =<< [t|ImageSize|]
+  , pathInstances [FIELDS] =<< [t|ImageCrop|]
+  , pathInstances [FIELDS] =<< [t|ImageKey|]
+  , pathInstances [FIELDS] =<< [t|CacheMap|]
+  , pathInstances [FIELDS] =<< [t|ContentType|]
+  ])
+
 instance Value File where hops _ = [RecType, CtorType]
 instance Value FileError where hops _ = []
 instance Value FileSource where hops _ = [RecType, CtorType]
@@ -55,17 +69,3 @@ instance Value Rotation where hops _ = []
 instance Value CacheMap where hops _ = [RecType, CtorType]
 instance Value ContentType where hops _ = [RecType, CtorType]
 instance Value (SaneSize ImageSize) where hops _ = [ViewType]
-
-$(concat <$>
-  sequence
-  [ pathInstances [FIELDS] =<< [t|File|]
-  , pathInstances [FIELDS] =<< [t|FileSource|]
-  , pathInstances [FIELDS] =<< [t|ImageFile|]
-  , pathInstances [FIELDS] =<< [t|ImageReady|]
-  , pathInstances [FIELDS] =<< [t|ImageShape|]
-  , pathInstances [FIELDS] =<< [t|ImageSize|]
-  , pathInstances [FIELDS] =<< [t|ImageCrop|]
-  , pathInstances [FIELDS] =<< [t|ImageKey|]
-  , pathInstances [FIELDS] =<< [t|CacheMap|]
-  , pathInstances [FIELDS] =<< [t|ContentType|]
-  ])

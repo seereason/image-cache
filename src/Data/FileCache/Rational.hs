@@ -19,6 +19,7 @@ module Data.FileCache.Rational
   ) where
 
 import Control.Lens ( iso, Prism', prism'  )
+import Control.Monad.Fail (MonadFail)
 import Data.ListLike (fromString, toString)
 import Data.Monoid ( (<>) )
 import Data.Ratio ( (%), approxRational, denominator, numerator )
@@ -69,7 +70,7 @@ showRational :: Rational -> String
 showRational x = showSigned (showFFloat Nothing) 0 (fromRat x :: Double) ""
 
 -- | Read a rational in decimal notation.
-readRationalMaybe :: Monad m => String -> m Rational
+readRationalMaybe :: MonadFail m => String -> m Rational
 readRationalMaybe s =
     case (map fst $ filter (null . snd) $ readSigned readFloat s) of
       [r] -> return r
