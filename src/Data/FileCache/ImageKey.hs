@@ -22,9 +22,9 @@ module Data.FileCache.ImageKey
 import Data.Data ( Data )
 import Data.FileCache.Rational ( showRational )
 import Data.FileCache.File ( Checksum, File(_fileChksum) )
-import Data.FileCache.ImageCrop ( Rotation, ImageCrop )
+import Data.FileCache.ImageCrop ( Rotation(..), ImageCrop(..) )
 import Data.FileCache.ImageType ( HasFileExtension(fileExtension), ImageType(..) )
-import Data.FileCache.ImageSize ( HasImageSize, Units, Dimension, ImageSize )
+import Data.FileCache.ImageSize ( HasImageSize(..), Units(..), Dimension(..), ImageSize(..) )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
@@ -191,6 +191,101 @@ instance HasImageType ImageKey => PathInfo ImageKey where
   fromPathSegments = p2u pImageKey
 #endif
 
+#if MIN_VERSION_template_haskell(2,17,0)
+instance PathInfo ImagePath where
+      toPathSegments inp_aAxt
+        = case inp_aAxt of {
+            ImagePath arg_aAxu
+              -> ((++) [pack "image-path"]) (toPathSegments arg_aAxu) }
+      fromPathSegments
+        = (ap (segment (pack "image-path") >> return ImagePath))
+            fromPathSegments
+instance PathInfo ImageCrop where
+      toPathSegments inp_aAxw
+        = case inp_aAxw of {
+            ImageCrop arg_aAxx arg_aAxy arg_aAxz arg_aAxA arg_aAxB
+              -> ((++) [pack "image-crop"])
+                   (((++) (toPathSegments arg_aAxx))
+                      (((++) (toPathSegments arg_aAxy))
+                         (((++) (toPathSegments arg_aAxz))
+                            (((++) (toPathSegments arg_aAxA)) (toPathSegments arg_aAxB))))) }
+      fromPathSegments
+        = (ap
+             ((ap
+                 ((ap
+                     ((ap
+                         ((ap
+                             (segment (pack "image-crop")
+                                >> return ImageCrop))
+                            fromPathSegments))
+                        fromPathSegments))
+                    fromPathSegments))
+                fromPathSegments))
+            fromPathSegments
+instance PathInfo ImageSize where
+      toPathSegments inp_aAxV
+        = case inp_aAxV of {
+            ImageSize arg_aAxW arg_aAxX arg_aAxY
+              -> ((++) [pack "image-size"])
+                   (((++) (toPathSegments arg_aAxW))
+                      (((++) (toPathSegments arg_aAxX)) (toPathSegments arg_aAxY))) }
+      fromPathSegments
+        = (ap
+             ((ap
+                 ((ap
+                     (segment (pack "image-size")
+                        >> return ImageSize))
+                    fromPathSegments))
+                fromPathSegments))
+            fromPathSegments
+instance PathInfo Dimension where
+      toPathSegments inp_aAy2
+        = case inp_aAy2 of
+            TheHeight -> [pack "the-height"]
+            TheWidth -> [pack "the-width"]
+            TheArea -> [pack "the-area"]
+      fromPathSegments
+        = ((<|>)
+             (((<|>)
+                 (segment (pack "the-height")
+                    >> return TheHeight))
+                (segment (pack "the-width")
+                   >> return TheWidth)))
+            (segment (pack "the-area")
+               >> return TheArea)
+instance PathInfo Units where
+      toPathSegments inp_aAy6
+        = case inp_aAy6 of
+            Inches -> [pack "inches"]
+            Cm -> [pack "cm"]
+            Points -> [pack "points"]
+      fromPathSegments
+        = ((<|>)
+             (((<|>)
+                 (segment (pack "inches")
+                    >> return Inches))
+                (segment (pack "cm") >> return Cm)))
+            (segment (pack "points") >> return Points)
+instance PathInfo Rotation where
+      toPathSegments inp_aAyb
+        = case inp_aAyb of
+            ZeroHr -> [pack "zero-hr"]
+            ThreeHr -> [pack "three-hr"]
+            SixHr -> [pack "six-hr"]
+            NineHr -> [pack "nine-hr"]
+      fromPathSegments
+        = ((<|>)
+             (((<|>)
+                 (((<|>)
+                     (segment (pack "zero-hr")
+                        >> return ZeroHr))
+                    (segment (pack "three-hr")
+                       >> return ThreeHr)))
+                (segment (pack "six-hr")
+                   >> return SixHr)))
+            (segment (pack "nine-hr")
+               >> return NineHr)
+#else
 $(concat <$>
   sequence
   [ derivePathInfo ''ImagePath
@@ -200,3 +295,4 @@ $(concat <$>
   , derivePathInfo ''Units
   , derivePathInfo ''Rotation
   ])
+#endif
