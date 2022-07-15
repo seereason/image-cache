@@ -45,18 +45,8 @@ import Web.Routes ( PathInfo(..) )
 approx :: Rational -> Rational
 approx x = approxRational x (1 % 10000)
 
-#if 0
-rationalLens :: Lens' Rational String
-rationalLens = lens showRational (\r s -> either (const r) id (readRationalMaybe s))
-#endif
-
-#if 0
-rationalIso :: Iso' Rational String
-rationalIso = iso showRational (readRational 0)
-    where
-      readRational :: Rational -> String -> Rational
-      readRational d = either (const d) id . readRationalMaybe
-#endif
+rationalIso :: Iso' (Either Text Rational) Text
+rationalIso = iso (either id (review rationalPrism)) (\text -> maybe (Left text) Right (preview rationalPrism text))
 
 -- | Every Rational has a Text equivalent, some Text strings have a
 -- Rational equivalant.  'readShowLens' is not a good choice for
