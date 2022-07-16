@@ -10,15 +10,14 @@ module Data.FileCache.Rational
   (
     -- * Rational
     approx
-  -- , rationalIso
-  -- , rationalLens
+  , rationalIso
   , rationalPrism
   , readRationalMaybe
   , showRational
   , rsqrt
   ) where
 
-import Control.Lens ( iso, Prism', prism'  )
+import Control.Lens (Iso', iso, preview, Prism', prism',  review)
 import Control.Monad.Fail (MonadFail)
 import Data.ListLike (fromString, toString)
 import Data.Monoid ( (<>) )
