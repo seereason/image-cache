@@ -19,6 +19,7 @@ module Data.FileCache.ImageKey
   , HasImagePath(imagePath)
   ) where
 
+import Control.Monad ( ap )
 import Data.Data ( Data )
 import Data.FileCache.Rational ( showRational )
 import Data.FileCache.File ( Checksum, File(_fileChksum) )
@@ -30,7 +31,6 @@ import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable )
-import Extra.Except ( ap )
 import GHC.Generics ( Generic )
 -- import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ()
