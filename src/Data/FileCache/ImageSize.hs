@@ -96,7 +96,7 @@ instance (SafeCopy a, Typeable a) => Serialize (SaneSize a) where get = safeGet;
 
 instance View (SaneSize ImageSize) where
     type ViewType (SaneSize ImageSize) = ImageSize
-    _View = newtypeIso
+    _View = iso _unSaneSize saneSize
 
 saneSize :: ImageSize -> SaneSize ImageSize
 saneSize sz = SaneSize $
