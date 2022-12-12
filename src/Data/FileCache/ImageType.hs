@@ -56,22 +56,20 @@ instance HasFileExtension ImageType where
   fileExtension PDF = ".pdf"
   fileExtension Unknown = ".xxx"
 
-type MimeType = (String, String)
+type MimeType = String
 class HasMimeType a where
   mimeType :: a -> MimeType
-  mimeType' :: a -> String
-  mimeType' = snd . mimeType
 
 instance HasMimeType ImageType where
-  mimeType JPEG = ("jpg","image/jpeg")
-  mimeType PPM = ("ppm","image/ppm")
-  mimeType GIF = ("gif","image/gif")
-  mimeType PNG = ("png","image/png")
-  mimeType PDF = ("pdf","image/pdf")
-  mimeType Unknown = ("xxx","application/unknown")
+  mimeType JPEG = "image/jpeg"
+  mimeType PPM = "image/ppm"
+  mimeType GIF = "image/gif"
+  mimeType PNG = "image/png"
+  mimeType PDF = "image/pdf"
+  mimeType Unknown = "application/unknown"
 
 supportedMimeTypes :: [String]
-supportedMimeTypes = map mimeType' allOf
+supportedMimeTypes = map mimeType allOf
   where allOf = filter (/= Unknown) [minBound..maxBound] :: [ImageType]
 
 
