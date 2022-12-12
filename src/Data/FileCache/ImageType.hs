@@ -15,6 +15,7 @@ module Data.FileCache.ImageType
   , HasImageType(imageType)
   , Checksum
   , HasFileChecksum(fileChecksum)
+  , supportedMimeTypes
   ) where
 
 import Data.Data ( Data )
@@ -30,7 +31,7 @@ import Web.Routes ( PathInfo(..), segment )
 
 -- * ImageType and Checksum
 
-data ImageType = PPM | JPEG | GIF | PNG | PDF | Unknown deriving (Generic, Eq, Ord)
+data ImageType = PPM | JPEG | GIF | PNG | PDF | Unknown deriving (Generic, Eq, Ord, Enum, Bounded)
 
 deriving instance Data ImageType
 deriving instance Read ImageType
@@ -54,6 +55,25 @@ instance HasFileExtension ImageType where
   fileExtension PNG = ".png"
   fileExtension PDF = ".pdf"
   fileExtension Unknown = ".xxx"
+
+type MimeType = (String, String)
+class HasMimeType a where
+  mimeType :: a -> MimeType
+  mimeType' :: a -> String
+  mimeType' = snd . mimeType
+
+instance HasMimeType ImageType where
+  mimeType JPEG = ("jpg","image/jpeg")
+  mimeType PPM = ("ppm","image/ppm")
+  mimeType GIF = ("gif","image/gif")
+  mimeType PNG = ("png","image/png")
+  mimeType PDF = ("pdf","image/pdf")
+  mimeType Unknown = ("xxx","application/unknown")
+
+supportedMimeTypes :: [String]
+supportedMimeTypes = map mimeType' allOf
+  where allOf = filter (/= Unknown) [minBound..maxBound] :: [ImageType]
+
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = Text
