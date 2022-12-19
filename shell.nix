@@ -33,6 +33,7 @@ let
         description = "Support for image file processing and caching";
         license = stdenv.lib.licenses.unfree;
         hydraPlatforms = stdenv.lib.platforms.none;
+        buildInputs = [ netpbm libheif libjpeg ]; # not sure this is right -- cb
       };
 
   haskellPackages = if compiler == "default"

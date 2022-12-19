@@ -284,21 +284,24 @@ scaleImage' _ _ PDF = throwMember $ (NoShape "scaleImage'")
 scaleImage' _ _ Unknown = throwMember $ NoShape "scaleImage'"
 scaleImage' sc bytes typ = do
     let decoder = case typ of
-                    JPEG -> showCommandForUser "jpegtopnm" ["-"]
-                    PPM -> showCommandForUser "cat" ["-"]
                     GIF -> showCommandForUser "giftopnm" ["-"]
+                    JPEG -> showCommandForUser "heic-convert" ["-"]
+                    JPEG -> showCommandForUser "jpegtopnm" ["-"]
+                    PDF -> error "scaleImage' - Unexpected file type"
                     PNG -> showCommandForUser "pngtopnm" ["-"]
-                    PDF -> error "scaleImge' - Unexpected file type"
+                    PPM -> showCommandForUser "cat" ["-"]
                     Unknown -> error "scaleImge' - Unexpected file type"
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) sc ""]
         -- To save space, build a jpeg here rather than the original file type.
         encoder = case typ of
-                    JPEG -> showCommandForUser "cjpeg" []
-                    PPM -> showCommandForUser {-"cat"-} "cjpeg" []
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
-                    PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
+                    HEIC -> error "scaleImge' - Unexpected file type"
+                    JPEG -> showCommandForUser "cjpeg" []
                     PDF -> error "scaleImge' - Unexpected file type"
-                    Unknown -> error "scaleImge' - Unexpected file type"
+                    PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
+                    PPM -> showCommandForUser {-"cat"-} "cjpeg" []
+                    TIFF -> error "scaleImage' - Unexpected file type"
+                    Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
 
