@@ -22,6 +22,7 @@ import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFi
 --import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import Data.Char ( isSpace )
 import Data.Default ( def )
+import Data.FileCache.Pipify ( heifConvert )
 import Data.FileCache.Process ( readCreateProcessWithExitCode', pipeline )
 import Data.FileCache.Common
 import Data.FileCache.LogException ( logException )
@@ -285,22 +286,23 @@ scaleImage' _ _ Unknown = throwMember $ NoShape "scaleImage'"
 scaleImage' sc bytes typ = do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
-                    JPEG -> showCommandForUser "heic-convert" ["-"]
+                    HEIC -> heifConvert
                     JPEG -> showCommandForUser "jpegtopnm" ["-"]
                     PDF -> error "scaleImage' - Unexpected file type"
                     PNG -> showCommandForUser "pngtopnm" ["-"]
                     PPM -> showCommandForUser "cat" ["-"]
+                    TIFF -> showCommandForUser "tifftopnm" ["-"]
                     Unknown -> error "scaleImge' - Unexpected file type"
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) sc ""]
         -- To save space, build a jpeg here rather than the original file type.
         encoder = case typ of
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
-                    HEIC -> error "scaleImge' - Unexpected file type"
+                    HEIC -> showCommandForUser "cjpeg" []
                     JPEG -> showCommandForUser "cjpeg" []
                     PDF -> error "scaleImge' - Unexpected file type"
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
                     PPM -> showCommandForUser {-"cat"-} "cjpeg" []
-                    TIFF -> error "scaleImage' - Unexpected file type"
+                    TIFF -> showCommandForUser "cjpeg" []
                     Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
@@ -326,10 +328,12 @@ editImage' crop bs typ shape =
       -- We can only embed JPEG and PNG images in a LaTeX
       -- includegraphics command, so here we choose which one to use.
       latexImageFileType GIF = JPEG
+      latexImageFileType HEIC = JPEG
       latexImageFileType PPM = JPEG
       latexImageFileType JPEG = JPEG
       latexImageFileType PNG = JPEG
       latexImageFileType PDF = error "editImage' - Unexpected file type"
+      latexImageFileType TIFF = JPEG
       latexImageFileType Unknown = error "editImage' - Unexpected file type"
       cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
               (0, 0, 0, 0) -> Nothing

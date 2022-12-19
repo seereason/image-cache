@@ -86,6 +86,7 @@ Library
       Data.FileCache.FileInfo
       Data.FileCache.ImageIO
       Data.FileCache.LogException
+      Data.FileCache.Pipify
       Data.FileCache.Process
       Data.FileCache.Server
       Data.FileCache.Test
