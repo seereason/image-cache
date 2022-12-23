@@ -83,26 +83,29 @@ class HasMimeType a where
 
 instance HasMimeType ImageType where
   mimeType GIF = "image/gif"
-  mimeType HEIC = "image/heic"
+  mimeType HEIC = "image/heif"
   mimeType JPEG = "image/jpeg"
   mimeType PPM = "image/ppm"
   mimeType PNG = "image/png"
   mimeType PDF = "application/pdf"
-  mimeType TIFF = "application/tiff"
+  mimeType TIFF = "image/tiff"
   mimeType Unknown = "application/unknown"
 
-allOf :: [ImageType]
-allOf = filter (/= Unknown) [minBound..maxBound]
+allSupported :: [ImageType]
+allSupported = filter works [minBound..maxBound]
+  where works :: ImageType -> Bool
+        works it = not (it `elem` [HEIC, TIFF, Unknown])
+  
 
 -- | A Pretty comma-separated list of ImageTypes supported by this library.
 supportedImageTypes :: Doc
-supportedImageTypes = commas allOf
+supportedImageTypes = commas allSupported
 
 commas :: Pretty a => [a] -> Doc
 commas = hsep . punctuate comma . map pPrint
 
 supportedMimeTypes :: [String]
-supportedMimeTypes = map mimeType allOf
+supportedMimeTypes = map mimeType allSupported
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = Text
