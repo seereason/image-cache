@@ -5,6 +5,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 
 module Data.FileCache.ImageType
   (
@@ -13,9 +14,10 @@ module Data.FileCache.ImageType
   , Extension
   , HasFileExtension(fileExtension)
   , HasImageType(imageType)
+  , HasMimeType(mimeType)
   , Checksum
   , HasFileChecksum(fileChecksum)
-  , supportedMimeTypes
+  , ppImageTypes
   , supportedImageTypes
   ) where
 
@@ -34,25 +36,43 @@ import Web.Routes ( PathInfo(..), segment )
 
 -- HEIC, should also have HEIF?
 
-data ImageType = GIF | HEIC | JPEG | PDF | PNG | PPM | TIFF | Unknown deriving (Generic, Eq, Ord, Enum, Bounded)
+data ImageType = GIF | HEIC | JPEG | PDF | PNG | PPM | TIFF | CSV | Unknown deriving (Generic, Eq, Ord, Enum, Bounded)
 
 deriving instance Data ImageType
 deriving instance Read ImageType
 deriving instance Show ImageType
 deriving instance Typeable ImageType
 instance Serialize ImageType where get = safeGet; put = safePut
+
 instance SafeCopy ImageType_1 where version = 1; kind = base
-instance SafeCopy ImageType where version = 2; kind = extension
+instance SafeCopy ImageType_2 where version = 2; kind = extension
+instance SafeCopy ImageType where version = 3; kind = extension
+
 instance Migrate ImageType where
-  type MigrateFrom ImageType = ImageType_1
+  type MigrateFrom ImageType = ImageType_2
   migrate old =
     case old of
-      PPM_1 -> PPM
-      JPEG_1 -> JPEG
-      GIF_1 -> GIF
-      PNG_1 -> PNG
-      PDF_1 -> PDF
-      Unknown_1 -> Unknown
+      GIF_2 -> GIF
+      HEIC_2 -> HEIC
+      JPEG_2 -> JPEG
+      PDF_2 -> PDF
+      PNG_2 -> PNG
+      PPM_2 -> PPM
+      TIFF_2 -> TIFF
+      Unknown_2 -> Unknown
+
+instance Migrate ImageType_2 where
+  type MigrateFrom ImageType_2 = ImageType_1
+  migrate old =
+    case old of
+      PPM_1 -> PPM_2
+      JPEG_1 -> JPEG_2
+      GIF_1 -> GIF_2
+      PNG_1 -> PNG_2
+      PDF_1 -> PDF_2
+      Unknown_1 -> Unknown_2
+
+data ImageType_2 = GIF_2 | HEIC_2 | JPEG_2 | PDF_2 | PNG_2 | PPM_2 | TIFF_2 | Unknown_2 deriving (Generic, Eq, Ord, Enum, Bounded)
 data ImageType_1 = PPM_1 | JPEG_1 | GIF_1 | PNG_1 | PDF_1 | Unknown_1 deriving (Generic, Eq, Ord, Enum, Bounded)
 
 instance Pretty ImageType where pPrint = text . noQuotes . show
@@ -64,9 +84,17 @@ type Extension = Text
 
 class HasImageType a where imageType :: a -> ImageType
 
+instance HasImageType Extension where
+  imageType ext = case filter ((== ext) . fileExtension) ts of
+    [x] -> x
+    [] -> Unknown
+    es -> error ("Data.FileCache.ImageType HasImageType Extension matched " <> show ext <> " to multiple ImageTypes: " <> show es)
+    where ts = [minBound .. maxBound] :: [ImageType]
+
 class HasFileExtension a where fileExtension :: a -> Extension
 instance HasFileExtension Extension where fileExtension = id
 
+-- FIXME  This should be a list of file extensions for each ImageType
 instance HasFileExtension ImageType where
   fileExtension GIF = ".gif"
   fileExtension HEIC = ".heic"
@@ -75,6 +103,7 @@ instance HasFileExtension ImageType where
   fileExtension PNG = ".png"
   fileExtension PPM = ".ppm"
   fileExtension TIFF = ".tiff"
+  fileExtension CSV = ".csv"
   fileExtension Unknown = ".xxx"
 
 type MimeType = String
@@ -89,23 +118,26 @@ instance HasMimeType ImageType where
   mimeType PNG = "image/png"
   mimeType PDF = "application/pdf"
   mimeType TIFF = "image/tiff"
+  mimeType CSV = "text/csv"
   mimeType Unknown = "application/unknown"
 
-allSupported :: [ImageType]
-allSupported = filter works [minBound..maxBound]
+supportedFileTypes :: [ImageType]
+supportedFileTypes = filter works [minBound..maxBound]
   where works :: ImageType -> Bool
         works it = not (it `elem` [HEIC, TIFF, Unknown])
-  
 
--- | A Pretty comma-separated list of ImageTypes supported by this library.
-supportedImageTypes :: Doc
-supportedImageTypes = commas allSupported
+-- These are the actual supported image types.
+supportedImageTypes :: [ImageType]
+supportedImageTypes = filter works [minBound..maxBound]
+  where works :: ImageType -> Bool
+        works it = not (it `elem` [HEIC, PDF, TIFF, CSV, Unknown])
+  
+-- | A Pretty comma-separated list of filetypes [ImageType].
+ppImageTypes :: [ImageType] -> Doc
+ppImageTypes fs = commas fs
 
 commas :: Pretty a => [a] -> Doc
 commas = hsep . punctuate comma . map pPrint
-
-supportedMimeTypes :: [String]
-supportedMimeTypes = map mimeType allSupported
 
 -- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
 type Checksum = Text
@@ -116,9 +148,12 @@ class HasFileChecksum a where fileChecksum :: a -> Checksum
 instance PathInfo ImageType where
   toPathSegments inp = ["i" <> fileExtension inp]
   fromPathSegments =
-    (segment ("i" <> fileExtension PPM) >> return PPM) <|>
-    (segment ("i" <> fileExtension JPEG) >> return JPEG) <|>
     (segment ("i" <> fileExtension GIF) >> return GIF) <|>
-    (segment ("i" <> fileExtension PNG) >> return PNG) <|>
+    (segment ("i" <> fileExtension HEIC) >> return HEIC) <|>
+    (segment ("i" <> fileExtension JPEG) >> return JPEG) <|>
     (segment ("i" <> fileExtension PDF) >> return PDF) <|>
+    (segment ("i" <> fileExtension PNG) >> return PNG) <|>
+    (segment ("i" <> fileExtension PPM) >> return PPM) <|>
+    (segment ("i" <> fileExtension TIFF) >> return TIFF) <|>
+    (segment ("i" <> fileExtension CSV) >> return CSV) <|>
     (segment ("i" <> fileExtension Unknown) >> return Unknown)

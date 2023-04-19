@@ -24,7 +24,7 @@ import Data.Data ( Data )
 import Data.FileCache.Rational ( showRational )
 import Data.FileCache.File ( Checksum, File(_fileChksum) )
 import Data.FileCache.ImageCrop ( Rotation(..), ImageCrop(..) )
-import Data.FileCache.ImageType ( HasFileExtension(fileExtension), ImageType(..) )
+import Data.FileCache.ImageType ( HasFileExtension(fileExtension), HasImageType(..), ImageType(..) )
 import Data.FileCache.ImageSize ( HasImageSize(..), Units(..), Dimension(..), ImageSize(..) )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
@@ -147,15 +147,9 @@ instance PathInfo ImageKey where
     where
       parseOriginal :: Text -> ImageKey
       parseOriginal t = let (name, ext) = span (/= '.') t in
-                          ImageOriginal name (case ext of
-                                                 ".jpg" -> JPEG
-                                                 ".ppm" -> PPM
-                                                 ".png" -> PNG
-                                                 ".gif" -> GIF
-                                                 ".pdf" -> PDF
-                                                 _ -> Unknown)
-
+                          ImageOriginal name (imageType ext)
 {-
+
 λ> toPathInfo (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG)
 "/image-original/1c478f102062f2e0fd4b8147fb3bbfd0"
 λ> toPathInfo (ImageUpright (ImageOriginal "1c478f102062f2e0fd4b8147fb3bbfd0" JPEG))
