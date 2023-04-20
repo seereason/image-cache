@@ -19,7 +19,7 @@ flag pretty-112
 
 Library
   Hs-Source-Dirs: src
-  GHC-Options: -Wall -Wredundant-constraints -fno-warn-name-shadowing -Werror=incomplete-patterns -O
+  GHC-Options: -Wall -Wredundant-constraints -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
   Default-Extensions: ConstraintKinds, CPP, DataKinds, DeriveDataTypeable, DeriveFunctor, DeriveGeneric
   Default-Extensions: FlexibleInstances, FlexibleContexts, MultiParamTypeClasses, RankNTypes

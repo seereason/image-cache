@@ -289,7 +289,6 @@ scaleImage' sc bytes typ = do
                     HEIC -> heifConvert
                     JPEG -> showCommandForUser "jpegtopnm" ["-"]
                     PDF -> error "scaleImage' - Unexpected file type"
-                    CSV -> error "scaleImage' - Unexpected file type"
                     PNG -> showCommandForUser "pngtopnm" ["-"]
                     PPM -> showCommandForUser "cat" ["-"]
                     TIFF -> showCommandForUser "tifftopnm" ["-"]
@@ -301,7 +300,6 @@ scaleImage' sc bytes typ = do
                     HEIC -> showCommandForUser "cjpeg" []
                     JPEG -> showCommandForUser "cjpeg" []
                     PDF -> error "scaleImge' - Unexpected file type"
-                    CSV -> error "scaleImge' - Unexpected file type"
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
                     PPM -> showCommandForUser {-"cat"-} "cjpeg" []
                     TIFF -> showCommandForUser "cjpeg" []
@@ -319,7 +317,6 @@ editImage' ::
     => ImageCrop -> BS.ByteString -> ImageType -> shape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' _ _ PDF _ = throwMember $ NoShape "editImage'"
-editImage' _ _ CSV _ = throwMember $ NoShape "editImage'"
 editImage' _ _ Unknown _ = throwMember $ NoShape "editImage'"
 editImage' crop bs typ shape =
   logIOError' $
@@ -336,7 +333,6 @@ editImage' crop bs typ shape =
       latexImageFileType JPEG = JPEG
       latexImageFileType PNG = JPEG
       latexImageFileType PDF = error "editImage' - Unexpected file type"
-      latexImageFileType CSV = error "editImage' - Unexpected file type"
       latexImageFileType TIFF = JPEG
       latexImageFileType Unknown = error "editImage' - Unexpected file type"
       cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
