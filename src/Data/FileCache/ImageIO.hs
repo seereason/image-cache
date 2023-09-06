@@ -34,7 +34,6 @@ import Data.String ( fromString )
 import Data.Text as T ( Text )
 import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Encoding ( decodeUtf8 )
-import SeeReason.Errors as Err ( liftUIO, throwMember, Member, NonIOException, OneOf )
 import qualified SeeReason.Errors as Errors ()
 import Extra.Except ( ExceptT, MonadError(throwError), tryError )
 import GHC.Generics (Generic)
@@ -65,8 +64,8 @@ import Text.Parsec
       string,
       many1,
       optionMaybe )
-import UnexceptionalIO.Trans ( Unexceptional )
-import UnexceptionalIO.Trans as UIO ( unsafeFromIO )
+import SeeReason.Errors as Err ( throwMember, Member, OneOf)
+import SeeReason.UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO)
 
 class MakeByteString a where
   makeByteString :: (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString

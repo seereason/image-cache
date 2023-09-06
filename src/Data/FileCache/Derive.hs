@@ -34,7 +34,6 @@ import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
 import Data.Typeable ( Typeable, typeOf )
-import SeeReason.Errors( liftUIO, Member, NonIOException, OneOf, throwMember, tryMember )
 import Extra.Except ( MonadError )
 import GHC.Stack ( HasCallStack )
 import Numeric ( fromRat )
@@ -45,8 +44,8 @@ import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import System.Posix.Files ( createLink )
 import Text.PrettyPrint.HughesPJClass ( prettyShow )
-import UnexceptionalIO.Trans ( Unexceptional )
-import UnexceptionalIO.Trans as UIO ( unsafeFromIO )
+import SeeReason.Errors(Member, OneOf, throwMember, tryMember)
+import SeeReason.UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO)
 
 data CacheFlag
   = RetryErrors -- ^ If the cache contains a FileError try the operation again

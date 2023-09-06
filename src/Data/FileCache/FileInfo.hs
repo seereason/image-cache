@@ -17,7 +17,8 @@ import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, listToMaybe )
 import Data.Text ( Text )
 import Data.Text.Encoding (decodeUtf8)
-import SeeReason.Errors ( liftUIO, throwMember, Member, NonIOException, OneOf )
+import SeeReason.Errors (throwMember, Member, OneOf )
+import SeeReason.UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO)
 import Extra.Except ( MonadError )
 import Prelude hiding (show)
 import SeeReason.LogServer (alog, Priority(DEBUG, ERROR))
@@ -25,7 +26,6 @@ import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
 import Text.Parsec as Parsec
     ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )
 import Text.Parsec.Text ( Parser )
-import UnexceptionalIO.Trans ( Unexceptional, unsafeFromIO )
 
 instance (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => HasImageShapeM m BS.ByteString where
   imageShapeM bytes = fileInfoFromPath ("-", bytes)

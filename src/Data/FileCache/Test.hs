@@ -24,8 +24,6 @@ import Data.Map.Strict as Map ( Map, lookup, toList, fromList )
 import Data.Ratio ( (%) )
 import Data.Text as T ( pack, Text, unpack )
 import Data.Text.Encoding ( encodeUtf8 )
-import SeeReason.Errors ( liftUIO, Member, NonIOException, OneOf, runOneOf, throwMember )
-import qualified SeeReason.Errors as Errors ()
 import Extra.Except ( MonadError )
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (show)
@@ -39,8 +37,8 @@ import Test.QuickCheck
       oneof,
       withMaxSuccess,
       quickCheck )
-import UnexceptionalIO.Trans ( Unexceptional )
-import UnexceptionalIO.Trans as UIO ( unsafeFromIO )
+import SeeReason.Errors (Member, OneOf, runOneOf, throwMember )
+import SeeReason.UIO as UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO)
 import Web.Routes ( fromPathInfo, toPathInfo )
 import Web.Routes.QuickCheck ( pathInfoInverse_prop )
 

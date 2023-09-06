@@ -27,11 +27,10 @@ import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
 import Data.Typeable ( Typeable )
-import SeeReason.Errors as Errors ( Member, NonIOException, OneOf, oneOf )
+import SeeReason.Errors as Errors ( Member, OneOf, oneOf )
+import SeeReason.UIO as Errors (NonIOException, Unexceptional)
 import Extra.Except ( MonadError, HasErrorCall(..) )
 import GHC.Generics ( Generic )
---import Language.Haskell.TH.Instances ()
-import UnexceptionalIO.Trans ( Unexceptional )
 
 -- * FileError, CommandInfo
 

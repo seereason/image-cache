@@ -28,7 +28,6 @@ import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, insert )
 import Data.Maybe ( fromMaybe )
 import Data.Text as T ( pack )
-import SeeReason.Errors ( liftUIO, runOneOf, Member, NonIOException, OneOf )
 import Extra.Except ( MonadError(throwError), ExceptT )
 import GHC.Stack ( HasCallStack )
 import Prelude hiding (show)
@@ -36,8 +35,8 @@ import SeeReason.LogServer(alog)
 import System.Directory ( doesFileExist )
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
-import UnexceptionalIO.Trans ( Unexceptional )
-import UnexceptionalIO.Trans as UIO ( unsafeFromIO )
+import SeeReason.Errors (runOneOf, Member, OneOf)
+import SeeReason.UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO )
 
 instance (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member IOException e, Member NonIOException e,
           MonadReader r m, HasFileCacheTop r) => HasImageShapeM m (Checksum, ImageType) where

@@ -31,11 +31,10 @@ import Extra.Except (throwError)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
-import SeeReason.Errors (liftUIO, Member, NonIOException, OneOf, throwMember)
 import SeeReason.LogServer (alog)
+import SeeReason.Errors (Member, OneOf, throwMember)
+import SeeReason.UIO (fork, liftUIO, NonIOException, UIO, Unexceptional, unsafeFromIO)
 import System.Log.Logger (Priority(..))
-import UnexceptionalIO.Trans (Unexceptional)
-import UnexceptionalIO.Trans as UIO hiding (lift)
 
 {-
 class HasSomeNonPseudoException e where

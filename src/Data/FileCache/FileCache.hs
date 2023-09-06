@@ -23,11 +23,11 @@ import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.Set as Set ( Set )
 import Data.Text as T ( unpack )
-import SeeReason.Errors ( liftUIO, Member, NonIOException, OneOf )
+import SeeReason.Errors (Member, OneOf)
+import SeeReason.UIO (liftUIO, NonIOException, Unexceptional )
 import Extra.Except ( MonadError )
 import System.Directory ( createDirectoryIfMissing )
 import System.FilePath ( (</>), makeRelative, takeDirectory )
-import UnexceptionalIO.Trans ( Unexceptional )
 import Web.Routes ( toPathInfo )
 
 -- * FileCacheTop
