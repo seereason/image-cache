@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.22.3
+Version:        0.23
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -94,6 +94,7 @@ Library
     Build-Depends:
       acid-state >= 0.16,
       filemanip-extra,
+      happstack-server,
       JuicyPixels,
       ListLike,
       process >= 1.4.3,
