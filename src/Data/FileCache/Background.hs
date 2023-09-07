@@ -18,8 +18,7 @@ import Control.Monad (forever, when)
 import Control.Monad.Reader (MonadReader(ask), runReaderT)
 import Control.Monad.Except (ExceptT, MonadError, runExceptT)
 import Data.FileCache.FileCacheTop
-import Data.FileCache.Derive (cacheImageFile, cacheImageShape)
-import Data.FileCache.Derive
+import Data.FileCache.Derive (CacheFlag, cacheImageFile, cacheImageShape)
 import Data.FileCache.FileError (FileError(UnexpectedException))
 import Data.FileCache.Common
 import Data.ListLike ( length, show )
