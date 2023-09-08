@@ -1,3 +1,5 @@
+-- | Size, orientation, and format of an image.
+
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}

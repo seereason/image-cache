@@ -1,3 +1,5 @@
+-- | An 'ImageKey' is a value that describes how to construct an image.
+
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}

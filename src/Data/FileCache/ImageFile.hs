@@ -1,3 +1,5 @@
+-- | An 'ImageFile' is an 'ImageShape' and the path to the image file.
+
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}

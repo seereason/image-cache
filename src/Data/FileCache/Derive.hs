@@ -11,11 +11,12 @@ module Data.FileCache.Derive
   , getImageShapes
   , cacheImageFile
   , cacheImageShape
+  , buildImageFile
   ) where
 
 import Control.Exception ( IOException )
 import Control.Lens ( _Right, over )
-import Control.Monad.Reader ( MonadIO, MonadReader, ReaderT(runReaderT) )
+import Control.Monad.Reader (MonadIO, MonadReader, ReaderT(runReaderT), unless, when)
 import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
@@ -52,7 +53,7 @@ import System.Directory ( doesFileExist )
 import System.FilePath ()
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
-import System.Posix.Files ( createLink )
+import System.Posix.Files (createLink, removeLink)
 import Text.PrettyPrint.HughesPJClass ( prettyShow )
 
 data CacheFlag
@@ -128,13 +129,19 @@ cacheImageShape flags key (Just (Left _))
 cacheImageShape flag key (Just (Left e)) = do
   unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
   cacheImageShape flag key Nothing
-cacheImageShape _ _key (Just (Right (ImageFileShape shape))) = do
+cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
   -- unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
-cacheImageShape _ _ (Just (Right (ImageFileReady img))) = do
-  -- unsafeFromIO $ alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
-  return (Right (ImageFileReady img))
+cacheImageShape _ key (Just (Right (ImageFileReady img))) = do
+  path <- fileCachePath (ImagePath key)
+  liftUIO (doesFileExist path) >>= \case
+    False -> do
+      unsafeFromIO $ alog WARNING ("missing cache file: " <> prettyShow key <> " -> " <> show path)
+      pure $ Left $ MissingDerivedEntry key
+    True -> do
+      -- unsafeFromIO $ alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
+      pure $ Right $ ImageFileReady img
 
 -- | These are meant to be inexpensive operations that determine the
 -- shape of the desired image, with the actual work of building them
@@ -194,39 +201,55 @@ cacheImageFile key _shape = do
                      -- Proceed with the build
                      tryMember @FileError (buildImageFile key shape') >>= cachePut key))
 
+-- | Given an 'ImageKey' and 'ImageShape', build the corresponding
+-- 'ImageFile' and write the image file.  This can be used to repair
+-- missing cache files.
 buildImageFile ::
   forall r e m. (MONAD(r,e,m), Member FileError e)
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
-  (key', bs) <- buildImageBytes Nothing key -- key' may differ from key due to removal of no-ops
+  (key', bs) <- buildImageBytes Nothing key
+  -- key' may differ from key due to removal of no-ops.  If so we hard
+  -- link the corresponsing image files so both keys work.
   let file = File { _fileSource = Derived
                   , _fileChksum = T.pack $ show $ md5 bs
                   , _fileMessages = []
                   , _fileExt = fileExtension (_imageShapeType shape) }
   let img = ImageFileReady (ImageReady { _imageFile = file, _imageShape = shape })
   path <- fileCachePathIO (ImageCached key img) -- the rendered key
-  exists <- liftUIO $ doesFileExist path
-  path' <- fileCachePathIO (ImageCached key' img) -- the equivalent file
-  -- path' should exist, hard link path to path'
-  case exists of
+  liftUIO (doesFileExist path) >>= \case
     False -> do
-      case key == key' of
-        True -> do
-          unsafeFromIO $ alog INFO ("Writing new cache file: " <> show path)
-          liftUIO $ writeFileReadable path bs
-        False -> do
-          unsafeFromIO $ alog INFO ("Hard linking " <> show path' <> " -> " <> show path)
-          liftUIO $ createLink path' path
+      unsafeFromIO $ alog INFO ("Writing new cache file: " <> show path)
+      liftUIO $ writeFileReadable path bs
     True -> do
-      -- Don't mess with it if it exists, there is probably
-      -- a process running that is writing it out.
+      -- The cached file exists.
       bs' <- liftUIO $ BS.readFile path
       case bs == bs' of
         False -> do
-          unsafeFromIO $ alog WARNING ("Replacing damaged cache file: " <> show path <> " length " <> show (length bs') <> " -> " <> show (length bs))
+          -- Do we have to worry that this file is in the process of
+          -- being written?  This needs review.  Assuming it is
+          -- damaged because the contents do not match.
+          unsafeFromIO $ alog WARNING ("Replacing damaged cache file: " <> show path <>
+                                       " length " <> show (length bs') <>
+                                       " -> " <> show (length bs))
           liftUIO $ writeFileReadable path bs
-        True -> unsafeFromIO $ alog WARNING ("Cache file for new key already exists: " <> show path)
-  unsafeFromIO $ alog DEBUG ("added to cache: " <> prettyShow img)
+        True ->
+          -- The image file already exists and contains what we
+          -- expected.  Is this worth a warning?
+          unsafeFromIO $ alog WARNING ("Cache file for new key already exists: " <> show path)
+  path' <- fileCachePathIO (ImageCached key' img) -- the equivalent file
+  when (path /= path') $ do
+    -- The key contained no-ops, so the returned key is different.
+    -- Hard link the returned key to the image file.
+    liftUIO (doesFileExist path') >>= \case
+      True -> do
+        bs' <- liftUIO $ BS.readFile path'
+        unless (bs == bs') $ do
+          liftUIO (removeLink path')
+          liftUIO (createLink path path')
+      False -> do
+        liftUIO (createLink path path')
+  -- unsafeFromIO $ alog DEBUG ("added to cache: " <> prettyShow img)
   return img
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
