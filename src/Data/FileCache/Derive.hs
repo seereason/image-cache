@@ -189,7 +189,7 @@ cacheImageFile key _shape = do
     maybe (pure (Left (UnexpectedException "Impossible cache miss")))
           (either (pure . Left)
             (\case file@(ImageFileReady _img) ->
-                     pure (Right file) -- It was already built
+                     pure (Right file) -- It appears it was already built.  But is it actually there?
                    (ImageFileShape shape') ->
                      -- Proceed with the build
                      tryMember @FileError (buildImageFile key shape') >>= cachePut key))

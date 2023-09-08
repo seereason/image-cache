@@ -94,7 +94,6 @@ Library
     Build-Depends:
       acid-state >= 0.16,
       filemanip-extra,
-      happstack-server,
       JuicyPixels,
       ListLike,
       process >= 1.4.3,
