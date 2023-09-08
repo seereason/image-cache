@@ -6,7 +6,6 @@
 module Data.FileCache.Derive
   ( CacheFlag(RetryErrors)
   , E
-  , imageSP
   , getImageFile
   , getImageFiles
   , getImageShapes
@@ -14,49 +13,47 @@ module Data.FileCache.Derive
   , cacheImageShape
   ) where
 
-import Control.Exception ( IOException, SomeException, toException )
+import Control.Exception ( IOException )
 import Control.Lens ( _Right, over )
-import Control.Monad.Catch (MonadCatch, try)
-import Control.Monad.Reader (liftIO, MonadIO, MonadReader, MonadPlus, ReaderT, runReaderT)
+import Control.Monad.Reader ( MonadIO, MonadReader, ReaderT(runReaderT) )
 import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
-import Data.ByteString.UTF8 as UTF8 (fromString)
+import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasImageFilePath(..) )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
-import Data.FileCache.FileError ( FileError(NoShape, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry, CacheDamageMigrated, MissingOriginalEntry, UnexpectedException) )
+import Data.FileCache.FileError
+  ( FileError(NoShape, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
+              CacheDamageMigrated, MissingOriginalEntry, UnexpectedException) )
 import Data.FileCache.ImageCrop ( Rotation(NineHr, ThreeHr, SixHr, ZeroHr) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
 import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
 import Data.FileCache.ImageKey ( ImageKey(..), ImagePath(ImagePath) )
-import Data.FileCache.ImageShape ( cropImageShape, imageShape, scaleFromDPI, scaleImageShape, HasImageShapeM(imageShapeM), ImageShape(ImageShape, _imageFileOrientation, _imageShapeType) )
+import Data.FileCache.ImageShape
+  ( cropImageShape, imageShape, scaleFromDPI, scaleImageShape, HasImageShapeM(imageShapeM),
+    ImageShape(ImageShape, _imageFileOrientation, _imageShapeType) )
 import Data.FileCache.ImageType ( HasFileExtension(..), HasImageType(imageType), ImageType )
 import Data.FileCache.Upload ( cacheOriginalImage )
-import Data.ListLike (fromText, length)
-import Data.Map.Strict as Map ( Map, fromList, fromSet, lookup, mapWithKey, toList )
-import Data.Maybe (fromMaybe)
+import Data.ListLike ( ListLike(length) )
+import Data.Map.Strict as Map ( Map, toList, fromSet, fromList, mapWithKey )
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
 import Data.Typeable ( Typeable, typeOf )
-import Extra.Except (ExceptT, MonadError, runExceptT )
+import Extra.Except ( ExceptT, MonadError, runExceptT )
 import GHC.Stack ( HasCallStack )
-import Happstack.Server
-  (Response, mimeTypes, serveFile, internalServerError, notFound,
-   dir, uriRest, FilterMonad, ServerMonad, ToMessage(toResponse))
 import Numeric ( fromRat )
 import Prelude hiding (length)
-import SeeReason.LogServer (alog)
+import SeeReason.Errors ( Member, OneOf, throwMember, tryMember )
+import SeeReason.LogServer ( alog )
+import SeeReason.UIO ( liftUIO, NonIOException, run, Unexceptional, UIO, unsafeFromIO )
 import System.Directory ( doesFileExist )
-import System.FilePath ((</>))
+import System.FilePath ()
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import System.Posix.Files ( createLink )
 import Text.PrettyPrint.HughesPJClass ( prettyShow )
-import SeeReason.Errors(Member, OneOf, throwMember, tryMember)
-import SeeReason.UIO (liftUIO, NonIOException, run, Unexceptional, UIO, unsafeFromIO)
-import Web.Routes (fromPathInfo)
 
 data CacheFlag
   = RetryErrors -- ^ If the cache contains a FileError try the operation again
@@ -65,111 +62,12 @@ data CacheFlag
 
 type E = '[FileError, IOException, NonIOException]
 
--- Orphan instance
-instance ToMessage SomeException where
-  toResponse e = toResponse $ "Exception in serveFile: " <> show e
-
-notFound' :: (ToMessage a, Show a, MonadIO m, FilterMonad Response m) => a -> m Response
-notFound' a = do
-  alog DEBUG ("imageSP notFound - a=" <> show a)
-  notFound (toResponse a)
-
 #define MONAD(r,e,m) Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable e, Member NonIOException e, Member IOException e, MonadReader r m, HasCacheAcid r, HasFileCacheTop r, HasCallStack
-
--- This should use the image-cache API.
-imageSP ::
-  forall r m.
-  (MonadIO m,
-   MonadPlus m,
-   MonadCatch m,
-   ServerMonad m,
-   FilterMonad Response m,
-   HasCacheAcid r,
-   HasFileCacheTop r)
-  => r
-  -> FilePath
-  -> FilePath
-  -> m Response
-imageSP r db p = do
-  dir p $ uriRest $ \uripath ->
-    case fromPathInfo (UTF8.fromString uripath) of
-      Left e -> do
-        notFound' ("fromPathInfo " <> show uripath <> " :: ImageKey failed:\n" <> e)
-      Right key -> do
-        alog DEBUG ("key=" <> prettyShow key)
-        runCache (cacheLook key) r >>= \case
-          Left (e :: OneOf E) -> do
-            let msg = "imageSP - cache mechanism failed: " <> show e
-            alog ERROR msg
-            notFound' msg
-          Right Nothing ->
-            cacheMiss r db key
-          Right (Just (Left (e :: FileError))) -> do
-            alog WARNING ("cachedError: " <> show e)
-            notFound' $ "imageSP cachedError e=" <> show e
-          Right (Just (Right img)) ->
-            cachedImage db key img
-
-            -- runCache action = run (runExceptT (runReaderT action r))
-{-
-              -- alog DEBUG ("imageSP - key=" <> show key)
-              -- Look up the metadata to see if we need to request
-              -- a build.
-              img <- run (runExceptT (runReaderT (cacheLook key :: ReaderT r (ExceptT SomeNonPseudoException UIO) (Maybe (Either FileError ImageFile))) r))
-              case img of
-                Right (Just (Right img')) -> do -- easy case
-                  -- alog DEBUG ("imageSP - ImageKey=" <> show key)
-                  -- alog DEBUG ("imageSP - FilePath=" <> show (toFilePath (ImageCached key img')))
-                Right Nothing -> do -- hard case
-                  -- alog DEBUG ("imageSP - miss")
-                  mp <- run (runExceptT (runReaderT (toList <$> cacheDerivedImagesBackground mempty [key]) r))
-                  case (mp :: Either SomeNonPseudoException [(ImageKey, Either FileError ImageFile)]) of
-                    Right [(_, Left e')] -> do
-                      -- alog DEBUG ("imageSP - e'=" <> show e')
-                      notFound $ toResponse $ "imageSP e'=" <> show e'
-                    Right [(_, Right img')] -> do
-                      -- alog DEBUG ("imageSP - img'=" <> show img')
-                      serveFile (guessContentTypeM mimeTypes) (db </> toFilePath (ImageCached key img'))
-                Right (Just (Left e'')) -> do -- sad case
-                  -- alog DEBUG ("imageSP - e''=" <> show e'')
-                Left e''' -> do -- scary case
-                  -- alog ALERT ("imageSP - cache failure key=" ++ show key)
-                  notFound $ toResponse $ "imageSP e'''=" <> show e'''
--}
-
--- | The key is not in the image database.
-cacheMiss ::
-  forall r m.
-  (MonadIO m,
-   MonadPlus m,
-   MonadCatch m,
-   ServerMonad m,
-   FilterMonad Response m,
-   HasFileCacheTop r,
-   HasCacheAcid r)
-  => r
-  -> FilePath
-  -> ImageKey
-  -> m Response
-cacheMiss r db key = do
-  alog DEBUG ("cache miss")
-  -- out :: Either (OneOf E) [(ImageKey, Either FileError ImageFile)]
-  runCache (toList <$> getImageFiles mempty [key]) r >>= \case
-    Right [(_, Left (e :: FileError))] -> do
-      alog WARNING ("cachedError: " <> show e)
-      notFound' $ "imageSP cachedError e=" <> show e
-    Right [(_, Right img)] ->
-      cachedImage db key img
-    Right _ -> error "Pattern match failure"
-    Left (e :: OneOf E) -> do
-      let msg = "imageSP - cache mechanism failed: " <> show e
-      alog ERROR msg
-      notFound' msg
 
 runCache :: MonadIO m => ReaderT r (ExceptT e UIO) a -> r -> m (Either e a)
 runCache action r =
   run (runExceptT (runReaderT action r))
-
+
 getImageFiles ::
   forall r e m. (MONAD(r,e,m))
   => Set CacheFlag
@@ -202,7 +100,7 @@ getImageShapes ::
   -> m (Map ImageKey (Either FileError ImageFile))
 getImageShapes flags keys =
   sequence $ fromSet (\key -> cacheLook key >>= (cacheImageShape flags key :: Maybe (Either FileError ImageFile) -> m (Either FileError ImageFile)) {-maybe (cacheImageShape flags key) pure-}) keys
-
+
 -- | Compute the shapes of requested images
 cacheImageShape ::
   forall (e :: [*]) r m. (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable e, Member NonIOException e, Member IOException e, MonadReader r m, HasCallStack,
@@ -271,38 +169,14 @@ buildImageShape (ImageCropped crop key) =
 buildImageShape (ImageScaled sz dpi key) =
   -- unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
   scaleImageShape sz dpi <$> buildImageShape key
-
-cachedImage ::
-  forall m.
-  (MonadIO m,
-   MonadPlus m,
-   MonadCatch m,
-   ServerMonad m,
-   FilterMonad Response m)
-  => FilePath -> ImageKey -> ImageFile -> m Response
-cachedImage db key img = do
-  let path = db </> toFilePath (ImageCached key img)
-      -- mimeFn :: forall m'. Monad m' => FilePath -> m' String
-      mimeFn _ = imageMimeType img
-  liftIO (doesFileExist path) >>= \case
-    False -> do
-      alog DEBUG ("cache file missing:" ++ show path)
-      internalServerError $ toResponse (toException (userError "Missing cache file"))
-    True -> do
-      alog DEBUG ("cache hit path=" ++ show path)
-      -- rq <- askRq
-      try (serveFile mimeFn path) >>= \case
-        Left (e :: SomeException) -> do
-          alog ERROR ("serveFile e=" ++ show e)
-          internalServerError $ toResponse e
-        Right (response :: Response) -> pure response
 
--- | Compute the mime type of an image that doesn't yet exist
-imageMimeType :: (HasFileExtension img, Monad m) => img -> m String
-imageMimeType img =
-  return $
-  fromMaybe "application/octet-stream" $
-  Map.lookup (dropWhile (== '.') (fromText (fileExtension img))) mimeTypes
+buildImage ::
+  (MONAD(r,e,m))
+  => ImageKey
+  -> ImageFile
+  -> m (Either FileError ImageFile)
+buildImage key (ImageFileShape shape) = cacheImageFile key shape
+buildImage _ i@(ImageFileReady _) = pure (Right i)
 
 cacheImageFile ::
   (MONAD(r,e,m))
@@ -462,14 +336,6 @@ foregroundBuilds pairs =
       cacheImageFile key shape
     doImage _ x = return x
 #endif
-
-buildImage ::
-  (MONAD(r,e,m))
-  => ImageKey
-  -> ImageFile
-  -> m (Either FileError ImageFile)
-buildImage key (ImageFileShape shape) = cacheImageFile key shape
-buildImage _ i@(ImageFileReady _) = pure (Right i)
 
 uprightImageShape :: ImageShape -> ImageShape
 uprightImageShape shape@(ImageShape {_imageFileOrientation = rot}) =
