@@ -14,6 +14,7 @@ module Data.FileCache.ImageShape
     ImageShape(..)
   , HasImageShapeM(imageShapeM)
   , HasImageShape, imageShape
+  , HasOriginalShape(originalShape)
   , scaleFromDPI
   , widthInInches
   , widthInInches'
@@ -21,6 +22,8 @@ module Data.FileCache.ImageShape
   , scaleImageShape
   , cropImageShape
   , rotateImageShape
+  , uprightImageShape
+  , shapeFromKey
   ) where
 
 import Control.Lens ( Identity(runIdentity) )
@@ -43,6 +46,9 @@ import Numeric ( fromRat )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 -- * ImageShape
+
+class HasOriginalShape a where
+  originalShape :: a -> ImageShape
 
 instance HasImageShapeM Identity ImageShape where
   imageShapeM s = pure s
@@ -176,3 +182,22 @@ cropImageShape crop shape | crop == def = shape
 cropImageShape (ImageCrop{..}) shape =
   shape { _imageShapeWidth = _imageShapeWidth shape - (leftCrop + rightCrop)
         , _imageShapeHeight = _imageShapeHeight shape - (topCrop + bottomCrop) }
+
+uprightImageShape :: ImageShape -> ImageShape
+uprightImageShape shape@(ImageShape {_imageFileOrientation = rot}) =
+  case rot of
+    ZeroHr -> shape
+    SixHr -> shape
+    ThreeHr -> shape
+    NineHr -> shape
+
+-- | Compute a derived image shape from the original image shape and the key.
+shapeFromKey :: ImageShape -> ImageKey -> ImageShape
+shapeFromKey original key@(ImageOriginal csum typ) =
+  original
+shapeFromKey original (ImageUpright key) =
+  uprightImageShape $ shapeFromKey original key
+shapeFromKey original (ImageCropped crop key) =
+  cropImageShape crop $ shapeFromKey original key
+shapeFromKey original (ImageScaled sz dpi key) =
+  scaleImageShape sz dpi $ shapeFromKey original key

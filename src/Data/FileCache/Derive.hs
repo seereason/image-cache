@@ -12,6 +12,7 @@ module Data.FileCache.Derive
   , cacheImageFile
   , cacheImageShape
   , buildImageFile
+  , shapeFromKey
   ) where
 
 import Control.Exception ( IOException )
@@ -30,10 +31,11 @@ import Data.FileCache.FileError
 import Data.FileCache.ImageCrop ( Rotation(NineHr, ThreeHr, SixHr, ZeroHr) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
 import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
-import Data.FileCache.ImageKey ( ImageKey(..), ImagePath(ImagePath) )
+import Data.FileCache.ImageKey ( ImageKey(..), ImagePath(ImagePath), originalKey )
 import Data.FileCache.ImageShape
   ( cropImageShape, imageShape, scaleFromDPI, scaleImageShape, HasImageShapeM(imageShapeM),
-    ImageShape(ImageShape, _imageFileOrientation, _imageShapeType) )
+    HasOriginalShape(originalShape),
+    ImageShape(ImageShape, _imageFileOrientation, _imageShapeType), shapeFromKey )
 import Data.FileCache.ImageType ( HasFileExtension(..), HasImageType(imageType), ImageType )
 import Data.FileCache.Upload ( cacheOriginalImage )
 import Data.ListLike ( ListLike(length) )
@@ -129,7 +131,7 @@ cacheImageShape flags key (Just (Left _))
 cacheImageShape flag key (Just (Left e)) = do
   unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
   cacheImageShape flag key Nothing
-cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
+cacheImageShape _ _ (Just (Right (ImageFileShape shape))) = do
   -- unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
@@ -150,32 +152,26 @@ cacheImageShape _ key (Just (Right (ImageFileReady img))) = do
 -- get the shape and orientation of that image, and the other
 -- operations are pure.
 buildImageShape ::
-  forall r e m. (MONAD(r,e,m), Member FileError e)
-  => ImageKey -> m ImageShape
-buildImageShape key@(ImageOriginal csum typ) =
-  cacheLook key >>=
-  maybe missingOriginal
-        (either throwMember
-                (\case ImageFileReady img -> return (_imageShape img)
-                       ImageFileShape s -> return s))
+  forall r e m. (Unexceptional m, MonadError (OneOf e) m,
+                 Member NonIOException e, Member FileError e, Member IOException e,
+                 MonadReader r m, HasCacheAcid r, HasFileCacheTop r, HasCallStack)
+  => ImageKey
+  -> m ImageShape
+buildImageShape key =
+  originalShape key >>= \shape -> pure $ shapeFromKey shape key
   where
-    missingOriginal = do
-      unsafeFromIO $ alog ALERT ("Missing original: " <> show key)
-      path <- fileCachePath (csum, typ)
-      (_key, file) <- cacheOriginalImage (Just (ThePath path)) path
-      unsafeFromIO $ alog ALERT ("Missing original found: " <> show (key, file))
-      case file of
-        ImageFileReady img -> return (_imageShape img)
-        ImageFileShape s -> return s
-buildImageShape (ImageUpright key) =
-  -- unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
-  uprightImageShape <$> buildImageShape key
-buildImageShape (ImageCropped crop key) =
-  -- unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
-  cropImageShape crop <$> buildImageShape key
-buildImageShape (ImageScaled sz dpi key) =
-  -- unsafeFromIO (alog DEBUG ("buildImageShape (" <> show key' <> ")")) >>
-  scaleImageShape sz dpi <$> buildImageShape key
+    originalShape key@(ImageOriginal csum typ) =
+      cacheLook (originalKey key) >>=
+      maybe
+        (do unsafeFromIO $ alog ALERT ("Missing original: " <> show key)
+            path <- fileCachePath (csum, typ)
+            (_key, file) <- cacheOriginalImage (Just (ThePath path)) path
+            unsafeFromIO $ alog ALERT ("Missing original found: " <> show (key, file))
+            pure $ fileShape file)
+        (either throwMember (pure . fileShape))
+    originalShape key = originalShape (originalKey key)
+    fileShape (ImageFileReady img) = _imageShape img
+    fileShape (ImageFileShape s) = s
 
 buildImage ::
   (MONAD(r,e,m))
@@ -359,11 +355,3 @@ foregroundBuilds pairs =
       cacheImageFile key shape
     doImage _ x = return x
 #endif
-
-uprightImageShape :: ImageShape -> ImageShape
-uprightImageShape shape@(ImageShape {_imageFileOrientation = rot}) =
-  case rot of
-    ZeroHr -> shape
-    SixHr -> shape
-    ThreeHr -> shape
-    NineHr -> shape
