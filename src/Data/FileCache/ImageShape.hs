@@ -24,6 +24,7 @@ module Data.FileCache.ImageShape
   , rotateImageShape
   , uprightImageShape
   , shapeFromKey
+  , ImageStats(..)
   ) where
 
 import Control.Lens ( Identity(runIdentity) )
@@ -201,3 +202,14 @@ shapeFromKey original (ImageCropped crop key) =
   cropImageShape crop $ shapeFromKey original key
 shapeFromKey original (ImageScaled sz dpi key) =
   scaleImageShape sz dpi $ shapeFromKey original key
+
+-- Statistics about the server status of the images in this reports.
+data ImageStats
+  = ImageStats
+    { _keys :: Int
+    , _ready :: Int
+    , _shapes :: Int
+    , _errors :: Int
+    } deriving (Generic, Eq, Ord, Show, Serialize)
+
+instance SafeCopy ImageStats

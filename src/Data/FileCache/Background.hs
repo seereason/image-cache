@@ -1,6 +1,6 @@
 -- Unused code that once did image builds in the background
 
-{-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
+{-# LANGUAGE DeriveAnyClass, DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
 
 module Data.FileCache.Background
   ( ImageChan
@@ -8,6 +8,7 @@ module Data.FileCache.Background
   , cacheDerivedImagesBackground
   , startImageBuilder
   -- , queueImageBuild
+  , testImageKeys
   ) where
 
 import Control.Concurrent (ThreadId{-, threadDelay-}, newChan, readChan, writeChan)
@@ -18,15 +19,20 @@ import Control.Monad (forever, when)
 import Control.Monad.Reader (MonadReader(ask), runReaderT)
 import Control.Monad.Except (ExceptT, MonadError, runExceptT)
 import Data.FileCache.FileCacheTop
-import Data.FileCache.Derive (CacheFlag, cacheImageFile, cacheImageShape)
+import Data.FileCache.Derive (CacheFlag, cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
 import Data.FileCache.FileError (FileError(UnexpectedException))
 import Data.FileCache.Common
+import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( length, show )
-import Data.Map.Strict as Map ( fromList, Map )
+import Data.Map.Strict as Map ( filter, fromList, keysSet, Map, size )
 import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
-import Data.Set as Set (Set)
+import Data.SafeCopy (SafeCopy)
+import Data.Serialize (Serialize)
+import Data.Set as Set (Set, toList)
+import Data.Typeable (Typeable)
 import Extra.Except (throwError)
+import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
@@ -130,3 +136,54 @@ doImages rd pairs = do
 doImages _rd (Left e) = do
   unsafeFromIO $ alog DEBUG ("Failure in readChan: " <> show e)
 -}
+
+-- | Throw an exception if there are more than 20 unavailable
+-- images.  This sends the images to the background image
+-- generator thread, aborts whatever we are doing, and puts up a
+-- "come back later" message.
+testImageKeys ::
+  forall r e m.
+  (HasCacheAcid r,
+   HasFileCacheTop r,
+   HasImageBuilder r,
+   Member IOException e,
+   Member NonIOException e,
+   Member FileError e,
+   Member ImageStats e,
+   MonadError (OneOf e) m,
+   MonadReader r m,
+   Show (OneOf e),
+   Unexceptional m,
+   Typeable e,
+   HasCallStack)
+  => Set ImageKey
+  -> m ()
+testImageKeys ks = do
+  shapes <- getImageShapes mempty ks
+  let ready = Map.filter (has (_Right . _Ctor @"ImageFileReady")) shapes
+      -- Files that have been requested but not yet written out
+      unready = Map.filter (has (_Right . _Ctor @"ImageFileShape")) shapes
+      -- Files that were written out but have gone missing, or were
+      -- recorded with the retired NoShapeOld error constructor.
+      missing = Map.filter (\e -> has (_Left . _Ctor @"MissingDerivedEntry") e ||
+                                  has (_Left . _Ctor @"NoShapeOld") e) shapes
+      needed = Map.keysSet unready <> Map.keysSet missing
+  let stats = ImageStats {_keys = Map.size shapes,
+                          _ready = Map.size ready,
+                          _shapes = Map.size unready,
+                          _errors = Map.size missing }
+  unsafeFromIO $ do
+    alog DEBUG ("#keys=" <> show (_keys stats))
+    alog DEBUG ("#ready=" <> show (_ready stats))
+    alog DEBUG ("#unready image shapes: " <> show (_shapes stats))
+    alog DEBUG ("#errors=" <> show (_errors stats))
+  case _shapes stats + _errors stats > 20 of
+    True -> do
+      unsafeFromIO $ alog DEBUG ("cacheDerivedImagesBackground " <> show needed)
+      cacheDerivedImagesBackground mempty (Set.toList needed)
+      throwMember stats
+    False -> do
+      _ <- getImageFiles mempty needed
+      unsafeFromIO $ alog DEBUG ("getImageFiles " <> show needed)
+      pure ()
+
