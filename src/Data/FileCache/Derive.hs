@@ -26,7 +26,7 @@ import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _f
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasImageFilePath(..) )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
 import Data.FileCache.FileError
-  ( FileError(NoShape, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
+  ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException) )
 import Data.FileCache.ImageCrop ( Rotation(NineHr, ThreeHr, SixHr, ZeroHr) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
@@ -114,7 +114,7 @@ cacheImageShape ::
   -> m (Either FileError ImageFile)
 cacheImageShape _ key Nothing = do
   -- unsafeFromIO $ alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (miss)")
-  cachePut_ key (noShape ("cacheImageShape " <> pack (show key <> " :: " <> show (typeOf key))))
+  cachePut_ key (Left (NoShapeFromKey key))
   buildAndCache
     where
       buildAndCache :: m (Either FileError ImageFile)
@@ -332,9 +332,6 @@ buildImageBytesFromFile source key csum _typ = do
           unsafeFromIO (alog ALERT ("recaching " ++ show key))
           _cached <- cacheOriginalImage source bs
           return bs
-
-noShape :: Text -> Either FileError ImageFile
-noShape = Left . NoShape
 
 -- | See if images are already in the cache
 cacheLookImages ::

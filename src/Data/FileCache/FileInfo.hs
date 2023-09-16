@@ -12,7 +12,7 @@ import Control.Lens ( view, Field2(_2) )
 import Data.ByteString.Lazy as BS ( ByteString, toStrict )
 import Data.FileCache.Common
   ( ImageType(..), Rotation(..), HasImageShapeM(..), ImageShape(..),
-    FileCacheErrors, FileError(NoShape) )
+    FileCacheErrors, FileError(NoShapeFromPath) )
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, listToMaybe )
 import Data.Text ( Text )
@@ -71,7 +71,7 @@ fileInfoFromOutput path output = do
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
         (Just (w, h), Nothing) ->
           return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}
-        _ -> throwMember (NoShape ("fileInfoFromOutput path=" <> show path <> " output=" <> show output))
+        _ -> throwMember (NoShapeFromPath path output)
   where
     findShape :: ImageAttribute -> Maybe (Int, Int)
     findShape (Shape shape) = Just shape

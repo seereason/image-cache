@@ -280,8 +280,8 @@ scaleImage' ::
   -> ImageType
   -> m (Maybe BS.ByteString)
 scaleImage' sc _ _ | approx (toRational sc) == 1 = return Nothing
-scaleImage' _ _ PDF = throwMember $ (NoShape "scaleImage'")
-scaleImage' _ _ Unknown = throwMember $ NoShape "scaleImage'"
+scaleImage' _ _ PDF = throwMember $ CannotScale PDF
+scaleImage' _ _ Unknown = throwMember $ CannotScale Unknown
 scaleImage' sc bytes typ = do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
@@ -315,8 +315,8 @@ editImage' ::
     forall e m shape. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m, HasImageShape shape)
     => ImageCrop -> BS.ByteString -> ImageType -> shape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
-editImage' _ _ PDF _ = throwMember $ NoShape "editImage'"
-editImage' _ _ Unknown _ = throwMember $ NoShape "editImage'"
+editImage' _ _ PDF _ = throwMember $ CannotCrop PDF
+editImage' _ _ Unknown _ = throwMember $ CannotCrop Unknown
 editImage' crop bs typ shape =
   logIOError' $
     case commands of
