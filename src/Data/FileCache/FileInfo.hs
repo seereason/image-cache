@@ -11,7 +11,7 @@ import Control.Exception ( IOException )
 import Control.Lens ( view, Field2(_2) )
 import Data.ByteString.Lazy as BS ( ByteString, toStrict )
 import Data.FileCache.Common
-  ( ImageType(..), Rotation(..), HasImageShapeM(..), ImageShape(..),
+  ( ImageType(..), Rotation(..), ImageRect(..), HasImageShapeM(..), ImageShape(..),
     FileCacheErrors, FileError(NoShapeFromPath) )
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, listToMaybe )
@@ -61,16 +61,16 @@ fileInfoFromOutput path output = do
   case parse pFileOutput path output of
     Left _e -> do
       unsafeFromIO $ alog ERROR ("pFileOutput -> " <> show _e)
-      return $ ImageShape {_imageShapeType = Unknown, _imageShapeWidth = 0, _imageShapeHeight = 0, _imageFileOrientation = ZeroHr}
+      return $ ImageShape {_imageShapeType = Unknown, _imageShapeRect = Nothing}
       -- throwError $ fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
-    Right (PDF, []) -> return $ ImageShape PDF 0 0 ZeroHr
+    Right (PDF, []) -> return $ ImageShape PDF Nothing
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of
         (Just (w, h), Just rot) ->
-          return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
+          return $ ImageShape {_imageShapeType = typ, _imageShapeRect = Just $ ImageRect {_imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}}
         (Just (w, h), Nothing) ->
-          return $ ImageShape {_imageShapeType = typ, _imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}
+          return $ ImageShape {_imageShapeType = typ, _imageShapeRect = Just $ ImageRect {_imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}}
         _ -> throwMember (NoShapeFromPath path output)
   where
     findShape :: ImageAttribute -> Maybe (Int, Int)

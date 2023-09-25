@@ -19,15 +19,18 @@ module Data.FileCache.ImageKey
 
   , ImagePath(ImagePath, _imagePathKey)
   , HasImagePath(imagePath)
+  , shapeFromKey
   ) where
 
 import Control.Monad ( ap )
 import Data.Data ( Data )
-import Data.FileCache.Rational ( showRational )
-import Data.FileCache.File ( Checksum, File(_fileChksum) )
+import Data.Default (def)
+import Data.FileCache.Rational ( approx, showRational )
+import Data.FileCache.File (Checksum, File(_fileChksum), HasFileExtension(fileExtension))
 import Data.FileCache.ImageCrop ( Rotation(..), ImageCrop(..) )
-import Data.FileCache.ImageType ( HasFileExtension(fileExtension), ImageType(..) )
+import Data.FileCache.ImageShape (cropImageShape, HasImageShape, HasImageType(imageType), ImageShape(_imageShapeType), imageShape, ImageType(..), scaleFromDPI, scaleImageShape, uprightImageShape)
 import Data.FileCache.ImageSize ( HasImageSize(..), Units(..), Dimension(..), ImageSize(..) )
+import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
@@ -36,6 +39,7 @@ import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 -- import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ()
+import Numeric ( fromRat )
 import Prelude hiding (span)
 import Text.Parsec ( (<|>) )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
@@ -77,22 +81,53 @@ class HasImageKey a where
 instance HasImageKey ImageKey where
   imageKey = id
 
+-- | We can infer the file type from the key using insider info on how
+-- the various IO operations work.  E.g. all the cropping operations
+-- other than the identity crop result in a JPEG.
+instance HasImageShape a => HasImageType (ImageKey, a) where
+  imageType (ImageOriginal _ typ, _) = typ
+  imageType (ImageUpright key, shape) = imageType (key, shape)
+  imageType (ImageCropped crop key, shape) =
+    if crop == def then imageType (key, shape) else JPEG
+  imageType (ImageScaled sz dpi key, shape) =
+    let sc' = scaleFromDPI sz dpi (imageShape shape)
+        sc :: Double
+        sc = fromRat (fromMaybe 1 sc') in
+      if approx (toRational sc) == 1 then imageType (key, shape) else JPEG
+
+-- | Compute a derived image shape from the original image shape and the key.
+shapeFromKey :: ImageShape -> ImageKey -> ImageShape
+shapeFromKey original (ImageOriginal _csum _typ) =
+  original
+shapeFromKey original (ImageUpright key) =
+  uprightImageShape $ shapeFromKey original key
+shapeFromKey original (ImageCropped crop key) =
+  cropImageShape crop $ shapeFromKey original key
+shapeFromKey original (ImageScaled sz dpi key) =
+  scaleImageShape sz dpi $ shapeFromKey original key
+
+-- | Various ways to build an OriginalKey.
+class OriginalKey a where
+  originalKey :: a -> ImageKey
+
+instance OriginalKey (Checksum, ImageType) where -- danger - Checksum is just String
+  originalKey = uncurry ImageOriginal
+
+--instance OriginalKey ImageFile where
+--  originalKey (ImageFileReady i) = originalKey i
+--  originalKey (ImageFileShape i) = originalKey i
+
+instance OriginalKey (File, ImageType) where
+  originalKey (f, typ) = ImageOriginal (_fileChksum f) typ
+
+instance OriginalKey (File, ImageShape) where
+  originalKey (f, shape) = originalKey (f, _imageShapeType shape)
+
 instance OriginalKey ImageKey where
   originalKey key@(ImageOriginal _ _) = key
   originalKey (ImageUpright key) = originalKey key
   originalKey (ImageScaled _ _ key) = originalKey key
   originalKey (ImageCropped _ key) = originalKey key
-
--- | Various ways to build an OriginalKey.
-class OriginalKey a where
-  originalKey :: a -> ImageKey
-instance OriginalKey (Checksum, ImageType) where -- danger - Checksum is just String
-  originalKey = uncurry ImageOriginal
---instance OriginalKey ImageFile where
---  originalKey (ImageFileReady i) = originalKey i
---  originalKey (ImageFileShape i) = originalKey i
-instance OriginalKey (File, ImageType) where
-  originalKey (f, typ) = ImageOriginal (_fileChksum f) typ
 
 class UprightKey a where
   uprightKey :: a -> ImageKey

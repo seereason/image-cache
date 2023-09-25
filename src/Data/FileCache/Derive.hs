@@ -22,7 +22,7 @@ import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
-import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath) )
+import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasImageFilePath(..) )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
 import Data.FileCache.FileError
@@ -31,12 +31,12 @@ import Data.FileCache.FileError
 import Data.FileCache.ImageCrop ( Rotation(NineHr, ThreeHr, SixHr, ZeroHr) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
 import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
-import Data.FileCache.ImageKey ( ImageKey(..), ImagePath(ImagePath), originalKey )
+import Data.FileCache.ImageKey ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey )
 import Data.FileCache.ImageShape
-  ( cropImageShape, imageShape, scaleFromDPI, scaleImageShape, HasImageShapeM(imageShapeM),
-    HasOriginalShape(originalShape),
-    ImageShape(ImageShape, _imageFileOrientation, _imageShapeType), shapeFromKey )
-import Data.FileCache.ImageType ( HasFileExtension(..), HasImageType(imageType), ImageType )
+  ( HasImageType(imageType), ImageType,
+    cropImageShape, imageShape, scaleFromDPI, scaleImageShape, HasImageShapeM(imageShapeM),
+    HasOriginalShape(originalShape), ImageRect(_imageFileOrientation),
+    ImageShape(ImageShape, _imageShapeType) )
 import Data.FileCache.Upload ( cacheOriginalImage )
 import Data.ListLike ( ListLike(length) )
 import Data.Map.Strict as Map ( Map, toList, fromSet, fromList, mapWithKey )

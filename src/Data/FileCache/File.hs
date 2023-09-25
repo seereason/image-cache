@@ -12,16 +12,17 @@ module Data.FileCache.File
     File(..)
   , FileSource(..)
   , Checksum
+  , Extension
   , HasFileChecksum(fileChecksum)
+  , HasFileExtension(fileExtension)
   ) where
 
 import Data.Data ( Data )
-import Data.FileCache.ImageType ( HasFileChecksum(..), Checksum, HasFileExtension(..), Extension )
 import Data.FileCache.Happstack ( ContentType(..) )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
-import Data.Text ( unpack )
+import Data.Text (Text, unpack)
 import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import Language.Haskell.TH.Instances ()
@@ -30,6 +31,14 @@ import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 -- * File
 
+-- | A type to represent a checksum which (unlike MD5Digest) is an instance of Data.
+type Checksum = Text
+
+type Extension = Text
+
+class HasFileChecksum a where fileChecksum :: a -> Checksum
+class HasFileExtension a where fileExtension :: a -> Extension
+
 -- |A local cache of a file obtained from a 'FileSource'.
 data File
     = File { _fileSource :: FileSource           -- ^ Where the file's contents came from
@@ -37,9 +46,6 @@ data File
            , _fileMessages :: [String]           -- ^ Messages received while manipulating the file
            , _fileExt :: Extension               -- ^ Name is formed by appending this to checksum
            } deriving (Generic, Eq, Ord)
-
-instance HasFileChecksum File where fileChecksum = _fileChksum
-instance HasFileExtension File where fileExtension = _fileExt
 
 instance Pretty File where
     pPrint (File _ cksum _ ext) = text ("File " <> take 7 (unpack cksum) <> unpack ext)
@@ -50,6 +56,8 @@ deriving instance Read File
 deriving instance Data File
 deriving instance Typeable File
 deriving instance Lift File
+instance HasFileChecksum File where fileChecksum = _fileChksum
+instance HasFileExtension File where fileExtension = _fileExt
 
 -- |The original source if the file is saved, in case
 -- the cache needs to be reconstructed.  However, we don't

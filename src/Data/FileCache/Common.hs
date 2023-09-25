@@ -10,7 +10,6 @@ module Data.FileCache.Common
   ( module Data.FileCache.Happstack
   , module Data.FileCache.Rational
   , module Data.FileCache.ImageSize
-  , module Data.FileCache.ImageType
   , module Data.FileCache.ImageCrop
   , module Data.FileCache.File
   , module Data.FileCache.ImageKey
@@ -26,7 +25,6 @@ import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.Rational
 import Data.FileCache.FileError
 import Data.FileCache.ImageShape
-import Data.FileCache.ImageType
 import Data.FileCache.ImageCrop
 import Data.FileCache.ImageKey
 import Data.FileCache.ImageFile
@@ -46,6 +44,7 @@ $(concat <$>
   , pathInstances [FIELDS] =<< [t|ImageFile|]
   , pathInstances [FIELDS] =<< [t|ImageReady|]
   , pathInstances [FIELDS] =<< [t|ImageShape|]
+  , pathInstances [FIELDS] =<< [t|ImageRect|]
   , pathInstances [FIELDS] =<< [t|ImageSize|]
   , pathInstances [FIELDS] =<< [t|ImageCrop|]
   , pathInstances [FIELDS] =<< [t|ImageKey|]
@@ -59,6 +58,7 @@ instance Value FileSource where hops _ = [RecType, CtorType]
 instance Value ImageFile where hops _ = [RecType, CtorType]
 instance Value ImageReady where hops _ = [RecType, CtorType]
 instance Value ImageShape where hops _ = [RecType, CtorType]
+instance Value ImageRect where hops _ = [RecType, CtorType]
 instance Value ImageType where hops _ = []
 instance Value ImageSize where hops _ = [RecType, CtorType]
 instance Value Dimension where hops _ = []

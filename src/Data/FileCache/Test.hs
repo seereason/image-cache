@@ -13,12 +13,13 @@ import Control.Monad ( when )
 import Control.Monad.Reader ( MonadReader )
 import qualified Data.ByteString.Lazy as BS ( ByteString, empty, readFile )
 import Data.Digest.Pure.MD5 ( md5 )
+import Data.FileCache.CacheMap ( ImageCached(ImageCached, _imageCachedFile, _imageCachedKey) )
+import Data.FileCache.Common
+import Data.FileCache.FileCache ( HasImageFilePath, fileCachePath, cacheLook )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
 import Data.FileCache.FileInfo ()
-import Data.FileCache.CacheMap ( ImageCached(ImageCached, _imageCachedFile, _imageCachedKey) )
 import Data.FileCache.ImageIO ( validateJPG )
-import Data.FileCache.FileCache ( HasImageFilePath, fileCachePath, cacheLook )
-import Data.FileCache.Common
+import Data.FileCache.ImageShape (ImageRect(..))
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, lookup, toList, fromList )
 import Data.Ratio ( (%) )
@@ -201,8 +202,14 @@ test1 =
                                   (ImageSize {_dim = TheArea, _size = 15 % 1, _units = Inches})
                                   (100 % 1)
                                   (ImageUpright (ImageOriginal "c3bd1388b41fa5d956e4308ce518a8bd" PNG)),
-              _imageCachedFile = ImageFileReady (ImageReady {_imageFile = File {_fileSource = Legacy, _fileChksum = "be04a29700b06072326364fa1ce45f39", _fileMessages = [], _fileExt = ".jpg"},
-                                            _imageShape = ImageShape {_imageShapeType = JPEG, _imageShapeWidth = 885, _imageShapeHeight = 170, _imageFileOrientation = ZeroHr}})}
+              _imageCachedFile = ImageFileReady (ImageReady {_imageFile = File {_fileSource = Legacy,
+                                                                                _fileChksum = "be04a29700b06072326364fa1ce45f39",
+                                                                                _fileMessages = [],
+                                                                                _fileExt = ".jpg"},
+                                                             _imageShape = ImageShape{_imageShapeType = JPEG,
+                                                                                      _imageShapeRect = Just (ImageRect {_imageShapeWidth = 885,
+                                                                                                                         _imageShapeHeight = 170,
+                                                                                                                         _imageFileOrientation = ZeroHr})}})}
 
 #endif
 

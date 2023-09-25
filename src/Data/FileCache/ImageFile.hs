@@ -16,11 +16,10 @@ module Data.FileCache.ImageFile
 import Control.Lens ( Identity, iso )
 import Control.Lens.Path ( View(..) )
 import Data.Data ( Data )
-import Data.FileCache.File ( File )
+import Data.FileCache.File (File, HasFileExtension(..))
 import Data.FileCache.ImageKey ( ScaledKey(..), EditedKey(..), UprightKey(..), OriginalKey(..),
                                  ImageKey(ImageUpright, ImageScaled) )
-import Data.FileCache.ImageType ( HasFileExtension(..), HasImageType(..) )
-import Data.FileCache.ImageShape ( HasImageShapeM(..), ImageShape(_imageShapeType) )
+import Data.FileCache.ImageShape (HasImageType(..), HasImageShapeM(..), ImageShape(_imageShapeType), HasImageRect(imageRect))
 import Data.FileCache.ImageSize ( HasImageSize(imageSize), ImageSize )
 import Data.FileCache.Happstack ()
 import Data.Monoid ( (<>) )
@@ -49,6 +48,11 @@ instance SafeCopy ImageReady where version = 1
 instance HasFileExtension ImageFile where
   fileExtension (ImageFileShape x) = fileExtension x
   fileExtension (ImageFileReady x) = fileExtension x
+
+instance HasImageRect ImageReady where imageRect = imageRect . _imageShape
+instance HasImageRect ImageFile where
+  imageRect (ImageFileReady a) = imageRect a
+  imageRect (ImageFileShape a) = imageRect a
 
 instance HasFileExtension ImageReady where
   fileExtension = fileExtension . _imageFile

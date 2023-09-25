@@ -312,12 +312,10 @@ logIOError' io =
 -- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
 
 editImage' ::
-    forall e m shape. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m, HasImageShape shape)
-    => ImageCrop -> BS.ByteString -> ImageType -> shape -> m (Maybe BS.ByteString)
+    forall e m. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
+    => ImageCrop -> BS.ByteString -> ImageType -> ImageShape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
-editImage' _ _ PDF _ = throwMember $ CannotCrop PDF
-editImage' _ _ Unknown _ = throwMember $ CannotCrop Unknown
-editImage' crop bs typ shape =
+editImage' crop bs typ ImageShape{_imageShapeRect = Just (ImageRect {_imageShapeWidth = w, _imageShapeHeight = h})} =
   logIOError' $
     case commands of
       [] -> return Nothing
@@ -345,7 +343,7 @@ editImage' crop bs typ shape =
                  SixHr -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
                  NineHr -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
                  ZeroHr -> Nothing
-      ImageShape {_imageShapeWidth = w, _imageShapeHeight = h} = imageShape shape
+      -- ImageShape {_imageShapeWidth = w, _imageShapeHeight = h} = imageShape shape
       buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
       buildPipeline start [] end = convert start end
       buildPipeline start (Nothing : ops) end = buildPipeline start ops end
@@ -361,3 +359,4 @@ editImage' crop bs typ shape =
       convert GIF x = proc "giftopnm" [] : convert PPM x
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
+editImage' _ _ typ _ = throwMember $ CannotCrop typ

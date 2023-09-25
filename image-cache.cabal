@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.24
+Version:        0.25
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -37,7 +37,6 @@ Library
     Data.FileCache.ImageKey
     Data.FileCache.ImageShape
     Data.FileCache.ImageSize
-    Data.FileCache.ImageType
     Data.FileCache.Rational
   Build-Depends:
     base >= 4,
