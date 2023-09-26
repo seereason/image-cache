@@ -102,7 +102,7 @@ saneSize sz = SaneSize $
     case (_dim sz, inches sz) of
       (TheArea, n) | n < minArea -> sz {_units = Inches, _size = minArea}
       (TheArea, n) | n > maxArea -> sz {_units = Inches, _size = maxArea}
-      (_, n) | n < minDist -> sz {_units = Inches, _size = toRational minDist}
+      (_, n) | n < minDist -> sz {_units = Inches, _size = minDist}
       (_, n) | n > maxDist -> sz {_units = Inches, _size = maxDist}
       _ -> sz
     where

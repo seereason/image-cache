@@ -22,11 +22,12 @@ import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFi
 --import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import Data.Char ( isSpace )
 import Data.Default ( def )
+import Data.FileCache.CommandError ( CommandInfo(..) )
+import Data.FileCache.Common
+import Data.FileCache.ImageRect (ImageRect (_imageRectWidth, _imageRectHeight))
+import Data.FileCache.LogException ( logException )
 import Data.FileCache.Pipify ( heifConvert )
 import Data.FileCache.Process ( readCreateProcessWithExitCode', pipeline )
-import Data.FileCache.Common
-import Data.FileCache.LogException ( logException )
-import Data.FileCache.CommandError ( CommandInfo(..) )
 import Data.List ( intercalate )
 import Data.ListLike ( StringLike(show) )
 import Data.Monoid ( (<>) )
@@ -315,7 +316,7 @@ editImage' ::
     forall e m. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
     => ImageCrop -> BS.ByteString -> ImageType -> ImageShape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
-editImage' crop bs typ ImageShape{_imageShapeRect = Just (ImageRect {_imageShapeWidth = w, _imageShapeHeight = h})} =
+editImage' crop bs typ ImageShape{_imageShapeRect = Just rect} =
   logIOError' $
     case commands of
       [] -> return Nothing
@@ -335,9 +336,9 @@ editImage' crop bs typ ImageShape{_imageShapeRect = Just (ImageRect {_imageShape
       cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
               (0, 0, 0, 0) -> Nothing
               (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
-                                                        "-right", show (w - r - 1),
+                                                        "-right", show (_imageRectWidth rect - r - 1),
                                                         "-top", show t,
-                                                        "-bottom", show (h - b - 1)], PPM)
+                                                        "-bottom", show (_imageRectHeight rect - b - 1)], PPM)
       rotate = case rotation crop of
                  ThreeHr -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
                  SixHr -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)

@@ -19,7 +19,7 @@ import Data.FileCache.FileCache ( HasImageFilePath, fileCachePath, cacheLook )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
 import Data.FileCache.FileInfo ()
 import Data.FileCache.ImageIO ( validateJPG )
-import Data.FileCache.ImageShape (ImageRect(..))
+import Data.FileCache.ImageRect (makeImageRect)
 import Data.FileCache.Rational ((%))
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, lookup, toList, fromList )
@@ -207,9 +207,7 @@ test1 =
                                                                                 _fileMessages = [],
                                                                                 _fileExt = ".jpg"},
                                                              _imageShape = ImageShape{_imageShapeType = JPEG,
-                                                                                      _imageShapeRect = Just (ImageRect {_imageShapeWidth = 885,
-                                                                                                                         _imageShapeHeight = 170,
-                                                                                                                         _imageFileOrientation = ZeroHr})}})}
+                                                                                      _imageShapeRect = Just (makeImageRect 885 170 ZeroHr)}})}
 
 #endif
 

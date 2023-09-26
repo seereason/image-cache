@@ -13,6 +13,7 @@ import Data.ByteString.Lazy as BS ( ByteString, toStrict )
 import Data.FileCache.Common
   ( ImageType(..), Rotation(..), ImageRect(..), HasImageShapeM(..), ImageShape(..),
     FileCacheErrors, FileError(NoShapeFromPath) )
+import Data.FileCache.ImageRect (makeImageRect)
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, listToMaybe )
 import Data.Text ( Text )
@@ -68,9 +69,9 @@ fileInfoFromOutput path output = do
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of
         (Just (w, h), Just rot) ->
-          return $ ImageShape {_imageShapeType = typ, _imageShapeRect = Just $ ImageRect {_imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}}
+          return $ ImageShape {_imageShapeType = typ, _imageShapeRect = Just $ makeImageRect w h rot}
         (Just (w, h), Nothing) ->
-          return $ ImageShape {_imageShapeType = typ, _imageShapeRect = Just $ ImageRect {_imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = ZeroHr}}
+          return $ ImageShape {_imageShapeType = typ, _imageShapeRect = Just $ makeImageRect w h ZeroHr}
         _ -> throwMember (NoShapeFromPath path output)
   where
     findShape :: ImageAttribute -> Maybe (Int, Int)

@@ -1,8 +1,9 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Data.FileCache.ImageRect
-  ( ImageRect
+  ( ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation)
   , makeImageRect
+  , imageAspect
   , HasImageRect(imageRect)
   , widthInInches
   , widthInInches'
@@ -32,8 +33,8 @@ class HasImageRect a where imageRect :: a -> Maybe ImageRect
 
 data ImageRect
   = ImageRect
-    { _imageShapeWidth :: Int
-    , _imageShapeHeight :: Int
+    { _imageRectWidth :: Int
+    , _imageRectHeight :: Int
     , _imageFileOrientation :: Rotation
     } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
@@ -53,10 +54,14 @@ instance Pretty ImageRect where
 
 makeImageRect :: Int -> Int -> Rotation -> ImageRect
 makeImageRect w h rot =
-  ImageRect {_imageShapeWidth = w, _imageShapeHeight = h, _imageFileOrientation = rot}
+  ImageRect {_imageRectWidth = w, _imageRectHeight = h, _imageFileOrientation = rot}
+
+imageAspect :: ImageRect -> Rational
+imageAspect ImageRect{..} =
+  fromIntegral _imageRectHeight % fromIntegral _imageRectWidth
 
 widthInInches :: ImageRect -> ImageSize -> Rational
-widthInInches rect@(ImageRect {_imageShapeHeight = h, _imageShapeWidth = w}) s =
+widthInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
     case _dim s of
       TheWidth -> toInches (_units s) (_size s)
       TheHeight -> widthInInches rect (s {_dim = TheWidth, _size = approx (_size s / aspect)})
@@ -70,7 +75,7 @@ widthInInches rect@(ImageRect {_imageShapeHeight = h, _imageShapeWidth = w}) s =
       toInches Points x = x / (7227 % 100)
 
 heightInInches :: ImageRect -> ImageSize -> Rational
-heightInInches rect@(ImageRect {_imageShapeHeight = h, _imageShapeWidth = w}) s =
+heightInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
     case _dim s of
       TheHeight -> toInches (_units s) (_size s)
       TheWidth -> heightInInches rect (s {_dim = TheHeight, _size = approx (_size s / aspect)})
@@ -93,16 +98,16 @@ rotateImageRect :: Rotation -> ImageRect -> ImageRect
 rotateImageRect ZeroHr rect = rect
 rotateImageRect SixHr rect = rect
 rotateImageRect ThreeHr rect =
-  rect {_imageShapeWidth = _imageShapeHeight rect,
-        _imageShapeHeight = _imageShapeWidth rect}
+  rect {_imageRectWidth = _imageRectHeight rect,
+        _imageRectHeight = _imageRectWidth rect}
 rotateImageRect NineHr rect = rotateImageRect ThreeHr rect
 
 scaleImageRect :: ImageSize -> Rational -> ImageRect -> ImageRect
 scaleImageRect sz dpi rect =
   if scale == 1
   then rect
-  else rect { _imageShapeWidth = round (fromIntegral (_imageShapeWidth rect) * scale)
-            , _imageShapeHeight = round (fromIntegral (_imageShapeHeight rect) * scale) }
+  else rect { _imageRectWidth = round (fromIntegral (_imageRectWidth rect) * scale)
+            , _imageRectHeight = round (fromIntegral (_imageRectHeight rect) * scale) }
   where
     scale :: Rational
     scale = maybe 1 approx $ scaleFromDPI sz dpi rect
@@ -111,7 +116,7 @@ scaleImageRect sz dpi rect =
 -- which an image should be scaled.  Result of Nothing means the scale
 -- is pathological.
 scaleFromDPI :: ImageSize -> Rational -> ImageRect -> Maybe Rational
-scaleFromDPI sz dpi (ImageRect {_imageShapeHeight = h, _imageShapeWidth = w}) =
+scaleFromDPI sz dpi (ImageRect {_imageRectHeight = h, _imageRectWidth = w}) =
   case _dim sz of
     _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
     TheHeight -> Just $ inches sz * dpi / fromIntegral h
@@ -123,8 +128,8 @@ scaleFromDPI sz dpi (ImageRect {_imageShapeHeight = h, _imageShapeWidth = w}) =
 cropImageRect :: ImageCrop -> ImageRect -> ImageRect
 cropImageRect crop rect | crop == def = rect
 cropImageRect (ImageCrop{..}) rect =
-  rect {_imageShapeWidth = _imageShapeWidth rect - (leftCrop + rightCrop),
-        _imageShapeHeight = _imageShapeHeight rect - (topCrop + bottomCrop) }
+  rect {_imageRectWidth = _imageRectWidth rect - (leftCrop + rightCrop),
+        _imageRectHeight = _imageRectHeight rect - (topCrop + bottomCrop) }
 
 -- | This seems to have evolved into a no-op.
 uprightImageRect :: ImageRect -> ImageRect

@@ -28,15 +28,13 @@ import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
 import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException) )
-import Data.FileCache.ImageCrop ( Rotation(NineHr, ThreeHr, SixHr, ZeroHr) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
 import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
 import Data.FileCache.ImageKey ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey )
+import Data.FileCache.ImageRect (HasImageRect(imageRect))
 import Data.FileCache.ImageShape
-  ( HasImageType(imageType), ImageType,
-    cropImageShape, imageShape, scaleFromDPI, scaleImageShape, HasImageShapeM(imageShapeM),
-    HasOriginalShape(originalShape), ImageRect(_imageFileOrientation),
-    ImageShape(ImageShape, _imageShapeType) )
+  ( HasImageType(imageType), ImageType, imageShape, scaleFromDPI, HasImageShapeM(imageShapeM),
+    ImageShape(_imageShapeType) )
 import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalImage )
 import Data.ListLike ( ListLike(length) )
@@ -44,7 +42,7 @@ import Data.Map.Strict as Map ( Map, toList, fromSet, fromList, mapWithKey )
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
-import Data.Typeable ( Typeable, typeOf )
+import Data.Typeable ( Typeable )
 import Extra.Except ( ExceptT, MonadError, runExceptT )
 import GHC.Stack ( HasCallStack )
 import Prelude hiding (length)
@@ -264,8 +262,7 @@ buildImageBytes source key@(ImageScaled sz dpi key') = do
   (key'', bs) <- buildImageBytes source key'
   -- the buildImageBytes that just ran might have this info
   shape <- imageShapeM bs
-  let scale' = scaleFromDPI sz dpi shape
-  case scale' of
+  case scaleFromDPI sz dpi =<< imageRect shape of
     Nothing -> return (key'', bs)
     Just sc ->
       maybe (key'', bs) (key,) <$> scaleImage' (fromRat sc) bs (imageType shape)
