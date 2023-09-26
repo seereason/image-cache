@@ -167,7 +167,7 @@ instance Migrate ImageShape where
     ImageShape { _imageShapeType = typ,
                  _imageShapeRect =
                    case typ of
-                     -- Unknown -> Nothing
+                     Unknown -> Nothing
                      PDF -> Nothing
                      _ -> Just (makeImageRect w h rot) }
 
