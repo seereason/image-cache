@@ -13,6 +13,7 @@ module Data.FileCache.Common
   , module Data.FileCache.ImageCrop
   , module Data.FileCache.File
   , module Data.FileCache.ImageKey
+  , module Data.FileCache.ImageRect
   , module Data.FileCache.ImageShape
   , module Data.FileCache.ImageFile
   , module Data.FileCache.FileError
@@ -24,6 +25,7 @@ import Control.Monad.Except (throwError)
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.Rational
 import Data.FileCache.FileError
+import Data.FileCache.ImageRect
 import Data.FileCache.ImageShape
 import Data.FileCache.ImageCrop
 import Data.FileCache.ImageKey

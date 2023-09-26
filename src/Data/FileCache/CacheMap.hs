@@ -43,7 +43,7 @@ instance HasImageKey ImageCached where
   imageKey (ImageCached x _) = imageKey x
 
 instance HasImagePath ImageCached where
-  imagePath (ImageCached key img) = ImagePath key {-(imageType img)-}
+  imagePath (ImageCached key _img) = ImagePath key {-(imageType img)-}
 
 -- * CacheMap
 

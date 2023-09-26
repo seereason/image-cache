@@ -17,15 +17,10 @@ module Data.FileCache.ImageShape
   , supportedImageTypes
     -- * ImageShape, HasImageShape
   , ImageShape(..)
-  , ImageRect(..)
-  , HasImageRect(imageRect)
   , HasImageShapeM(imageShapeM)
   , HasImageShape, imageShape
   , HasOriginalShape(originalShape)
   , scaleFromDPI
-  , widthInInches
-  , widthInInches'
-  , heightInInches
   , scaleImageShape
   , cropImageShape
   , rotateImageShape
@@ -33,17 +28,16 @@ module Data.FileCache.ImageShape
   , ImageStats(..)
   ) where
 
-import Control.Lens ( Identity(runIdentity), _Just, preview )
+import Control.Lens (Identity(runIdentity), _Just, over)
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.FileCache.File (Extension, HasFileExtension(fileExtension))
 import Data.FileCache.ImageCrop ( Rotation(..), ImageCrop(..) )
--- import Data.FileCache.ImageKey ( OriginalKey(..), ImageKey(..) )
-import Data.FileCache.ImageSize ( Units(..), Dimension(TheArea, TheWidth, TheHeight), ImageSize(_units, _size, _dim), inches )
-import Data.FileCache.Rational ( approx, rsqrt )
+import Data.FileCache.ImageRect (HasImageRect(imageRect), ImageRect, makeImageRect, scaleImageRect, scaleFromDPI, rotateImageRect, cropImageRect, uprightImageRect)
+import Data.FileCache.ImageSize (ImageSize)
+import Data.FileCache.Rational (approx)
 import Data.Generics.Labels ()
 import Data.Monoid ( (<>) )
-import Data.Ratio ( (%) )
 import Data.SafeCopy (base, extension, Migrate(..), safeGet, safePut, Migrate(..), SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable ( Typeable )
@@ -172,22 +166,11 @@ instance Migrate ImageShape where
     ImageShape { _imageShapeType = typ,
                  _imageShapeRect =
                    case typ of
-                     Unknown -> Nothing
+                     -- Unknown -> Nothing
                      PDF -> Nothing
-                     _ -> Just (ImageRect w h rot) }
+                     _ -> Just (makeImageRect w h rot) }
 
-class HasImageRect a where imageRect :: a -> Maybe ImageRect
 instance HasImageRect ImageShape where imageRect = _imageShapeRect
-
-data ImageRect
-  = ImageRect
-    { _imageShapeWidth :: Int
-    , _imageShapeHeight :: Int
-    , _imageFileOrientation :: Rotation
-    } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
-
-instance Serialize ImageRect where get = safeGet; put = safePut
-instance SafeCopy ImageRect where version = 1; kind = base
 
 data ImageShape
   = ImageShape
@@ -206,113 +189,38 @@ instance Pretty ImageShape where
     maybe empty (\rect -> text " " <> pPrint rect) mrect <>
     text ")"
 
-instance Pretty ImageRect where
-  pPrint (ImageRect w h rot) =
-    text "ImageRect (" <>
-    text (show w) <> text "x" <> text (show h) <> text " " <>
-    (case rot of
-       ZeroHr -> text " UL"
-       ThreeHr -> text " UR"
-       SixHr -> text " LR"
-       NineHr -> text " LL") <>
-    text ")"
-
 instance HasImageType ImageShape where imageType = _imageShapeType
 
 scaleImageShape :: ImageSize -> Rational -> ImageShape -> ImageShape
 scaleImageShape sz dpi shape =
-  if scale == 1
-  then shape
-  else
-    case _imageShapeRect shape of
-      Nothing -> shape
-      Just rect ->
-        shape { _imageShapeType = JPEG -- the scaling pipeline results in a jpeg file
-              , _imageShapeRect =
-                 Just (rect { _imageShapeWidth = round (fromIntegral (_imageShapeWidth rect) * scale)
-                            , _imageShapeHeight = round (fromIntegral (_imageShapeHeight rect) * scale) }) }
+  case _imageShapeRect shape of
+    Nothing -> shape
+    Just rect | scale rect == 1 -> shape
+    Just rect ->
+      shape { _imageShapeType = JPEG -- the scaling pipeline results in a jpeg file
+            , _imageShapeRect = Just (scaleImageRect sz dpi rect) }
   where
-    scale :: Rational
-    scale = maybe 1 approx $ scaleFromDPI sz dpi shape
+    scale :: ImageRect -> Rational
+    scale rect = maybe 1 approx $ scaleFromDPI sz dpi rect
 
--- |Given the desired DPI and image dimensions, return the factor by
--- which an image should be scaled.  Result of Nothing means the scale
--- is pathological.
-scaleFromDPI :: ImageSize -> Rational -> ImageShape -> Maybe Rational
-scaleFromDPI _ _ ImageShape{_imageShapeRect = Nothing} = Nothing
-scaleFromDPI sz dpi ImageShape{_imageShapeRect = Just (ImageRect {_imageShapeHeight = h, _imageShapeWidth = w})} =
-  case _dim sz of
-    _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
-    TheHeight -> Just $ inches sz * dpi / fromIntegral h
-    TheWidth -> Just $ inches sz * dpi / fromIntegral w
-    -- If we want an area of 9 square inches, and the dpi is 100, and the image
-    -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
-    TheArea -> Just (rsqrt (inches sz * dpi * dpi / (fromIntegral w * fromIntegral h)))
-
-widthInInches :: ImageRect -> ImageSize -> Rational
-widthInInches rect@(ImageRect {_imageShapeHeight = h, _imageShapeWidth = w}) s =
-    case _dim s of
-      TheWidth -> toInches (_units s) (_size s)
-      TheHeight -> widthInInches rect (s {_dim = TheWidth, _size = approx (_size s / aspect)})
-      TheArea -> widthInInches rect (s {_dim = TheWidth, _size = approx (rsqrt (_size s / aspect))})
-    where
-      aspect :: Rational
-      aspect = fromIntegral h % fromIntegral w
-      toInches :: Units -> Rational -> Rational
-      toInches Inches x = x
-      toInches Cm x = x / (254 % 100)
-      toInches Points x = x / (7227 % 100)
-
-heightInInches :: ImageRect -> ImageSize -> Rational
-heightInInches rect@(ImageRect {_imageShapeHeight = h, _imageShapeWidth = w}) s =
-    case _dim s of
-      TheHeight -> toInches (_units s) (_size s)
-      TheWidth -> heightInInches rect (s {_dim = TheHeight, _size = approx (_size s / aspect)})
-      TheArea -> heightInInches rect (s {_dim = TheHeight, _size = approx (rsqrt (_size s / aspect))})
-    where
-      aspect :: Rational
-      aspect = fromIntegral h % fromIntegral w
-      toInches Inches x = x
-      toInches Cm x = x / (254 % 100)
-      toInches Points x = x / (7227 % 100)
-
--- |Modify an ImageSize so that the dimension is width and the units
--- are inches.  This way we can figure out how many images fit across
--- the page.
-widthInInches' :: ImageRect -> ImageSize -> ImageSize
-widthInInches' p s =
-    s {_units = Inches, _size = approx (widthInInches p s), _dim = TheWidth}
+cropImageShape :: ImageCrop -> ImageShape -> ImageShape
+cropImageShape crop shape | crop == def = shape
+cropImageShape _ shape@ImageShape{_imageShapeRect = Nothing} = shape
+cropImageShape crop shape@ImageShape{_imageShapeRect = Just rect} =
+  shape {_imageShapeRect = Just (cropImageRect crop rect)}
 
 rotateImageShape :: Rotation -> ImageShape -> ImageShape
 rotateImageShape ZeroHr shape = shape
-rotateImageShape SixHr shape =
+rotateImageShape _ shape@ImageShape{_imageShapeRect = Nothing} = shape
+rotateImageShape rot shape@ImageShape{_imageShapeRect = Just rect} =
   -- Note that the image type is changed to JPEG because the tool we
   -- currently use to rotate images returns a JPEG image.
-  shape {_imageShapeType = JPEG}
-rotateImageShape ThreeHr shape@ImageShape{_imageShapeRect = Nothing} = shape
-rotateImageShape ThreeHr shape@ImageShape{_imageShapeRect = Just rect} =
   shape {_imageShapeType = JPEG,
-         _imageShapeRect = Just (rect {_imageShapeWidth = _imageShapeHeight rect,
-                                       _imageShapeHeight = _imageShapeWidth rect})}
-rotateImageShape NineHr shape = rotateImageShape ThreeHr shape
-
-cropImageShape :: ImageCrop -> ImageShape -> ImageShape
-cropImageShape crop shape | crop == def = shape
-cropImageShape (ImageCrop{..}) shape@ImageShape{_imageShapeRect = Nothing} = shape
-cropImageShape (ImageCrop{..}) shape@ImageShape{_imageShapeRect = Just rect} =
-  shape {_imageShapeRect =
-            Just (rect {_imageShapeWidth = _imageShapeWidth rect - (leftCrop + rightCrop),
-                        _imageShapeHeight = _imageShapeHeight rect - (topCrop + bottomCrop) })}
+         _imageShapeRect = Just (rotateImageRect rot rect)}
 
 -- | This seems to have evolved into a no-op.
 uprightImageShape :: ImageShape -> ImageShape
-uprightImageShape shape =
-  case preview (#_imageShapeRect . _Just . #_imageFileOrientation) shape of
-    Just ZeroHr -> shape
-    Just SixHr -> shape
-    Just ThreeHr -> shape
-    Just NineHr -> shape
-    Nothing -> shape
+uprightImageShape shape = over (#_imageShapeRect . _Just) uprightImageRect shape
 
 -- Statistics about the server status of the images in this reports.
 data ImageStats

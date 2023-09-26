@@ -28,8 +28,9 @@ import Data.Default (def)
 import Data.FileCache.Rational ( approx, showRational )
 import Data.FileCache.File (Checksum, File(_fileChksum), HasFileExtension(fileExtension))
 import Data.FileCache.ImageCrop ( Rotation(..), ImageCrop(..) )
-import Data.FileCache.ImageShape (cropImageShape, HasImageShape, HasImageType(imageType), ImageShape(_imageShapeType), imageShape, ImageType(..), scaleFromDPI, scaleImageShape, uprightImageShape)
+import Data.FileCache.ImageShape (cropImageShape, HasImageShape, HasImageType(imageType), ImageShape(_imageShapeType, _imageShapeRect), imageShape, ImageType(..), scaleFromDPI, scaleImageShape, uprightImageShape)
 import Data.FileCache.ImageSize ( HasImageSize(..), Units(..), Dimension(..), ImageSize(..) )
+import Data.FileCache.Rational ( fromRat )
 import Data.Maybe (fromMaybe)
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
@@ -39,7 +40,6 @@ import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 -- import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ()
-import Numeric ( fromRat )
 import Prelude hiding (span)
 import Text.Parsec ( (<|>) )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
@@ -90,10 +90,13 @@ instance HasImageShape a => HasImageType (ImageKey, a) where
   imageType (ImageCropped crop key, shape) =
     if crop == def then imageType (key, shape) else JPEG
   imageType (ImageScaled sz dpi key, shape) =
-    let sc' = scaleFromDPI sz dpi (imageShape shape)
-        sc :: Double
-        sc = fromRat (fromMaybe 1 sc') in
-      if approx (toRational sc) == 1 then imageType (key, shape) else JPEG
+    case _imageShapeRect (imageShape shape) of
+      Nothing -> imageType (key, shape)
+      Just rect ->
+        let sc' = scaleFromDPI sz dpi rect
+            sc :: Double
+            sc = fromRat (fromMaybe 1 sc') in
+          if approx (toRational sc) == 1 then imageType (key, shape) else JPEG
 
 -- | Compute a derived image shape from the original image shape and the key.
 shapeFromKey :: ImageShape -> ImageKey -> ImageShape
