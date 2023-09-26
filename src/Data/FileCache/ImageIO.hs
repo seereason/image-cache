@@ -38,6 +38,7 @@ import Data.Text.Lazy.Encoding ( decodeUtf8 )
 import qualified SeeReason.Errors as Errors ()
 import Extra.Except ( ExceptT, MonadError(throwError), tryError )
 import GHC.Generics (Generic)
+import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
@@ -275,7 +276,7 @@ deriving instance Show Hires
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
 scaleImage' ::
-  (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
+  (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
   => Double
   -> BS.ByteString
   -> ImageType

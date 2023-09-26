@@ -42,6 +42,7 @@ import Data.SafeCopy (base, extension, Migrate(..), safeGet, safePut, Migrate(..
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
+import GHC.Stack (HasCallStack)
 import Text.Parsec ( (<|>) )
 import Text.PrettyPrint.HughesPJClass ( Doc, Pretty(pPrint), comma, empty, hsep, punctuate, text )
 import Web.Routes ( PathInfo(..), segment )
@@ -76,7 +77,7 @@ instance Pretty ImageType where pPrint = text . noQuotes . show
 noQuotes :: String -> String
 noQuotes = filter (/= '"')
 
-class HasImageType a where imageType :: a -> ImageType
+class HasImageType a where imageType :: HasCallStack => a -> ImageType
 
 instance HasFileExtension Extension where fileExtension = id
 

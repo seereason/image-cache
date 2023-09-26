@@ -27,6 +27,7 @@ import Data.SafeCopy (base, safeGet, safePut, SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
+import GHC.Stack (HasCallStack)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 class HasImageRect a where imageRect :: a -> Maybe ImageRect
@@ -52,15 +53,15 @@ instance Pretty ImageRect where
        NineHr -> text " LL") <>
     text ")"
 
-makeImageRect :: Int -> Int -> Rotation -> ImageRect
+makeImageRect :: HasCallStack => Int -> Int -> Rotation -> ImageRect
 makeImageRect w h rot =
   ImageRect {_imageRectWidth = w, _imageRectHeight = h, _imageFileOrientation = rot}
 
-imageAspect :: ImageRect -> Rational
+imageAspect :: HasCallStack => ImageRect -> Rational
 imageAspect ImageRect{..} =
   fromIntegral _imageRectHeight % fromIntegral _imageRectWidth
 
-widthInInches :: ImageRect -> ImageSize -> Rational
+widthInInches :: HasCallStack => ImageRect -> ImageSize -> Rational
 widthInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
     case _dim s of
       TheWidth -> toInches (_units s) (_size s)
@@ -74,7 +75,7 @@ widthInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
       toInches Cm x = x / (254 % 100)
       toInches Points x = x / (7227 % 100)
 
-heightInInches :: ImageRect -> ImageSize -> Rational
+heightInInches :: HasCallStack => ImageRect -> ImageSize -> Rational
 heightInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
     case _dim s of
       TheHeight -> toInches (_units s) (_size s)
@@ -90,11 +91,11 @@ heightInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
 -- |Modify an ImageSize so that the dimension is width and the units
 -- are inches.  This way we can figure out how many images fit across
 -- the page.
-widthInInches' :: ImageRect -> ImageSize -> ImageSize
+widthInInches' :: HasCallStack => ImageRect -> ImageSize -> ImageSize
 widthInInches' p s =
     s {_units = Inches, _size = approx (widthInInches p s), _dim = TheWidth}
 
-rotateImageRect :: Rotation -> ImageRect -> ImageRect
+rotateImageRect :: HasCallStack => Rotation -> ImageRect -> ImageRect
 rotateImageRect ZeroHr rect = rect
 rotateImageRect SixHr rect = rect
 rotateImageRect ThreeHr rect =
@@ -102,7 +103,7 @@ rotateImageRect ThreeHr rect =
         _imageRectHeight = _imageRectWidth rect}
 rotateImageRect NineHr rect = rotateImageRect ThreeHr rect
 
-scaleImageRect :: ImageSize -> Rational -> ImageRect -> ImageRect
+scaleImageRect :: HasCallStack => ImageSize -> Rational -> ImageRect -> ImageRect
 scaleImageRect sz dpi rect =
   if scale == 1
   then rect
@@ -115,7 +116,7 @@ scaleImageRect sz dpi rect =
 -- |Given the desired DPI and image dimensions, return the factor by
 -- which an image should be scaled.  Result of Nothing means the scale
 -- is pathological.
-scaleFromDPI :: ImageSize -> Rational -> ImageRect -> Maybe Rational
+scaleFromDPI :: HasCallStack => ImageSize -> Rational -> ImageRect -> Maybe Rational
 scaleFromDPI sz dpi (ImageRect {_imageRectHeight = h, _imageRectWidth = w}) =
   case _dim sz of
     _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
@@ -125,14 +126,14 @@ scaleFromDPI sz dpi (ImageRect {_imageRectHeight = h, _imageRectWidth = w}) =
     -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
     TheArea -> Just (rsqrt (inches sz * dpi * dpi / (fromIntegral w * fromIntegral h)))
 
-cropImageRect :: ImageCrop -> ImageRect -> ImageRect
+cropImageRect :: HasCallStack => ImageCrop -> ImageRect -> ImageRect
 cropImageRect crop rect | crop == def = rect
 cropImageRect (ImageCrop{..}) rect =
   rect {_imageRectWidth = _imageRectWidth rect - (leftCrop + rightCrop),
         _imageRectHeight = _imageRectHeight rect - (topCrop + bottomCrop) }
 
 -- | This seems to have evolved into a no-op.
-uprightImageRect :: ImageRect -> ImageRect
+uprightImageRect :: HasCallStack => ImageRect -> ImageRect
 uprightImageRect rect =
   case _imageFileOrientation rect of
     ZeroHr -> rect
