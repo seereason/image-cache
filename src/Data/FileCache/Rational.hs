@@ -9,7 +9,9 @@
 module Data.FileCache.Rational
   (
     -- * Rational
-    approx
+    (%)
+  , fromRat
+  , approx
   , rationalIso
   , rationalPrism
   , readRationalMaybe
@@ -21,14 +23,28 @@ import Control.Lens (Iso', iso, preview, Prism', prism',  review)
 import Control.Monad.Fail (MonadFail)
 import Data.ListLike (fromString, toString)
 import Data.Monoid ( (<>) )
-import Data.Ratio ( (%), approxRational, denominator, numerator )
+import Data.Ratio (approxRational, denominator, numerator, Ratio)
+import qualified Data.Ratio ((%))
 import Data.Text ( Text, strip )
+import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ()
-import Numeric ( fromRat, readSigned, readFloat, showSigned, showFFloat )
+import Numeric (readSigned, readFloat, showSigned, showFFloat)
+import qualified Numeric (fromRat)
+import SeeReason.Log (compactStack, getStack)
 import Web.Routes ( PathInfo(..) )
 
 -- * Rational
+
+-- | Wrapper for (%) with the Debug attribute
+(%) :: (Integral a, HasCallStack) => a -> a -> Ratio a
+n % d | d == 0 = error (compactStack getStack)
+n % d = n Data.Ratio.% d
+
+-- | Wrapper for (%) with the Debug attribute
+fromRat :: (RealFloat a, HasCallStack) => Rational -> a
+fromRat r | denominator r == 0 = error ("fromRat " <> show r <> " (" <> compactStack getStack <> ")")
+fromRat r = Numeric.fromRat r
 
 -- | Simplify the ratio to avoid a long representation:
 --

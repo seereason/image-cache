@@ -37,6 +37,7 @@ import Data.FileCache.ImageShape
     cropImageShape, imageShape, scaleFromDPI, scaleImageShape, HasImageShapeM(imageShapeM),
     HasOriginalShape(originalShape), ImageRect(_imageFileOrientation),
     ImageShape(ImageShape, _imageShapeType) )
+import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalImage )
 import Data.ListLike ( ListLike(length) )
 import Data.Map.Strict as Map ( Map, toList, fromSet, fromList, mapWithKey )
@@ -46,7 +47,6 @@ import Data.Text as T ( Text, pack )
 import Data.Typeable ( Typeable, typeOf )
 import Extra.Except ( ExceptT, MonadError, runExceptT )
 import GHC.Stack ( HasCallStack )
-import Numeric ( fromRat )
 import Prelude hiding (length)
 import SeeReason.Errors ( Member, OneOf, throwMember, tryMember )
 import SeeReason.LogServer ( alog )
@@ -250,7 +250,7 @@ buildImageFile key shape = do
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
-  forall r e m. (MONAD(r,e,m), Member FileError e)
+  forall r e m. (MONAD(r,e,m), Member FileError e, HasCallStack)
   => Maybe FileSource -> ImageKey -> m (ImageKey, BS.ByteString)
 buildImageBytes source key@(ImageOriginal csum typ) =
   cacheLook key >>=
