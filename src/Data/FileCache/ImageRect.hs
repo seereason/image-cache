@@ -120,10 +120,13 @@ scaleFromDPI :: HasCallStack => ImageSize -> Rational -> ImageRect -> Maybe Rati
 scaleFromDPI sz dpi (ImageRect {_imageRectHeight = h, _imageRectWidth = w}) =
   case _dim sz of
     _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
+    TheHeight | h == 0 -> Nothing
     TheHeight -> Just $ inches sz * dpi / fromIntegral h
+    TheWidth | w == 0 -> Nothing
     TheWidth -> Just $ inches sz * dpi / fromIntegral w
     -- If we want an area of 9 square inches, and the dpi is 100, and the image
     -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
+    TheArea | h == 0 || w == 0 -> Nothing
     TheArea -> Just (rsqrt (inches sz * dpi * dpi / (fromIntegral w * fromIntegral h)))
 
 cropImageRect :: HasCallStack => ImageCrop -> ImageRect -> ImageRect
