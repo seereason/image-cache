@@ -46,7 +46,7 @@ import Data.Typeable ( Typeable )
 import Extra.Except ( ExceptT, MonadError, runExceptT )
 import GHC.Stack ( HasCallStack )
 import Prelude hiding (length)
-import SeeReason.Errors ( Member, OneOf, throwMember, tryMember )
+import SeeReason.Errors ( Member, OneOf, throwMember, tryMember, tryMemberOld2 )
 import SeeReason.LogServer ( alog )
 import SeeReason.UIO ( liftUIO, NonIOException, run, Unexceptional, UIO, unsafeFromIO )
 import System.Directory ( doesFileExist )
@@ -117,7 +117,7 @@ cacheImageShape _ key Nothing = do
     where
       buildAndCache :: m (Either FileError ImageFile)
       buildAndCache =
-        tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
+        tryMemberOld2 @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
 cacheImageShape flags key (Just (Left _))
   | Set.member RetryErrors flags = do
       unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (retry)")
@@ -125,7 +125,7 @@ cacheImageShape flags key (Just (Left _))
         where
           buildAndCache :: m (Either FileError ImageFile)
           buildAndCache =
-            tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
+            tryMemberOld2 @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
 cacheImageShape flag key (Just (Left e)) = do
   unsafeFromIO $ alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
   cacheImageShape flag key Nothing
@@ -193,7 +193,7 @@ cacheImageFile key _shape = do
                      pure (Right file) -- It appears it was already built.  But is it actually there?
                    (ImageFileShape shape') ->
                      -- Proceed with the build
-                     tryMember @FileError (buildImageFile key shape') >>= cachePut key))
+                     tryMemberOld2 @FileError (buildImageFile key shape') >>= cachePut key))
 
 -- | Given an 'ImageKey' and 'ImageShape', build the corresponding
 -- 'ImageFile' and write the image file.  This can be used to repair
