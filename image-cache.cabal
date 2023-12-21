@@ -65,7 +65,7 @@ Library
     safecopy >= 0.9.4.4,
     sr-errors >= 1.9,
     sr-utils >= 1.79,
-    sr-log,
+    sr-log >= 1.16,
     syb,
     template-haskell,
     text,
