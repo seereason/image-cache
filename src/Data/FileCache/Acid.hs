@@ -17,12 +17,14 @@ module Data.FileCache.Acid
   , Complete(..)
   ) where
 
-import Control.Lens ( has, view, (.=), (%=), (%%=), at, to, ix )
-import Control.Monad.RWS ( MonadState(put) )
+import Control.Lens ( view, (.=), (%=), (%%=), at, to )
 import Control.Monad.Reader ( MonadReader(ask) )
 import Data.Acid ( openLocalStateFrom, makeAcidic, AcidState, Query, Update )
 import Data.FileCache.CacheMap ( CacheMap(CacheMap) )
-import Data.FileCache.Common ( ImageKey, ImageFile, ImageShape, FileError )
+import Data.FileCache.ImageKey ( ImageKey )
+import Data.FileCache.ImageFile ( ImageFile )
+import Data.FileCache.ImageShape ( ImageShape )
+import Data.FileCache.FileError ( FileError )
 import Data.Generics.Product ( field )
 import Data.Map.Strict as Map ( Map, union, delete, difference, intersection, fromSet, insert, minViewWithKey )
 import Data.Set as Set ( Set )

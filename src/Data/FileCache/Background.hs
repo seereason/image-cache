@@ -20,8 +20,10 @@ import Control.Monad.Reader (MonadReader(ask), runReaderT)
 import Control.Monad.Except (ExceptT, MonadError, runExceptT)
 import Data.FileCache.FileCacheTop
 import Data.FileCache.Derive (CacheFlag, cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
-import Data.FileCache.FileError (FileError(UnexpectedException))
-import Data.FileCache.Common
+import Data.FileCache.FileError (FileCacheErrors, FileError(UnexpectedException))
+import Data.FileCache.ImageFile
+import Data.FileCache.ImageKey
+import Data.FileCache.ImageShape
 import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( length, show )
 import Data.Map.Strict as Map ( filter, fromList, keysSet, Map, size )

@@ -28,10 +28,12 @@ module Data.FileCache.ImageShape
   , ImageStats(..)
   ) where
 
+import Control.Monad.Except (throwError)
 import Control.Lens (Identity(runIdentity), _Just, over)
+import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..) )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
-import Data.FileCache.File (Extension, HasFileExtension(fileExtension))
+import Data.FileCache.File (HasFileExtension(fileExtension))
 import Data.FileCache.ImageCrop ( Rotation(..), ImageCrop(..) )
 import Data.FileCache.ImageRect (HasImageRect(imageRect), ImageRect, makeImageRect, scaleImageRect, scaleFromDPI, rotateImageRect, cropImageRect, uprightImageRect)
 import Data.FileCache.ImageSize (ImageSize)
@@ -40,7 +42,7 @@ import Data.Generics.Labels ()
 import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, extension, Migrate(..), safeGet, safePut, Migrate(..), SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
-import Data.Typeable ( Typeable )
+import Data.Typeable (typeRep, Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (HasCallStack)
 import Text.Parsec ( (<|>) )
@@ -60,6 +62,7 @@ deriving instance Typeable ImageType
 instance Serialize ImageType where get = safeGet; put = safePut
 instance SafeCopy ImageType_1 where version = 1; kind = base
 instance SafeCopy ImageType where version = 2; kind = extension
+instance Value ImageType where hops _ = []
 instance Migrate ImageType where
   type MigrateFrom ImageType = ImageType_1
   migrate old =
@@ -78,8 +81,6 @@ noQuotes :: String -> String
 noQuotes = filter (/= '"')
 
 class HasImageType a where imageType :: HasCallStack => a -> ImageType
-
-instance HasFileExtension Extension where fileExtension = id
 
 instance HasFileExtension ImageType where
   fileExtension GIF = ".gif"
@@ -130,7 +131,7 @@ instance PathInfo ImageType where
     (segment ("i" <> fileExtension PNG) >> return PNG) <|>
     (segment ("i" <> fileExtension PDF) >> return PDF) <|>
     (segment ("i" <> fileExtension Unknown) >> return Unknown)
-
+
 -- * ImageShape
 
 class HasOriginalShape a where
@@ -183,6 +184,7 @@ data ImageShape
 
 instance Serialize ImageShape where get = safeGet; put = safePut
 instance SafeCopy ImageShape where version = 2; kind = extension
+instance Value ImageShape where hops _ = [RecType, CtorType]
 
 instance Pretty ImageShape where
   pPrint (ImageShape typ mrect) =
@@ -191,6 +193,9 @@ instance Pretty ImageShape where
     text ")"
 
 instance HasImageType ImageShape where imageType = _imageShapeType
+
+instance HasFileExtension ImageShape where
+  fileExtension = fileExtension . _imageShapeType
 
 scaleImageShape :: ImageSize -> Rational -> ImageShape -> ImageShape
 scaleImageShape sz dpi shape =
@@ -233,3 +238,8 @@ data ImageStats
     } deriving (Generic, Eq, Ord, Show, Serialize)
 
 instance SafeCopy ImageStats
+
+$(concat <$>
+  sequence
+  [ pathInstances [FIELDS] =<< [t|ImageShape|]
+  ])

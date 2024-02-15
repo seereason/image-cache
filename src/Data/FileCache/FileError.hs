@@ -19,6 +19,7 @@ module Data.FileCache.FileError
 
 import Control.Exception as E ( Exception, ErrorCall, IOException )
 import Control.Lens ( Prism' )
+import Control.Lens.Path ( Value(..) )
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.ImageFile (ImageReady)
 import Data.FileCache.ImageKey (ImageKey)
@@ -144,3 +145,5 @@ type FileCacheErrors e m =  (Unexceptional m, MonadError (OneOf e) m, Show (OneO
 -- A little looser
 type FileCacheErrors2 e m = (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable (OneOf e), Typeable e, Member NonIOException e, Member FileError e)
 type FileCacheErrors3 e m = (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable (OneOf e), Typeable e, Member NonIOException e, Member IOException e)
+
+instance Value FileError where hops _ = []

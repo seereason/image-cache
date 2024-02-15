@@ -10,10 +10,10 @@ module Data.FileCache.FileInfo
 import Control.Exception ( IOException )
 import Control.Lens ( view, Field2(_2) )
 import Data.ByteString.Lazy as BS ( ByteString, toStrict )
-import Data.FileCache.Common
-  ( ImageType(..), Rotation(..), ImageRect(..), HasImageShapeM(..), ImageShape(..),
-    FileCacheErrors, FileError(NoShapeFromPath) )
+import Data.FileCache.FileError (FileCacheErrors, FileError(NoShapeFromPath))
+import Data.FileCache.ImageCrop (Rotation(..))
 import Data.FileCache.ImageRect (makeImageRect)
+import Data.FileCache.ImageShape (HasImageShapeM(..), ImageShape(..), ImageType(..))
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, listToMaybe )
 import Data.Text ( Text )

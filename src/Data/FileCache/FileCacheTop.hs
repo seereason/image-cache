@@ -11,7 +11,7 @@ module Data.FileCache.FileCacheTop
 
 import Control.Lens ( _1, view )
 import Data.Acid ( AcidState )
-import Data.FileCache.Common ( CacheMap )
+import Data.FileCache.CacheMap ( CacheMap )
 
 newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
 

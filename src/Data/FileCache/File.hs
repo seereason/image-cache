@@ -17,13 +17,15 @@ module Data.FileCache.File
   , HasFileExtension(fileExtension)
   ) where
 
+import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..) )
+import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.FileCache.Happstack ( ContentType(..) )
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text (Text, unpack)
-import Data.Typeable ( Typeable )
+import Data.Typeable ( Typeable, typeRep )
 import GHC.Generics ( Generic )
 import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ( Lift )
@@ -35,6 +37,8 @@ import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 type Checksum = Text
 
 type Extension = Text
+
+instance HasFileExtension Extension where fileExtension = id
 
 class HasFileChecksum a where fileChecksum :: a -> Checksum
 class HasFileExtension a where fileExtension :: a -> Extension
@@ -87,3 +91,12 @@ instance Arbitrary File where
 instance Arbitrary FileSource where
     arbitrary = oneof [TheURI <$> arbitrary, ThePath <$> arbitrary]
 #endif
+
+$(concat <$>
+  sequence
+  [ pathInstances [FIELDS] =<< [t|File|]
+  , pathInstances [FIELDS] =<< [t|FileSource|]
+  ])
+
+instance Value File where hops _ = [RecType, CtorType]
+instance Value FileSource where hops _ = [RecType, CtorType]

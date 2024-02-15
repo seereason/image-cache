@@ -17,13 +17,16 @@ import Control.Monad.Trans (MonadTrans(lift))
 import Control.Monad.Trans.Except ( runExceptT )
 import qualified Data.ByteString.Lazy as BS ( empty )
 import Data.Digest.Pure.MD5 ( md5 )
-import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
-import Data.FileCache.ImageIO ( MakeByteString(..) )
+import Data.FileCache.File
 import Data.FileCache.FileCache ( fileCachePath, fileCachePathIO, cachePut_ )
+import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
+import Data.FileCache.FileError
 import Data.FileCache.FileInfo ({-instances-} fileInfoFromPath)
-import Data.FileCache.Common
-import Data.FileCache.ImageShape (imageShapeM)
+import Data.FileCache.ImageFile
+import Data.FileCache.ImageIO ( MakeByteString(..) )
+import Data.FileCache.ImageKey
+import Data.FileCache.ImageShape (HasImageShapeM, ImageShape(..), imageShapeM, ImageType, imageType)
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, insert )
 import Data.Maybe ( fromMaybe )

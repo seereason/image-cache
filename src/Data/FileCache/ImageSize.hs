@@ -19,8 +19,10 @@ module Data.FileCache.ImageSize
   , inches
   ) where
 
+import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType, ViewType), pathInstances, Value(..) )
+import Control.Monad.Except (throwError)
 import Control.Lens ( iso, _Show )
-import Control.Lens.Path ( newtypeIso, View(..), viewIso )
+import Control.Lens.Path ( Value(hops), View(..), viewIso )
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.FileCache.Rational ((%), showRational)
@@ -28,10 +30,11 @@ import Data.Monoid ( (<>) )
 import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( Text, pack, unpack )
-import Data.Typeable ( Typeable )
+import Data.Typeable ( Typeable, typeRep )
 import GHC.Generics ( Generic )
 -- import Language.Haskell.TH.Instances ()
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+import Web.Routes.TH ( derivePathInfo )
 
 -- * ImageSize, Dimension, Units, SaneSize
 
@@ -129,3 +132,63 @@ inches sz =
                 (TheArea, Points) -> (7227 % 100) * (7227 % 100)
                 (_, Cm) -> 254 % 100
                 (_, Points) -> 7227 % 100
+
+#if MIN_VERSION_template_haskell(2,17,0)
+instance PathInfo ImageSize where
+      toPathSegments inp_aAxV
+        = case inp_aAxV of {
+            ImageSize arg_aAxW arg_aAxX arg_aAxY
+              -> ((++) [pack "image-size"])
+                   (((++) (toPathSegments arg_aAxW))
+                      (((++) (toPathSegments arg_aAxX)) (toPathSegments arg_aAxY))) }
+      fromPathSegments
+        = (ap
+             ((ap
+                 ((ap
+                     (segment (pack "image-size")
+                        >> return ImageSize))
+                    fromPathSegments))
+                fromPathSegments))
+            fromPathSegments
+instance PathInfo Dimension where
+      toPathSegments inp_aAy2
+        = case inp_aAy2 of
+            TheHeight -> [pack "the-height"]
+            TheWidth -> [pack "the-width"]
+            TheArea -> [pack "the-area"]
+      fromPathSegments
+        = ((<|>)
+             (((<|>)
+                 (segment (pack "the-height")
+                    >> return TheHeight))
+                (segment (pack "the-width")
+                   >> return TheWidth)))
+            (segment (pack "the-area")
+               >> return TheArea)
+instance PathInfo Units where
+      toPathSegments inp_aAy6
+        = case inp_aAy6 of
+            Inches -> [pack "inches"]
+            Cm -> [pack "cm"]
+            Points -> [pack "points"]
+      fromPathSegments
+        = ((<|>)
+             (((<|>)
+                 (segment (pack "inches")
+                    >> return Inches))
+                (segment (pack "cm") >> return Cm)))
+            (segment (pack "points") >> return Points)
+#else
+$(concat <$>
+  sequence
+  [ derivePathInfo ''ImageSize
+  , derivePathInfo ''Dimension
+  , derivePathInfo ''Units
+  , pathInstances [FIELDS] =<< [t|ImageSize|]
+  ])
+#endif
+
+instance Value ImageSize where hops _ = [RecType, CtorType]
+instance Value Dimension where hops _ = []
+instance Value Units where hops _ = []
+instance Value (SaneSize ImageSize) where hops _ = [ViewType]

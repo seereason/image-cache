@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
+{-# OPTIONS -ddump-minimal-imports #-}
 
 module Data.FileCache.FileCache
   ( HasImageFilePath(toFilePath)
@@ -18,7 +19,11 @@ import Data.Acid ( query, update, AcidState )
 import Data.FileCache.FileCacheTop
 import Data.FileCache.Acid
 import Data.FileCache.CacheMap
-import Data.FileCache.Common
+import Data.FileCache.File
+import Data.FileCache.FileError
+import Data.FileCache.ImageFile
+import Data.FileCache.ImageKey
+import Data.FileCache.ImageShape
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.Set as Set ( Set )

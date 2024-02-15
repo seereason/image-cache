@@ -14,13 +14,19 @@ import Control.Monad.Reader ( MonadReader )
 import qualified Data.ByteString.Lazy as BS ( ByteString, empty, readFile )
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached, _imageCachedFile, _imageCachedKey) )
-import Data.FileCache.Common
+import Data.FileCache.File
 import Data.FileCache.FileCache ( HasImageFilePath, fileCachePath, cacheLook )
 import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
+import Data.FileCache.FileError
 import Data.FileCache.FileInfo ()
+import Data.FileCache.ImageCrop
+import Data.FileCache.ImageFile
 import Data.FileCache.ImageIO ( validateJPG )
+import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect (makeImageRect)
-import Data.FileCache.Rational ((%))
+import Data.FileCache.ImageShape
+import Data.FileCache.ImageSize
+import Data.FileCache.Rational ((%), approx)
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, lookup, toList, fromList )
 import Data.Text as T ( pack, Text, unpack )

@@ -11,7 +11,9 @@ module Data.FileCache.CacheMap
   , CacheMap(..)
   ) where
 
+import Control.Monad.Except (throwError)
 import Control.Lens ( Identity )
+import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..) )
 import Data.FileCache.FileError ( FileError )
 import Data.FileCache.ImageShape ( HasImageShapeM(..), ImageShape )
 import Data.FileCache.ImageKey
@@ -23,6 +25,7 @@ import Data.FileCache.ImageFile (ImageFile)
 import Data.Map ( Map )
 import Data.SafeCopy ( base, extension, Migrate(..), SafeCopy(..), safeGet, safePut )
 import Data.Serialize ( Serialize(..) )
+import Data.Typeable (typeRep)
 import GHC.Generics ( Generic )
 
 -- * ImageCached
@@ -75,3 +78,10 @@ instance SafeCopy CacheMap where
   version = 4
   kind = extension
   errorTypeName _ = "Data.FileCache.Types.CacheMap"
+
+$(concat <$>
+  sequence
+  [ pathInstances [FIELDS] =<< [t|CacheMap|]
+  ])
+
+instance Value CacheMap where hops _ = [RecType, CtorType]

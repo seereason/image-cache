@@ -12,15 +12,18 @@ module Data.FileCache.ImageCrop
   , Rotation(..)
   ) where
 
+import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..) )
+import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ( base, safeGet, safePut, Migrate(..), SafeCopy(kind, version) )
+import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
-import Data.Typeable ( Typeable )
+import Data.Typeable (Typeable, typeRep)
 import GHC.Generics ( Generic )
-import Prelude ( (++), ($), Eq, Ord, Read, Show(show), Int )
+-- import Prelude ( (++), ($), Eq, Ord, Read, Show(show), Int )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+import Web.Routes.TH ( derivePathInfo )
 
 -- * ImageCrop
 
@@ -51,3 +54,57 @@ instance Pretty ImageCrop where
     pPrint (ImageCrop 0 0 0 0 ZeroHr) = text "(no crop)"
     pPrint (ImageCrop t b l r ZeroHr) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ")"
     pPrint (ImageCrop t b l r rot) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ", rot " ++ show rot ++ ")"
+
+#if MIN_VERSION_template_haskell(2,17,0)
+instance PathInfo ImageCrop where
+      toPathSegments inp_aAxw
+        = case inp_aAxw of {
+            ImageCrop arg_aAxx arg_aAxy arg_aAxz arg_aAxA arg_aAxB
+              -> ((++) [pack "image-crop"])
+                   (((++) (toPathSegments arg_aAxx))
+                      (((++) (toPathSegments arg_aAxy))
+                         (((++) (toPathSegments arg_aAxz))
+                            (((++) (toPathSegments arg_aAxA)) (toPathSegments arg_aAxB))))) }
+      fromPathSegments
+        = (ap
+             ((ap
+                 ((ap
+                     ((ap
+                         ((ap
+                             (segment (pack "image-crop")
+                                >> return ImageCrop))
+                            fromPathSegments))
+                        fromPathSegments))
+                    fromPathSegments))
+                fromPathSegments))
+            fromPathSegments
+instance PathInfo Rotation where
+      toPathSegments inp_aAyb
+        = case inp_aAyb of
+            ZeroHr -> [pack "zero-hr"]
+            ThreeHr -> [pack "three-hr"]
+            SixHr -> [pack "six-hr"]
+            NineHr -> [pack "nine-hr"]
+      fromPathSegments
+        = ((<|>)
+             (((<|>)
+                 (((<|>)
+                     (segment (pack "zero-hr")
+                        >> return ZeroHr))
+                    (segment (pack "three-hr")
+                       >> return ThreeHr)))
+                (segment (pack "six-hr")
+                   >> return SixHr)))
+            (segment (pack "nine-hr")
+               >> return NineHr)
+#else
+$(concat <$>
+  sequence
+  [ derivePathInfo ''ImageCrop
+  , derivePathInfo ''Rotation
+  , pathInstances [FIELDS] =<< [t|ImageCrop|]
+  ])
+#endif
+
+instance Value ImageCrop where hops _ = [RecType, CtorType]
+instance Value Rotation where hops _ = []

@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.25
+Version:        0.26
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -28,7 +28,6 @@ Library
     Data.FileCache
     Data.FileCache.CacheMap
     Data.FileCache.CommandError
-    Data.FileCache.Common
     Data.FileCache.File
     Data.FileCache.FileError
     Data.FileCache.Happstack

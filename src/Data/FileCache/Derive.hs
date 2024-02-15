@@ -44,9 +44,9 @@ import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
 import Data.Typeable ( Typeable )
 import Extra.Except ( ExceptT, MonadError, runExceptT )
-import GHC.Stack ( HasCallStack )
+import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
-import SeeReason.Errors ( Member, OneOf, throwMember, tryMember, tryMemberOld2 )
+import SeeReason.Errors ( Member, OneOf, throwMember, tryMemberOld2 )
 import SeeReason.LogServer ( alog )
 import SeeReason.UIO ( liftUIO, NonIOException, run, Unexceptional, UIO, unsafeFromIO )
 import System.Directory ( doesFileExist )
@@ -255,6 +255,7 @@ buildImageBytes source key@(ImageOriginal csum typ) =
   maybe ((key,) <$> buildImageBytesFromFile source key csum typ)
         (\img -> (key,) <$> either (rebuildImageBytes source key typ)
                                    (lookImageBytes . ImageCached key) img)
+  where _ = callStack
 buildImageBytes source key@(ImageUpright key') = do
   (key'', bs) <- buildImageBytes source key'
   uprightImage' bs >>= return . maybe (key'', bs) (key,)
@@ -276,6 +277,7 @@ lookImageBytes ::
   forall r e m a. (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e, MonadReader r m, HasFileCacheTop r, HasImageFilePath a, HasCallStack)
   => a -> m BS.ByteString
 lookImageBytes a = fileCachePath a >>= liftUIO . BS.readFile
+  where _ = callStack
 
 -- | There is an error stored in the cache, maybe it can be repaired
 -- now?  Be careful not to get into a loop doing this.

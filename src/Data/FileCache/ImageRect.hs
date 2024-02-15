@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, TemplateHaskell #-}
 
 module Data.FileCache.ImageRect
   ( ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation)
@@ -15,6 +15,8 @@ module Data.FileCache.ImageRect
   , uprightImageRect
   ) where
 
+import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops))
+import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
 import Data.FileCache.ImageCrop ( Rotation(..), ImageCrop(..) )
@@ -25,9 +27,9 @@ import Data.Generics.Labels ()
 import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, safeGet, safePut, SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
-import Data.Typeable ( Typeable )
+import Data.Typeable ( Typeable, typeRep )
 import GHC.Generics ( Generic )
-import GHC.Stack (HasCallStack)
+import GHC.Stack (callStack, HasCallStack)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 class HasImageRect a where imageRect :: a -> Maybe ImageRect
@@ -56,6 +58,7 @@ instance Pretty ImageRect where
 makeImageRect :: HasCallStack => Int -> Int -> Rotation -> ImageRect
 makeImageRect w h rot =
   ImageRect {_imageRectWidth = w, _imageRectHeight = h, _imageFileOrientation = rot}
+  where _ = callStack
 
 imageAspect :: HasCallStack => ImageRect -> Rational
 imageAspect ImageRect{..} =
@@ -128,12 +131,14 @@ scaleFromDPI sz dpi (ImageRect {_imageRectHeight = h, _imageRectWidth = w}) =
     -- size is 640x480 pixels, the scale is (9 * 100 * 100) / (640 * 480)
     TheArea | h == 0 || w == 0 -> Nothing
     TheArea -> Just (rsqrt (inches sz * dpi * dpi / (fromIntegral w * fromIntegral h)))
+  where _ = callStack
 
 cropImageRect :: HasCallStack => ImageCrop -> ImageRect -> ImageRect
 cropImageRect crop rect | crop == def = rect
 cropImageRect (ImageCrop{..}) rect =
   rect {_imageRectWidth = _imageRectWidth rect - (leftCrop + rightCrop),
         _imageRectHeight = _imageRectHeight rect - (topCrop + bottomCrop) }
+  where _ = callStack
 
 -- | This seems to have evolved into a no-op.
 uprightImageRect :: HasCallStack => ImageRect -> ImageRect
@@ -143,3 +148,11 @@ uprightImageRect rect =
     SixHr -> rect
     ThreeHr -> rect
     NineHr -> rect
+  where _ = callStack
+
+$(concat <$>
+  sequence
+  [pathInstances [FIELDS] =<< [t|ImageRect|]
+  ])
+
+instance Value ImageRect where hops _ = [RecType, CtorType]

@@ -27,13 +27,15 @@ module Data.FileCache.Happstack
 #endif
   ) where
 
+import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops))
+import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.SafeCopy ( SafeCopy )
 import Data.Serialize ( Serialize(..) )
+import Data.Typeable (typeRep)
 import GHC.Generics ( Generic )
 -- import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ( Lift )
-import Prelude ( Eq, Ord, Read, Show, String )
 
 #if HAVE_HAPPSTACK
 import Happstack.Server as Real (ContentType(..))
@@ -65,6 +67,12 @@ data ContentType =
 -- This gives it version 0.
 #endif
 
+$(concat <$>
+  sequence
+  [ pathInstances [FIELDS] =<< [t|ContentType|]
+  ])
+
 deriving instance Data ContentType
 deriving instance Lift ContentType
 instance SafeCopy ContentType
+instance Value ContentType where hops _ = [RecType, CtorType]
