@@ -4,14 +4,14 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Data.FileCache.ImageKey
-  ( -- * ImageKey
-    ImageKey(..)
+  ( ImageKey(..)
   , HasImageKey(imageKey)
   , OriginalKey(originalKey)
   , UprightKey(uprightKey)
@@ -21,31 +21,51 @@ module Data.FileCache.ImageKey
   , ImagePath(ImagePath, _imagePathKey)
   , HasImagePath(imagePath)
   , shapeFromKey
+
+  , ImageType(..)
+  , HasImageType(imageType)
+  , supportedImageTypes
+
+  , supportedMimeTypes
+
+  , ImageShape(..)
+  , HasImageShapeM(imageShapeM)
+  , HasImageShape, imageShape
+  , HasOriginalShape(originalShape)
+  , scaleFromDPI
+{-
+  , scaleImageShape
+  , cropImageShape
+  , rotateImageShape
+  , uprightImageShape
+-}
+  , ImageStats(..)
   ) where
 
-import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops))
-import Control.Monad.Except (throwError)
+import Control.Lens ( Identity(runIdentity) )
+import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops) )
+import Control.Lens.Path ()
 import Control.Monad ( ap )
+import Control.Monad.Except ( throwError )
 import Data.Data ( Data )
-import Data.Default (def)
-import Data.FileCache.Rational ( approx, showRational )
-import Data.FileCache.File (Checksum, File(_fileChksum), HasFileExtension(fileExtension))
-import Data.FileCache.ImageCrop ( ImageCrop(..) )
-import Data.FileCache.ImageShape (cropImageShape, HasImageShape, HasImageType(imageType), ImageShape(_imageShapeType, _imageShapeRect), imageShape, ImageType(..), scaleFromDPI, scaleImageShape, uprightImageShape)
+import Data.Default ( def )
+import Data.FileCache.File ( Checksum, File(_fileChksum), HasFileExtension(fileExtension) )
+import Data.FileCache.ImageCrop ( ImageCrop(..), Rotation )
+import Data.FileCache.ImageRect ( HasImageRect(imageRect), ImageRect, makeImageRect, scaleImageRect, scaleFromDPI, cropImageRect, uprightImageRect )
 import Data.FileCache.ImageSize ( HasImageSize(..), ImageSize(..) )
-import Data.FileCache.Rational ( fromRat )
-import Data.Maybe (fromMaybe)
+import Data.FileCache.Rational ( approx, showRational, fromRat )
+import Data.Maybe ( fromMaybe )
 import Data.Monoid ( (<>) )
-import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
+import Data.SafeCopy ( SafeCopy(kind), base, extension, Migrate(..), safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable, typeRep )
 import GHC.Generics ( Generic )
--- import Language.Haskell.TH.Instances ()
+import GHC.Stack ( HasCallStack )
 import Language.Haskell.TH.Lift as TH ()
 import Prelude hiding (span)
 import Text.Parsec ( (<|>) )
-import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+import Text.PrettyPrint.HughesPJClass ( Doc, comma, empty, hsep, punctuate, Pretty(pPrint), text )
 import Web.Routes ( PathInfo(..), segment )
 import Web.Routes.TH ( derivePathInfo )
 
@@ -198,6 +218,196 @@ class HasImagePath a where imagePath :: a -> ImagePath
 instance HasImagePath ImagePath where imagePath = id
 instance HasImageKey ImagePath where imageKey (ImagePath x) = imageKey x
 
+instance Value ImageKey where hops _ = [RecType, CtorType]
+
+-- * ImageType and Checksum
+
+-- HEIC, should also have HEIF?
+
+data ImageType = GIF | HEIC | JPEG | PDF | PNG | PPM | TIFF | Unknown deriving (Generic, Eq, Ord, Enum, Bounded)
+
+deriving instance Data ImageType
+deriving instance Read ImageType
+deriving instance Show ImageType
+deriving instance Typeable ImageType
+instance Serialize ImageType where get = safeGet; put = safePut
+instance SafeCopy ImageType_1 where version = 1; kind = base
+instance SafeCopy ImageType where version = 2; kind = extension
+instance Value ImageType where hops _ = []
+instance Migrate ImageType where
+  type MigrateFrom ImageType = ImageType_1
+  migrate old =
+    case old of
+      PPM_1 -> PPM
+      JPEG_1 -> JPEG
+      GIF_1 -> GIF
+      PNG_1 -> PNG
+      PDF_1 -> PDF
+      Unknown_1 -> Unknown
+data ImageType_1 = PPM_1 | JPEG_1 | GIF_1 | PNG_1 | PDF_1 | Unknown_1 deriving (Generic, Eq, Ord, Enum, Bounded)
+
+instance Pretty ImageType where pPrint = text . noQuotes . show
+
+noQuotes :: String -> String
+noQuotes = filter (/= '"')
+
+class HasImageType a where imageType :: HasCallStack => a -> ImageType
+
+instance HasFileExtension ImageType where
+  fileExtension GIF = ".gif"
+  fileExtension HEIC = ".heic"
+  fileExtension JPEG = ".jpg"
+  fileExtension PDF = ".pdf"
+  fileExtension PNG = ".png"
+  fileExtension PPM = ".ppm"
+  fileExtension TIFF = ".tiff"
+  fileExtension Unknown = ".xxx"
+
+allSupported :: [ImageType]
+allSupported = filter works [minBound..maxBound]
+  where works :: ImageType -> Bool
+        works it = not (it `elem` [HEIC, TIFF, Unknown])
+
+-- | A Pretty comma-separated list of ImageTypes supported by this library.
+supportedImageTypes :: Doc
+supportedImageTypes = commas allSupported
+
+commas :: Pretty a => [a] -> Doc
+commas = hsep . punctuate comma . map pPrint
+
+-- This instance gives the paths conventional file extensions.
+instance PathInfo ImageType where
+  toPathSegments inp = ["i" <> fileExtension inp]
+  fromPathSegments =
+    (segment ("i" <> fileExtension PPM) >> return PPM) <|>
+    (segment ("i" <> fileExtension JPEG) >> return JPEG) <|>
+    (segment ("i" <> fileExtension GIF) >> return GIF) <|>
+    (segment ("i" <> fileExtension PNG) >> return PNG) <|>
+    (segment ("i" <> fileExtension PDF) >> return PDF) <|>
+    (segment ("i" <> fileExtension Unknown) >> return Unknown)
+
+-- * MimeType
+type MimeType = String
+
+class HasMimeType a where
+  mimeType :: a -> MimeType
+
+instance HasMimeType ImageType where
+  mimeType GIF = "image/gif"
+  mimeType HEIC = "image/heif"
+  mimeType JPEG = "image/jpeg"
+  mimeType PPM = "image/ppm"
+  mimeType PNG = "image/png"
+  mimeType PDF = "application/pdf"
+  mimeType TIFF = "image/tiff"
+  mimeType Unknown = "application/unknown"
+
+supportedMimeTypes :: [MimeType]
+supportedMimeTypes = map mimeType allSupported
+
+-- * ImageShape
+
+data ImageShape
+  = ImageShape
+    { _imageShapeType :: ImageType
+    , _imageShapeRect :: Maybe ImageRect
+      -- ^ this could be safer, there should be different constructors
+      -- for image types that have or do not have an ImageRect.
+    } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance Serialize ImageShape where get = safeGet; put = safePut
+instance SafeCopy ImageShape where version = 2; kind = extension
+instance Value ImageShape where hops _ = [RecType, CtorType]
+
+instance Pretty ImageShape where
+  pPrint (ImageShape typ mrect) =
+    text "ImageShape (" <> pPrint typ <>
+    maybe empty (\rect -> text " " <> pPrint rect) mrect <>
+    text ")"
+
+instance HasImageType ImageShape where imageType = _imageShapeType
+
+instance HasFileExtension ImageShape where
+  fileExtension = fileExtension . _imageShapeType
+
+class HasOriginalShape a where
+  originalShape :: a -> ImageShape
+
+-- * HasImageShape
+
+-- | A class whose primary (only?) instance is ImageFile.  Access to
+-- the original dimensions of the image, so we can compute the aspect
+-- ratio.
+class HasImageShapeM m a where
+  imageShapeM :: a -> m ImageShape
+
+type HasImageShape a = HasImageShapeM Identity a
+imageShape :: HasImageShape a => a -> ImageShape
+imageShape = runIdentity . imageShapeM
+
+instance HasImageShapeM Identity ImageShape where
+  imageShapeM s = pure s
+
+instance HasImageRect ImageShape where imageRect = _imageShapeRect
+
+scaleImageShape :: ImageSize -> Rational -> ImageShape -> ImageShape
+scaleImageShape sz dpi shape =
+  case _imageShapeRect shape of
+    Nothing -> shape
+    Just rect | scale rect == 1 -> shape
+    Just rect ->
+      shape { _imageShapeType = JPEG -- the scaling pipeline results in a jpeg file
+            , _imageShapeRect = Just (scaleImageRect sz dpi rect) }
+  where
+    scale :: ImageRect -> Rational
+    scale rect = maybe 1 approx $ scaleFromDPI sz dpi rect
+
+cropImageShape :: ImageCrop -> ImageShape -> ImageShape
+cropImageShape crop shape | crop == def = shape
+cropImageShape _ shape@ImageShape{_imageShapeRect = Nothing} = shape
+cropImageShape crop shape@ImageShape{_imageShapeRect = Just rect} =
+  shape {_imageShapeRect = Just (cropImageRect crop rect)}
+
+-- | Does this change _imageShapeType?  Should it?
+uprightImageShape :: ImageShape -> ImageShape
+uprightImageShape shape =
+  shape {_imageShapeType = JPEG,
+         _imageShapeRect = fmap uprightImageRect (_imageShapeRect shape)}
+
+instance Migrate ImageShape where
+  type MigrateFrom ImageShape = ImageShape_1
+  migrate (ImageShape_1 typ w h rot) =
+    ImageShape { _imageShapeType = typ,
+                 _imageShapeRect =
+                   case typ of
+                     Unknown -> Nothing
+                     PDF -> Nothing
+                     _ -> Just (makeImageRect w h rot) }
+
+data ImageShape_1
+  = ImageShape_1
+      { _imageShapeType_1 :: ImageType
+      , _imageShapeWidth_1 :: Int
+      , _imageShapeHeight_1 :: Int
+      , _imageFileOrientation_1 :: Rotation
+      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance Serialize ImageShape_1 where get = safeGet; put = safePut
+instance SafeCopy ImageShape_1 where version = 1; kind = base
+
+-- * ImageStats
+
+-- Statistics about the server status of the images in this reports.
+data ImageStats
+  = ImageStats
+    { _keys :: Int
+    , _ready :: Int
+    , _shapes :: Int
+    , _errors :: Int
+    } deriving (Generic, Eq, Ord, Show, Serialize)
+
+instance SafeCopy ImageStats
+
 #if MIN_VERSION_template_haskell(2,17,0)
 instance PathInfo ImagePath where
       toPathSegments inp_aAxt
@@ -215,4 +425,7 @@ $(concat <$>
   ])
 #endif
 
-instance Value ImageKey where hops _ = [RecType, CtorType]
+$(concat <$>
+  sequence
+  [ pathInstances [FIELDS] =<< [t|ImageShape|]
+  ])

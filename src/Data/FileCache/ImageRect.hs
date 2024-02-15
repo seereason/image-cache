@@ -11,7 +11,6 @@ module Data.FileCache.ImageRect
   , scaleImageRect
   , scaleFromDPI
   , cropImageRect
-  , rotateImageRect
   , uprightImageRect
   ) where
 
@@ -62,16 +61,20 @@ makeImageRect w h rot =
   where _ = callStack
 
 imageAspect :: HasCallStack => ImageRect -> Rational
-imageAspect ImageRect{..} =
-  fromIntegral _imageRectHeight % fromIntegral _imageRectWidth
+imageAspect rect@ImageRect{..} =
+  case _imageFileOrientation of
+    ThreeHr -> imageAspect (uprightImageRect rect)
+    NineHr -> imageAspect (uprightImageRect rect)
+    _ -> fromIntegral _imageRectHeight % fromIntegral _imageRectWidth
 
 widthInInches :: HasCallStack => ImageRect -> ImageSize -> Rational
-widthInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
-    case _dim s of
-      TheWidth -> toInches (_units s) (_size s)
-      TheHeight -> widthInInches rect (s {_dim = TheWidth, _size = approx (_size s / aspect)})
-      TheArea -> widthInInches rect (s {_dim = TheWidth, _size = approx (rsqrt (_size s / aspect))})
+widthInInches rect@ImageRect{..} s =
+  case _dim s of
+    TheWidth -> toInches (_units s) (_size s)
+    TheHeight -> widthInInches upright (s {_dim = TheWidth, _size = approx (_size s / aspect)})
+    TheArea -> widthInInches upright (s {_dim = TheWidth, _size = approx (rsqrt (_size s / aspect))})
     where
+      upright = uprightImageRect rect
       aspect :: Rational
       aspect = imageAspect rect
       toInches :: Units -> Rational -> Rational
@@ -80,12 +83,13 @@ widthInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
       toInches Points x = x / (7227 % 100)
 
 heightInInches :: HasCallStack => ImageRect -> ImageSize -> Rational
-heightInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
-    case _dim s of
-      TheHeight -> toInches (_units s) (_size s)
-      TheWidth -> heightInInches rect (s {_dim = TheHeight, _size = approx (_size s * aspect)})
-      TheArea -> heightInInches rect (s {_dim = TheHeight, _size = approx (rsqrt (_size s * aspect))})
+heightInInches rect s =
+  case _dim s of
+    TheHeight -> toInches (_units s) (_size s)
+    TheWidth -> heightInInches upright (s {_dim = TheHeight, _size = approx (_size s * aspect)})
+    TheArea -> heightInInches upright (s {_dim = TheHeight, _size = approx (rsqrt (_size s * aspect))})
     where
+      upright = uprightImageRect rect
       aspect :: Rational
       aspect = imageAspect rect
       toInches Inches x = x
@@ -99,13 +103,21 @@ widthInInches' :: HasCallStack => ImageRect -> ImageSize -> ImageSize
 widthInInches' p s =
     s {_units = Inches, _size = approx (widthInInches p s), _dim = TheWidth}
 
-rotateImageRect :: HasCallStack => Rotation -> ImageRect -> ImageRect
-rotateImageRect ZeroHr rect = rect
-rotateImageRect SixHr rect = rect
-rotateImageRect ThreeHr rect =
-  rect {_imageRectWidth = _imageRectHeight rect,
-        _imageRectHeight = _imageRectWidth rect}
-rotateImageRect NineHr rect = rotateImageRect ThreeHr rect
+-- | This seems to have evolved into a no-op.
+uprightImageRect :: HasCallStack => ImageRect -> ImageRect
+uprightImageRect rect =
+  case _imageFileOrientation rect of
+    ZeroHr -> rect
+    SixHr -> rect
+    ThreeHr ->
+      ImageRect {_imageFileOrientation = ZeroHr,
+                 _imageRectWidth = _imageRectHeight rect,
+                 _imageRectHeight = _imageRectWidth rect}
+    NineHr ->
+      ImageRect {_imageFileOrientation = ZeroHr,
+                 _imageRectWidth = _imageRectHeight rect,
+                 _imageRectHeight = _imageRectWidth rect}
+  where _ = callStack
 
 scaleImageRect :: HasCallStack => ImageSize -> Rational -> ImageRect -> ImageRect
 scaleImageRect sz dpi rect =
@@ -139,16 +151,6 @@ cropImageRect crop rect | crop == def = rect
 cropImageRect (ImageCrop{..}) rect =
   rect {_imageRectWidth = _imageRectWidth rect - (leftCrop + rightCrop),
         _imageRectHeight = _imageRectHeight rect - (topCrop + bottomCrop) }
-  where _ = callStack
-
--- | This seems to have evolved into a no-op.
-uprightImageRect :: HasCallStack => ImageRect -> ImageRect
-uprightImageRect rect =
-  case _imageFileOrientation rect of
-    ZeroHr -> rect
-    SixHr -> rect
-    ThreeHr -> rect
-    NineHr -> rect
   where _ = callStack
 
 class HasImageRect a where imageRect :: a -> Maybe ImageRect
