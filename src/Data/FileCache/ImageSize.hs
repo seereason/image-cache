@@ -24,7 +24,6 @@ import Control.Monad.Except (throwError)
 import Control.Lens ( iso, _Show )
 import Control.Lens.Path ( Value(hops), View(..), viewIso )
 import Data.Data ( Data )
-import Data.Default ( Default(def) )
 import Data.FileCache.Rational ((%), showRational)
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
@@ -45,8 +44,6 @@ data ImageSize
       , _units :: Units
       } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
-instance Default ImageSize where
-    def = ImageSize TheArea 15.0 Inches
 instance SafeCopy ImageSize where version = 2
 instance Serialize ImageSize where get = safeGet; put = safePut
 instance Value ImageSize where hops _ = [RecType, CtorType]
@@ -137,11 +134,6 @@ saneSize sz = SaneSize $
       maxDist = 25
       minArea = 625 % 10000
       maxArea = 625
-
--- Surely, SaneSize should be a class so we could apply it to things
--- other than ImageSize.  But for the moment it is what it is.
-instance Default (SaneSize ImageSize) where
-    def = saneSize def
 
 instance Value (SaneSize ImageSize) where hops _ = [ViewType]
 
