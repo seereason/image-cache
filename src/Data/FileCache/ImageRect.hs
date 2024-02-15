@@ -83,8 +83,8 @@ heightInInches :: HasCallStack => ImageRect -> ImageSize -> Rational
 heightInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
     case _dim s of
       TheHeight -> toInches (_units s) (_size s)
-      TheWidth -> heightInInches rect (s {_dim = TheHeight, _size = approx (_size s / aspect)})
-      TheArea -> heightInInches rect (s {_dim = TheHeight, _size = approx (rsqrt (_size s / aspect))})
+      TheWidth -> heightInInches rect (s {_dim = TheHeight, _size = approx (_size s * aspect)})
+      TheArea -> heightInInches rect (s {_dim = TheHeight, _size = approx (rsqrt (_size s * aspect))})
     where
       aspect :: Rational
       aspect = imageAspect rect
