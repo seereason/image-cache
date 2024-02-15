@@ -73,7 +73,7 @@ widthInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
       TheArea -> widthInInches rect (s {_dim = TheWidth, _size = approx (rsqrt (_size s / aspect))})
     where
       aspect :: Rational
-      aspect = fromIntegral h % fromIntegral w
+      aspect = imageAspect rect
       toInches :: Units -> Rational -> Rational
       toInches Inches x = x
       toInches Cm x = x / (254 % 100)
@@ -87,7 +87,7 @@ heightInInches rect@(ImageRect {_imageRectHeight = h, _imageRectWidth = w}) s =
       TheArea -> heightInInches rect (s {_dim = TheHeight, _size = approx (rsqrt (_size s / aspect))})
     where
       aspect :: Rational
-      aspect = fromIntegral h % fromIntegral w
+      aspect = imageAspect rect
       toInches Inches x = x
       toInches Cm x = x / (254 % 100)
       toInches Points x = x / (7227 % 100)
