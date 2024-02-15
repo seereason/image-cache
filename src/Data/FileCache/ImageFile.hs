@@ -18,10 +18,10 @@ import Control.Lens.Path ( View(..) )
 import Data.Data ( Data )
 import Data.FileCache.File (File, HasFileExtension(..))
 import Data.FileCache.ImageKey ( ScaledKey(..), EditedKey(..), UprightKey(..), OriginalKey(..),
-                                 ImageKey(ImageUpright, ImageScaled) )
+                                 ImageKey(ImageUpright, ImageScaled), shapeFromKey )
 import Data.FileCache.ImageRect (HasImageRect(imageRect))
-import Data.FileCache.ImageShape (HasImageType(..), HasImageShapeM(..), ImageShape(_imageShapeType))
-import Data.FileCache.ImageSize ( HasImageSize(imageSize), ImageSize )
+import Data.FileCache.ImageShape (HasImageShape, imageShape, HasImageType(..), HasImageShapeM(..), ImageShape(_imageShapeType, _imageShapeRect))
+import Data.FileCache.ImageSize ( HasImageSize(imageSize), ImageSize, SaneSize(SaneSize) )
 import Data.FileCache.Happstack ()
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
@@ -54,6 +54,22 @@ instance HasImageRect ImageReady where imageRect = imageRect . _imageShape
 instance HasImageRect ImageFile where
   imageRect (ImageFileReady a) = imageRect a
   imageRect (ImageFileShape a) = imageRect a
+
+instance HasImageRect (SaneSize ImageSize, ImageReady) where
+  imageRect (SaneSize size, ready) = imageRect (size, ready)
+instance HasImageRect (ImageSize, ImageReady) where
+  imageRect a = _imageShapeRect (imageShape a)
+
+instance HasImageShapeM Identity (ImageSize, ImageReady) where
+  imageShapeM (size, ready@ImageReady{..}) =
+    pure $ shapeFromKey _imageShape (scaledKey size printerDPI ready)
+{-
+instance HasImageRect (ImageSize, Maybe ImageRect) where
+  imageRect (size, Nothing) = makeImageRect (100, 100, ZeroHr)
+  imageRect (size, Just rect) =
+-}
+
+printerDPI = 600.0 :: Rational
 
 instance HasFileExtension ImageReady where
   fileExtension = fileExtension . _imageFile
