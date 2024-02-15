@@ -1,4 +1,5 @@
--- | An 'ImageKey' is a value that describes how to construct an image.
+-- | An 'ImageKey' is a value that describes how to derive a modified
+-- 'ImageFile' from an existing one.
 
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveLift #-}

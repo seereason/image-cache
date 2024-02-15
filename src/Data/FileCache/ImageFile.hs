@@ -65,6 +65,7 @@ instance Value ImageFile where hops _ = [RecType, CtorType]
 
 -- * ImageReady
 
+-- | An uploaded 'File' whose 'ImageShape' has been determined.
 data ImageReady
   = ImageReady {_imageFile :: File, _imageShape :: ImageShape}
   deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)

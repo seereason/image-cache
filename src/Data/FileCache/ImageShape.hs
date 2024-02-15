@@ -10,12 +10,12 @@
 {-# LANGUAGE TypeOperators #-}
 
 module Data.FileCache.ImageShape
-  ( -- * ImageType
-    ImageType(..)
+  ( ImageType(..)
   , HasImageType(imageType)
-  , supportedMimeTypes
   , supportedImageTypes
-    -- * ImageShape, HasImageShape
+
+  , supportedMimeTypes
+
   , ImageShape(..)
   , HasImageShapeM(imageShapeM)
   , HasImageShape, imageShape
@@ -25,6 +25,7 @@ module Data.FileCache.ImageShape
   , cropImageShape
   , rotateImageShape
   , uprightImageShape
+
   , ImageStats(..)
   ) where
 
@@ -48,7 +49,7 @@ import GHC.Stack (HasCallStack)
 import Text.Parsec ( (<|>) )
 import Text.PrettyPrint.HughesPJClass ( Doc, Pretty(pPrint), comma, empty, hsep, punctuate, text )
 import Web.Routes ( PathInfo(..), segment )
-
+
 -- * ImageType and Checksum
 
 -- HEIC, should also have HEIF?
@@ -92,7 +93,32 @@ instance HasFileExtension ImageType where
   fileExtension TIFF = ".tiff"
   fileExtension Unknown = ".xxx"
 
+allSupported :: [ImageType]
+allSupported = filter works [minBound..maxBound]
+  where works :: ImageType -> Bool
+        works it = not (it `elem` [HEIC, TIFF, Unknown])
+
+-- | A Pretty comma-separated list of ImageTypes supported by this library.
+supportedImageTypes :: Doc
+supportedImageTypes = commas allSupported
+
+commas :: Pretty a => [a] -> Doc
+commas = hsep . punctuate comma . map pPrint
+
+-- This instance gives the paths conventional file extensions.
+instance PathInfo ImageType where
+  toPathSegments inp = ["i" <> fileExtension inp]
+  fromPathSegments =
+    (segment ("i" <> fileExtension PPM) >> return PPM) <|>
+    (segment ("i" <> fileExtension JPEG) >> return JPEG) <|>
+    (segment ("i" <> fileExtension GIF) >> return GIF) <|>
+    (segment ("i" <> fileExtension PNG) >> return PNG) <|>
+    (segment ("i" <> fileExtension PDF) >> return PDF) <|>
+    (segment ("i" <> fileExtension Unknown) >> return Unknown)
+
+-- * MimeType
 type MimeType = String
+
 class HasMimeType a where
   mimeType :: a -> MimeType
 
@@ -106,73 +132,10 @@ instance HasMimeType ImageType where
   mimeType TIFF = "image/tiff"
   mimeType Unknown = "application/unknown"
 
-allSupported :: [ImageType]
-allSupported = filter works [minBound..maxBound]
-  where works :: ImageType -> Bool
-        works it = not (it `elem` [HEIC, TIFF, Unknown])
-
--- | A Pretty comma-separated list of ImageTypes supported by this library.
-supportedImageTypes :: Doc
-supportedImageTypes = commas allSupported
-
-commas :: Pretty a => [a] -> Doc
-commas = hsep . punctuate comma . map pPrint
-
-supportedMimeTypes :: [String]
+supportedMimeTypes :: [MimeType]
 supportedMimeTypes = map mimeType allSupported
-
--- This instance gives the paths conventional file extensions.
-instance PathInfo ImageType where
-  toPathSegments inp = ["i" <> fileExtension inp]
-  fromPathSegments =
-    (segment ("i" <> fileExtension PPM) >> return PPM) <|>
-    (segment ("i" <> fileExtension JPEG) >> return JPEG) <|>
-    (segment ("i" <> fileExtension GIF) >> return GIF) <|>
-    (segment ("i" <> fileExtension PNG) >> return PNG) <|>
-    (segment ("i" <> fileExtension PDF) >> return PDF) <|>
-    (segment ("i" <> fileExtension Unknown) >> return Unknown)
 
 -- * ImageShape
-
-class HasOriginalShape a where
-  originalShape :: a -> ImageShape
-
--- * HasImageShape
-
--- | A class whose primary (only?) instance is ImageFile.  Access to
--- the original dimensions of the image, so we can compute the aspect
--- ratio.
-class HasImageShapeM m a where
-  imageShapeM :: a -> m ImageShape
-
-type HasImageShape a = HasImageShapeM Identity a
-imageShape :: HasImageShape a => a -> ImageShape
-imageShape = runIdentity . imageShapeM
-
-instance HasImageShapeM Identity ImageShape where
-  imageShapeM s = pure s
-
-data ImageShape_1
-  = ImageShape_1
-      { _imageShapeType_1 :: ImageType
-      , _imageShapeWidth_1 :: Int
-      , _imageShapeHeight_1 :: Int
-      , _imageFileOrientation_1 :: Rotation
-      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
-
-instance Serialize ImageShape_1 where get = safeGet; put = safePut
-instance SafeCopy ImageShape_1 where version = 1; kind = base
-instance Migrate ImageShape where
-  type MigrateFrom ImageShape = ImageShape_1
-  migrate (ImageShape_1 typ w h rot) =
-    ImageShape { _imageShapeType = typ,
-                 _imageShapeRect =
-                   case typ of
-                     Unknown -> Nothing
-                     PDF -> Nothing
-                     _ -> Just (makeImageRect w h rot) }
-
-instance HasImageRect ImageShape where imageRect = _imageShapeRect
 
 data ImageShape
   = ImageShape
@@ -197,6 +160,31 @@ instance HasImageType ImageShape where imageType = _imageShapeType
 instance HasFileExtension ImageShape where
   fileExtension = fileExtension . _imageShapeType
 
+class HasOriginalShape a where
+  originalShape :: a -> ImageShape
+
+-- * HasImageShape
+
+-- | A class whose primary (only?) instance is ImageFile.  Access to
+-- the original dimensions of the image, so we can compute the aspect
+-- ratio.
+class HasImageShapeM m a where
+  imageShapeM :: a -> m ImageShape
+
+type HasImageShape a = HasImageShapeM Identity a
+imageShape :: HasImageShape a => a -> ImageShape
+imageShape = runIdentity . imageShapeM
+
+instance HasImageShapeM Identity ImageShape where
+  imageShapeM s = pure s
+
+instance HasImageRect ImageShape where imageRect = _imageShapeRect
+
+$(concat <$>
+  sequence
+  [ pathInstances [FIELDS] =<< [t|ImageShape|]
+  ])
+
 scaleImageShape :: ImageSize -> Rational -> ImageShape -> ImageShape
 scaleImageShape sz dpi shape =
   case _imageShapeRect shape of
@@ -208,7 +196,7 @@ scaleImageShape sz dpi shape =
   where
     scale :: ImageRect -> Rational
     scale rect = maybe 1 approx $ scaleFromDPI sz dpi rect
-
+
 cropImageShape :: ImageCrop -> ImageShape -> ImageShape
 cropImageShape crop shape | crop == def = shape
 cropImageShape _ shape@ImageShape{_imageShapeRect = Nothing} = shape
@@ -228,6 +216,29 @@ rotateImageShape rot shape@ImageShape{_imageShapeRect = Just rect} =
 uprightImageShape :: ImageShape -> ImageShape
 uprightImageShape shape = over (#_imageShapeRect . _Just) uprightImageRect shape
 
+instance Migrate ImageShape where
+  type MigrateFrom ImageShape = ImageShape_1
+  migrate (ImageShape_1 typ w h rot) =
+    ImageShape { _imageShapeType = typ,
+                 _imageShapeRect =
+                   case typ of
+                     Unknown -> Nothing
+                     PDF -> Nothing
+                     _ -> Just (makeImageRect w h rot) }
+
+data ImageShape_1
+  = ImageShape_1
+      { _imageShapeType_1 :: ImageType
+      , _imageShapeWidth_1 :: Int
+      , _imageShapeHeight_1 :: Int
+      , _imageFileOrientation_1 :: Rotation
+      } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance Serialize ImageShape_1 where get = safeGet; put = safePut
+instance SafeCopy ImageShape_1 where version = 1; kind = base
+
+-- * ImageStats
+
 -- Statistics about the server status of the images in this reports.
 data ImageStats
   = ImageStats
@@ -238,8 +249,3 @@ data ImageStats
     } deriving (Generic, Eq, Ord, Show, Serialize)
 
 instance SafeCopy ImageStats
-
-$(concat <$>
-  sequence
-  [ pathInstances [FIELDS] =<< [t|ImageShape|]
-  ])

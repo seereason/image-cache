@@ -9,8 +9,8 @@
 module Data.FileCache.ImageSize
   (
     -- * ImageSize
-    HasImageSize(imageSize)
-  , ImageSize(..) -- , dim, size, units
+    ImageSize(..) -- , dim, size, units
+  , HasImageSize(imageSize)
   , Dimension(..)
   , Units(..)
   , saneSize
@@ -35,7 +35,7 @@ import GHC.Generics ( Generic )
 -- import Language.Haskell.TH.Instances ()
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Web.Routes.TH ( derivePathInfo )
-
+
 -- * ImageSize, Dimension, Units, SaneSize
 
 data ImageSize
@@ -49,12 +49,31 @@ instance Default ImageSize where
     def = ImageSize TheArea 15.0 Inches
 instance SafeCopy ImageSize where version = 2
 instance Serialize ImageSize where get = safeGet; put = safePut
+instance Value ImageSize where hops _ = [RecType, CtorType]
 
 -- > pPrint (ImageSize TheWidth 9 Inches)
 -- 9.0in wide
 instance Pretty ImageSize where
   pPrint (ImageSize dim size units) =
     text (showRational size) <> pPrint units <> text " " <> pPrint dim
+
+class HasImageSize a where imageSize :: a -> ImageSize
+instance HasImageSize ImageSize where imageSize = id
+
+defaultSize :: ImageSize
+defaultSize = ImageSize {_dim = TheArea, _units = Inches, _size = 6.0}
+
+-- | Return the value of size in inches
+inches :: ImageSize -> Rational
+inches sz =
+    _size sz / case (_dim sz, _units sz) of
+                (_, Inches) -> 1
+                (TheArea, Cm) -> (254 % 100) * (254 % 100)
+                (TheArea, Points) -> (7227 % 100) * (7227 % 100)
+                (_, Cm) -> 254 % 100
+                (_, Points) -> 7227 % 100
+
+-- * Dimension
 
 data Dimension
     = TheHeight
@@ -71,6 +90,9 @@ instance Pretty Dimension where
     pPrint TheWidth = text "w"
     pPrint TheArea = text "sq"
 
+instance Value Dimension where hops _ = []
+-- * Units
+
 data Units
     = Inches
     | Cm
@@ -86,8 +108,9 @@ instance Pretty Units where
     pPrint Cm = text "cm"
     pPrint Points = text "pt"
 
-class HasImageSize a where imageSize :: a -> ImageSize
-instance HasImageSize ImageSize where imageSize = id
+instance Value Units where hops _ = []
+
+-- * SaneSize
 
 -- | A wrapper type to suggest that lens_saneSize has been applied to
 -- the ImageSize within.
@@ -120,19 +143,8 @@ saneSize sz = SaneSize $
 instance Default (SaneSize ImageSize) where
     def = saneSize def
 
-defaultSize :: ImageSize
-defaultSize = ImageSize {_dim = TheArea, _units = Inches, _size = 6.0}
-
--- | Return the value of size in inches
-inches :: ImageSize -> Rational
-inches sz =
-    _size sz / case (_dim sz, _units sz) of
-                (_, Inches) -> 1
-                (TheArea, Cm) -> (254 % 100) * (254 % 100)
-                (TheArea, Points) -> (7227 % 100) * (7227 % 100)
-                (_, Cm) -> 254 % 100
-                (_, Points) -> 7227 % 100
-
+instance Value (SaneSize ImageSize) where hops _ = [ViewType]
+
 #if MIN_VERSION_template_haskell(2,17,0)
 instance PathInfo ImageSize where
       toPathSegments inp_aAxV
@@ -187,8 +199,3 @@ $(concat <$>
   , pathInstances [FIELDS] =<< [t|ImageSize|]
   ])
 #endif
-
-instance Value ImageSize where hops _ = [RecType, CtorType]
-instance Value Dimension where hops _ = []
-instance Value Units where hops _ = []
-instance Value (SaneSize ImageSize) where hops _ = [ViewType]

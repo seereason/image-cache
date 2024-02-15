@@ -31,8 +31,8 @@ import Data.Typeable ( Typeable, typeRep )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack, HasCallStack)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
-
-class HasImageRect a where imageRect :: a -> Maybe ImageRect
+
+-- * ImageRect
 
 data ImageRect
   = ImageRect
@@ -43,6 +43,7 @@ data ImageRect
 
 instance Serialize ImageRect where get = safeGet; put = safePut
 instance SafeCopy ImageRect where version = 1; kind = base
+instance Value ImageRect where hops _ = [RecType, CtorType]
 
 instance Pretty ImageRect where
   pPrint (ImageRect w h rot) =
@@ -150,9 +151,9 @@ uprightImageRect rect =
     NineHr -> rect
   where _ = callStack
 
+class HasImageRect a where imageRect :: a -> Maybe ImageRect
+
 $(concat <$>
   sequence
   [pathInstances [FIELDS] =<< [t|ImageRect|]
   ])
-
-instance Value ImageRect where hops _ = [RecType, CtorType]
