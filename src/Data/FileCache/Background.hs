@@ -87,7 +87,7 @@ queueImageBuild pairs = do
   -- Write empty files into cache
   -- mapM (runExceptT . fileCachePathIO) pairs >>= mapM_ (either (throwError . review fileError) (liftUIO . flip writeFile mempty))
   unsafeFromIO $ alog DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
-  chan <- maybe (throwMember (UnexpectedException "Chan Is Missing")) pure =<< (imageBuilder <$> ask)
+  chan <- maybe (error "Chan Is Missing") pure =<< (imageBuilder <$> ask)
   liftUIO (writeChan chan pairs)
   unsafeFromIO $ alog DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
