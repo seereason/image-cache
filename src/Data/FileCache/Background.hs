@@ -17,31 +17,26 @@ import Control.Exception (IOException)
 import Control.Lens
 import Control.Monad (forever, when)
 import Control.Monad.Reader (MonadReader(ask), runReaderT)
-import Control.Monad.Except (ExceptT, MonadError, runExceptT)
+import Control.Monad.Except (runExceptT)
 import Data.FileCache.FileCacheTop
 import Data.FileCache.Derive (CacheFlag, cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
-import Data.FileCache.FileError (FileCacheErrors, FileError(UnexpectedException))
+import Data.FileCache.FileError (FileError, MonadFileIO)
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
-import Data.FileCache.ImageShape
 import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( length, show )
 import Data.Map.Strict as Map ( filter, fromList, keysSet, Map, size )
 import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
-import Data.SafeCopy (SafeCopy)
-import Data.Serialize (Serialize)
 import Data.Set as Set (Set, toList)
-import Data.Typeable (Typeable)
-import Extra.Except (throwError)
-import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
 import SeeReason.LogServer (alog)
 import SeeReason.Errors (Member, OneOf, throwMember)
-import SeeReason.UIO (fork, liftUIO, NonIOException, UIO, Unexceptional, unsafeFromIO)
+import SeeReason.UIO (liftUIO, NonIOException)
 import System.Log.Logger (Priority(..))
+import UnexceptionalIO.Trans (fork, UIO, unsafeFromIO)
 
 {-
 class HasSomeNonPseudoException e where
@@ -58,18 +53,16 @@ instance HasImageBuilder (a, b, ImageChan) where imageBuilder = Just . view _3
 instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
 cacheDerivedImagesBackground ::
-  forall r e m. (FileCacheErrors e m, MonadReader r m, HasCacheAcid r,
-                 HasImageBuilder r, HasFileCacheTop r)
+  forall r e m. (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
   => Set CacheFlag
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
 cacheDerivedImagesBackground flags keys =
   mapM (\key -> (key,) <$> cacheImageShape flags key Nothing) keys >>=
-  runExceptT . backgroundBuilds >>=
-  either throwError (return . Map.fromList)
+  backgroundBuilds >>= pure . Map.fromList
 
 backgroundBuilds ::
-  (Unexceptional m, FileCacheErrors e m, MonadReader r m, HasImageBuilder r)
+  (MonadFileCache r e m, HasImageBuilder r)
   => [(ImageKey, Either FileError ImageFile)]
   -> m [(ImageKey, Either FileError ImageFile)]
 backgroundBuilds pairs =
@@ -80,7 +73,7 @@ backgroundBuilds pairs =
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
-  (FileCacheErrors e m, MonadReader r m, HasImageBuilder r, HasCallStack)
+  (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
   => [(ImageKey, ImageShape)]
   -> m ()
 queueImageBuild pairs = do
@@ -91,53 +84,49 @@ queueImageBuild pairs = do
   liftUIO (writeChan chan pairs)
   unsafeFromIO $ alog DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
+type E = '[FileError, IOException, NonIOException]
+
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startImageBuilder ::
-  forall e m rd.
-  (Unexceptional m, HasCacheAcid rd, HasFileCacheTop rd,
-   MonadError (OneOf e) m, Member NonIOException e, Member IOException e,
+  forall r e m.
+  (MonadFileIO e m,
+   HasCacheAcid r,
+   HasFileCacheTop r,
    HasCallStack)
-  => rd
+  => r
   -> m (ImageChan, ThreadId)
-startImageBuilder rd = do
+startImageBuilder r = do
   (chan :: ImageChan) <- liftUIO newChan
   unsafeFromIO $ alog DEBUG "Starting background image builder"
-  (,) <$> pure chan <*> (fork (task chan >>= either (error . show) pure) :: m ThreadId)
+  (,) <$> pure chan <*> fork (task chan)
   where
-    task :: ImageChan -> UIO (Either (OneOf '[IOException, NonIOException]) ())
-    task chan = forever (runExceptT (liftUIO (readChan chan) >>= doImages rd))
-#if 0
-  (,) <$> pure chan <*> liftUIO (fork (forever (runExceptT (fromIO (readChan chan) :: ExceptT SomeNonPseudoException m [(ImageKey, ImageShape)]) >>= (doImages @e rd))))
-#endif
-
--- readChan :: Chan a -> IO a
--- liftUIO :: (Unexceptional m, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => IO a -> m a
--- fromIO :: Unexceptional m => IO a -> ExceptT SomeNonPseudoException m a
--- fork :: Unexceptional m => UIO () -> m ThreadId
-
--- doImages' :: forall e rd. (HasCacheAcid rd, HasFileCacheTop rd, Member IOException e, Member NonIOException e) => rd -> Either SomeNonPseudoException [(ImageKey, ImageShape)] -> ExceptT (OneOf e) UIO ()
--- doImages' = doImages
+    task :: ImageChan -> UIO ()
+    task chan = forever $
+      runExceptT @(OneOf E) (liftUIO (readChan chan)) >>= \case
+        Left e -> unsafeFromIO $ alog ERROR ("Image Builder error: " <> show e)
+        Right pairs -> doImages r pairs
 
 -- | This is the background task.
 doImages ::
-  forall rd. (HasCacheAcid rd, HasFileCacheTop rd)
-  => rd
+  forall r. (HasCacheAcid r, HasFileCacheTop r, HasCallStack)
+  => r
   -> [(ImageKey, ImageShape)]
-  -> ExceptT (OneOf '[IOException, NonIOException]) UIO ()
-doImages rd pairs = do
-  unsafeFromIO $ when (length pairs > 0) $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
+  -> UIO ()
+doImages r pairs = do
+  when (length pairs > 0) $ unsafeFromIO $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
   -- the threadDelay is to test the behavior of the server for lengthy image builds
-  (r :: [Either FileError ImageFile]) <- mapM (\(key, shape) -> runReaderT (cacheImageFile key shape {- >> unsafeFromIO (threadDelay 5000000)-}) rd) pairs
-  mapM_ (\case ((key, _shape), Left e) -> unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
-               -- ((key, shape), Right _file) -> unsafeFromIO (alog ERROR ("doImages - error in cache for " <> show key <> ": " ++ show e))
-               ((key, _shape), Right _file) -> unsafeFromIO (alog ERROR ("doImages - completed " <> show key)))
-    (zip pairs r)
-{-
-doImages _rd (Left e) = do
-  unsafeFromIO $ alog DEBUG ("Failure in readChan: " <> show e)
--}
+  files <- mapM doShape pairs
+  mapM_ doFile (zip pairs files)
+  where
+    doShape :: (ImageKey, ImageShape) -> UIO (Either (OneOf E) (Either FileError ImageFile))
+    doShape (key, shape) = runExceptT (runReaderT (cacheImageFile key shape {- >> unsafeFromIO (threadDelay 5000000)-}) r)
+
+    doFile :: ((ImageKey, ImageShape), Either (OneOf E) (Either FileError ImageFile)) -> UIO ()
+    doFile ((key, _shape), Left e) = unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
+    doFile ((key, _shape), Right (Left e)) = unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
+    doFile ((key, _shape), Right (Right _file)) = unsafeFromIO (alog ERROR ("doImages - completed " <> show key))
 
 -- | Throw an exception if there are more than 20 unavailable
 -- images.  This sends the images to the background image
@@ -145,18 +134,9 @@ doImages _rd (Left e) = do
 -- "come back later" message.
 testImageKeys ::
   forall r e m.
-  (HasCacheAcid r,
-   HasFileCacheTop r,
+  (MonadFileCache r e m,
    HasImageBuilder r,
-   Member IOException e,
-   Member NonIOException e,
-   Member FileError e,
    Member ImageStats e,
-   MonadError (OneOf e) m,
-   MonadReader r m,
-   Show (OneOf e),
-   Unexceptional m,
-   Typeable e,
    HasCallStack)
   => Set ImageKey
   -> m ()

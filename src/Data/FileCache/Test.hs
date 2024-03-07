@@ -8,15 +8,13 @@ module Data.FileCache.Test
   , tests
   ) where
 
-import Control.Exception ( IOException )
 import Control.Monad ( when )
-import Control.Monad.Reader ( MonadReader )
 import qualified Data.ByteString.Lazy as BS ( ByteString, empty, readFile )
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached, _imageCachedFile, _imageCachedKey) )
 import Data.FileCache.File
 import Data.FileCache.FileCache ( HasImageFilePath, fileCachePath, cacheLook )
-import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
+import Data.FileCache.FileCacheTop (MonadFileCache)
 import Data.FileCache.FileError
 import Data.FileCache.FileInfo ()
 import Data.FileCache.ImageCrop
@@ -24,64 +22,37 @@ import Data.FileCache.ImageFile
 import Data.FileCache.ImageIO ( validateJPG )
 import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect (makeImageRect)
-import Data.FileCache.ImageShape
 import Data.FileCache.ImageSize
 import Data.FileCache.Rational ((%), approx)
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, lookup, toList, fromList )
 import Data.Text as T ( pack, Text, unpack )
 import Data.Text.Encoding ( encodeUtf8 )
-import Extra.Except ( MonadError )
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (show)
+import SeeReason.Errors (throwMember, tryMember)
+import SeeReason.UIO as UIO (liftUIO, unsafeFromIO)
 import System.IO ( hFlush, stdout )
 import Test.HUnit ( assertEqual, Test(..) )
-import Test.QuickCheck
-    ( Arbitrary(arbitrary),
-      Gen,
-      elements,
-      listOf1,
-      oneof,
-      withMaxSuccess,
-      quickCheck )
-import SeeReason.Errors (Member, OneOf, runOneOf, throwMember )
-import SeeReason.UIO as UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO)
+import Test.QuickCheck ( Arbitrary(arbitrary), Gen, elements, listOf1, oneof, withMaxSuccess, quickCheck )
 import Web.Routes ( fromPathInfo, toPathInfo )
 import Web.Routes.QuickCheck ( pathInfoInverse_prop )
 
 -- | Integrity testing
 validateImageKey ::
-  forall e r m. (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e, Member FileError e,
-                 MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
-  => ImageKey -> m ()
+  forall e r m. MonadFileCache r e m => ImageKey -> m ()
 validateImageKey key = do
   cacheLook key >>=
     maybe (throwMember (MissingDerivedEntry key))
           (either throwMember (validateImageFile key))
 
-#if 1
-validateImageFile ::
-  forall e r m. (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member NonIOException e, Member IOException e,
-                 MonadReader r m, HasFileCacheTop r)
-  => ImageKey -> ImageFile -> m ()
+validateImageFile :: forall e r m. MonadFileCache r e m => ImageKey -> ImageFile -> m ()
 validateImageFile _key (ImageFileShape _) = return ()
 validateImageFile key (ImageFileReady i@(ImageReady {..})) = do
   path <- fileCachePath (ImagePath key)
   when (imageType i == JPEG)
     (liftUIO (validateJPG path) >>= either throwMember (\_ -> return ()))
-  runOneOf @(FileError ': e) (liftUIO (BS.readFile path)) >>= checkFile _imageFile path
-#else
-validateImageFile ::
-  forall e r m. (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member NonIOException e,
-                 MonadReader r m, HasFileCacheTop r)
-  => ImageKey -> ImageFile -> m ()
-validateImageFile _key (ImageFileShape _) = return ()
-validateImageFile key (ImageFileReady i@(ImageReady {..})) = do
-  path <- fileCachePath (ImagePath key (imageType i))
-  when (imageType i == JPEG)
-    (liftUIO (validateJPG path) >>= either (throwError . review fileError) (\_ -> return ()))
-  runFileError (liftUIO (BS.readFile path)) >>= checkFile _imageFile path
-#endif
+  tryMember @FileError (liftUIO (BS.readFile path)) >>= checkFile _imageFile path
   where
     checkFile :: File -> FilePath -> Either FileError BS.ByteString -> m ()
     checkFile _file _path (Left e) =
@@ -111,8 +82,7 @@ splits f xs = let (lhs, rhs) = f xs in (lhs : splits f rhs)
 --
 -- Also recomputes the orientation field of ImageShape.
 fixImageShapes ::
-  forall e r m. (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member IOException e, Member NonIOException e,
-                 MonadReader r m, HasFileCacheTop r)
+  forall r e m. (MonadFileCache r e m)
   => Map ImageKey (Either FileError ImageFile)
   -> m (Map ImageKey (Either FileError ImageFile))
 fixImageShapes mp =
@@ -123,15 +93,12 @@ fixImageShapes mp =
     fixPairs pairs = unsafeFromIO (putStr "." >> hFlush stdout) >> mapM fixPair pairs
     fixPair :: (ImageKey, Either FileError ImageFile) -> m (ImageKey, Either FileError ImageFile)
     -- If already damaged use the result
-    fixPair (key, Left e) = runOneOf @(FileError ': e) (fixImageCached (key, Left e)) >>= either (return . (key,) . Left) return
-    -- fixPair (key, Left e) = runOneOf @(FileError ': e) (fixImageCached (key, Left e)) (either (\e -> return (key, Left e)) (return . (key,)))
+    fixPair (key, Left e) = tryMember @FileError (fixImageCached (key, Left e)) >>= either (return . (key,) . Left) return
     -- If not damaged only use the result only if it succeeds
-    fixPair (key, Right val) = runOneOf @(FileError ': e) (fixImageCached (key, Right val)) >>= either (\(_ :: FileError) -> return (key, Right val)) return
-    -- fixPair (key, Right val) = either (\_ -> (key, Right val)) id <$> runExceptT (runOneOf' @FileError (fixImageCached (key, Right val)))
+    fixPair (key, Right val) = tryMember @FileError (fixImageCached (key, Right val)) >>= either (\_ -> return (key, Right val)) return
 
 fixImageCached ::
-  forall e r m. (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member IOException e, Member NonIOException e,
-                 MonadReader r m, HasFileCacheTop r)
+  forall e r m. (MonadFileCache r e m)
   => (ImageKey, Either FileError ImageFile) -> m (ImageKey, Either FileError ImageFile)
 fixImageCached (key@(ImageOriginal csum typ), Right (ImageFileShape _s)) =
   fixImageShape (csum, typ) >>= \s' -> return (key, Right (ImageFileShape s'))
@@ -141,8 +108,7 @@ fixImageCached x = return x
 
 -- Actually we just compute it from scratch
 fixImageShape ::
-  forall e r m a. (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member IOException e, Member NonIOException e,
-                   MonadReader r m, HasFileCacheTop r, HasImageFilePath a)
+  forall e r m a. (MonadFileCache r e m, HasImageFilePath a)
   => a -> m ImageShape
 fixImageShape a = fileCachePath a >>= imageShapeM . (, BS.empty)
 

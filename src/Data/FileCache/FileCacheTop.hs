@@ -7,11 +7,19 @@ module Data.FileCache.FileCacheTop
   , HasFileCacheTop(fileCacheTop)
   , HasCacheAcid(cacheAcid)
   , CacheAcid
+  , MonadFileCache
+  , FileCacheT
+  , runFileCacheT
   ) where
 
 import Control.Lens ( _1, view )
+import Control.Monad.Except (ExceptT)
+import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
+import Control.Monad.RWS (RWST)
 import Data.Acid ( AcidState )
 import Data.FileCache.CacheMap ( CacheMap )
+import Data.FileCache.FileError (E, MonadFileIO, runFileIOT)
+import SeeReason.Errors (OneOf)
 
 newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
 
@@ -27,3 +35,28 @@ class HasCacheAcid a where cacheAcid :: a -> AcidState CacheMap
 instance  HasCacheAcid CacheAcid where cacheAcid = id
 instance  HasCacheAcid (CacheAcid, top) where cacheAcid = fst
 instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
+
+class (MonadFileIO e m,
+       MonadReader r m,
+       HasCacheAcid r,
+       HasFileCacheTop r
+      ) => MonadFileCache r e m
+
+instance (MonadFileIO e (ExceptT (OneOf e) m),
+          HasCacheAcid r,
+          HasFileCacheTop r
+         ) => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
+
+instance (MonadFileIO e (ExceptT (OneOf e) m),
+          HasCacheAcid r, HasFileCacheTop r
+         ) => MonadFileCache r e (RWST r () s (ExceptT (OneOf e) m))
+
+-- | A simple type that is an instance of 'MonadFileCache'.
+type FileCacheT r m = ReaderT r (ExceptT (OneOf E) m)
+
+runFileCacheT ::
+     FileCacheT r m a
+  -> r
+  -> m (Either (OneOf E) a)
+runFileCacheT action r =
+  runFileIOT (runReaderT action r)

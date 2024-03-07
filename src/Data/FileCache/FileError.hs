@@ -5,6 +5,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.FileCache.FileError
   ( -- * FileError
@@ -12,14 +13,20 @@ module Data.FileCache.FileError
   , CommandError
   , HasFileError(fileError)
 --  , logErrorCall
-  , FileCacheErrors
-  , FileCacheErrors2
-  , FileCacheErrors3
+  , MyIO, myRunIO
+  , MyMonadIO, MyIOErrors, myLiftIO, myUnsafeIO
+  , MonadFileIO
+  , E, fromE
+  , runFileIOT
   ) where
 
 import Control.Exception as E ( Exception, ErrorCall, IOException )
 import Control.Lens ( Prism' )
 import Control.Lens.Path ( Value(..) )
+import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.Reader (ReaderT)
+import Control.Monad.RWS (RWST)
+import Control.Monad.State (StateT)
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.ImageFile (ImageReady)
 import Data.FileCache.ImageKey (ImageKey)
@@ -28,11 +35,11 @@ import Data.SafeCopy ( base, extension, Migrate(..), safeGet, safePut, SafeCopy(
 import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
-import Data.Typeable ( Typeable )
-import SeeReason.Errors as Errors ( Member, OneOf, oneOf )
-import SeeReason.UIO as Errors (NonIOException, Unexceptional)
-import Extra.Except ( MonadError, HasErrorCall(..) )
+import SeeReason.Errors as Errors ( Member, OneOf(..), oneOf, set)
+import SeeReason.UIO as Errors (liftUIO, NonIOException)
+import Extra.Except ( ExceptT, MonadError, HasErrorCall(..), runExceptT )
 import GHC.Generics ( Generic )
+import UnexceptionalIO.Trans (run, UIO, Unexceptional, unsafeFromIO)
 
 -- * FileError, CommandInfo
 
@@ -124,6 +131,8 @@ instance Serialize FileError where get = safeGet; put = safePut
 --deriving instance Data CommandInfo
 deriving instance Show FileError
 
+instance Value FileError where hops _ = []
+
 -- | This ensures that runExceptT catches IOException
 --instance HasIOException FileError where ioException = _Ctor @"IOException"
 instance HasErrorCall FileError where fromErrorCall = ErrorCall
@@ -135,15 +144,55 @@ instance HasFileError FileError where fileError = id
 
 instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
 
+type MyIO = UIO
+
+myRunIO :: MonadIO m => MyIO a -> m a
+myRunIO = run
+
+-- | This will be used to choose whether we are using MonadIO or
+-- Unexceptional.
+class (Unexceptional m, MonadError (OneOf e) m, MyIOErrors e) => MyMonadIO e m
+
+type MyIOErrors e = (Member IOException e, Member NonIOException e)
+
+-- unsafeFromIO :: Unexceptional m => IO a -> m a
+myUnsafeIO :: MyMonadIO e m => IO a -> m a
+myUnsafeIO = unsafeFromIO
+
+myLiftIO :: (MyMonadIO e m) => IO a -> m a
+myLiftIO = liftUIO
+
+instance (Unexceptional m, MyIOErrors e) => MyMonadIO e (ExceptT (OneOf e) m)
+instance MyMonadIO e m => MyMonadIO e (ReaderT r m)
+instance MyMonadIO e m => MyMonadIO e (StateT s m)
+
+instance (MyMonadIO e m, Monoid w) => MyMonadIO e (RWST r w s m)
+
 -- | Constraints typical of the functions in this package.  They occur
--- when an IO operation is lifted into 'Unexceptional' by 'lyftIO',
+-- when an IO operation is lifted into 'Unexceptional' by 'liftUIO',
 -- which splits the resulting 'SomeNonPseudoException' into @IO@ and
 -- @NonIO@ parts.  It also has FileException, an error type defined in
 -- this package.
+class (MyMonadIO e m, Member FileError e, MyIOErrors e) => MonadFileIO e m
 
-type FileCacheErrors e m =  (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable (OneOf e), Typeable e, Member NonIOException e, Member IOException e, Member FileError e)
--- A little looser
-type FileCacheErrors2 e m = (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable (OneOf e), Typeable e, Member NonIOException e, Member FileError e)
-type FileCacheErrors3 e m = (Unexceptional m, MonadError (OneOf e) m, Show (OneOf e), Typeable (OneOf e), Typeable e, Member NonIOException e, Member IOException e)
+-- | The simple instance
+instance (MyMonadIO e (ExceptT (OneOf e) m), Member FileError e, MyIOErrors e) => MonadFileIO e (ExceptT (OneOf e) m)
 
-instance Value FileError where hops _ = []
+-- | Monad transformer instances
+instance MonadFileIO e m => MonadFileIO e (ReaderT r m)
+instance (MonadFileIO e m, Monoid w) => MonadFileIO e (RWST r w s m)
+
+type FileIOT e m = ExceptT (OneOf e) m
+
+runFileIOT :: FileIOT e m a -> m (Either (OneOf e) a)
+runFileIOT action = runExceptT action
+
+-- | A minimal set of errors to run FileIOT
+type E = '[FileError, IOException, NonIOException]
+
+-- | Convert an 'E' into some e
+fromE :: forall e. (Member FileError e, MyIOErrors e) => OneOf E -> OneOf e
+fromE (Val e) = Errors.set (e :: FileError)
+fromE (NoVal (Val e)) = Errors.set (e :: IOException)
+fromE (NoVal (NoVal (Val e))) = Errors.set (e :: NonIOException)
+fromE _ = error "Impossible"

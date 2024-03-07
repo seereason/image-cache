@@ -9,18 +9,14 @@ module Data.FileCache.Upload
   , cacheOriginalImages
   ) where
 
-import Control.Exception ( IOException )
 import Control.Monad ( unless )
 import Control.Monad.RWS ( MonadState, modify )
-import Control.Monad.Reader ( MonadReader )
-import Control.Monad.Trans (MonadTrans(lift))
-import Control.Monad.Trans.Except ( runExceptT )
 import qualified Data.ByteString.Lazy as BS ( empty )
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File
 import Data.FileCache.FileCache ( fileCachePath, fileCachePathIO, cachePut_ )
-import Data.FileCache.FileCacheTop ( HasCacheAcid, HasFileCacheTop )
+import Data.FileCache.FileCacheTop ( MonadFileCache )
 import Data.FileCache.FileError
 import Data.FileCache.FileInfo ({-instances-} fileInfoFromPath)
 import Data.FileCache.ImageFile
@@ -31,18 +27,16 @@ import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, insert )
 import Data.Maybe ( fromMaybe )
 import Data.Text as T ( pack )
-import Extra.Except ( MonadError(throwError), ExceptT )
 import GHC.Stack ( HasCallStack )
 import Prelude hiding (show)
 import SeeReason.LogServer(alog)
 import System.Directory ( doesFileExist )
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
-import SeeReason.Errors (runOneOf, Member, OneOf)
-import SeeReason.UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO )
+import SeeReason.Errors (tryMember)
+import SeeReason.UIO (liftUIO, unsafeFromIO )
 
-instance (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member IOException e, Member NonIOException e,
-          MonadReader r m, HasFileCacheTop r) => HasImageShapeM m (Checksum, ImageType) where
+instance (MonadFileCache r e m) => HasImageShapeM m (Checksum, ImageType) where
   imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath . (, BS.empty)
 
 -- | Add some image files to an image repository - updates the acid
@@ -50,35 +44,29 @@ instance (Unexceptional m, MonadError (OneOf e) m, Member FileError e, Member IO
 -- FileCacheTop and its checksum.
 cacheOriginalImages ::
   forall x e r m. (MakeByteString x, Ord x,
-                   Unexceptional m, MonadError (OneOf e) m,
-                   Member NonIOException e, Member IOException e,
-                   MonadReader r m, HasCacheAcid r, HasFileCacheTop r,
+                   MonadFileCache r e m,
                    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
   => [(FileSource, x)] -> m ()
 cacheOriginalImages pairs =
-  runExceptT (mapM_ doPair pairs) >>= either throwError return
+  mapM_ doPair pairs
   where
-    doPair :: (FileSource, x) -> ExceptT (OneOf e) m ()
-    doPair (source, x) = cacheOriginalImage' (Just source) x >>= lift . modify . Map.insert x
+    doPair :: (FileSource, x) -> m ()
+    doPair (source, x) = tryMember @FileError (cacheOriginalImage (Just source) x) >>= modify . Map.insert x
 
 cacheOriginalImage' ::
   forall x e r m.
-  (MakeByteString x, Unexceptional m, MonadError (OneOf e) m,
-   Member NonIOException e, Member IOException e,
-   MonadReader r m, HasCacheAcid r, HasFileCacheTop r)
+  (MakeByteString x, MonadFileCache r e m)
   => Maybe FileSource
   -> x
   -> m (Either FileError (ImageKey, ImageFile))
 cacheOriginalImage' source x =
-  runOneOf @(FileError ': e) (cacheOriginalImage source x)
+  tryMember @FileError (cacheOriginalImage source x)
 
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
 cacheOriginalImage ::
   forall x e r m.
-  (MakeByteString x, Unexceptional m, {-HasImageShapeM m ByteString,-}
-   MonadError (OneOf e) m, Member FileError e, Member NonIOException e, Member IOException e,
-   MonadReader r m, HasFileCacheTop r, HasCacheAcid r, HasCallStack)
+  (MakeByteString x, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource
   -> x
   -> m (ImageKey, ImageFile)
@@ -92,9 +80,7 @@ cacheOriginalImage source x = do
 
 buildOriginalImage ::
   forall x r e m.
-  (MakeByteString x, Unexceptional m, {-HasImageShapeM m ByteString,-}
-   MonadError (OneOf e) m, Member FileError e, Member NonIOException e, Member IOException e,
-   MonadReader r m, HasFileCacheTop r)
+  (MakeByteString x, MonadFileCache r e m)
   => Maybe FileSource
   -> x
   -> m ImageReady

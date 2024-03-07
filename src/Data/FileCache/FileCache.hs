@@ -5,15 +5,13 @@ module Data.FileCache.FileCache
   ( HasImageFilePath(toFilePath)
   , fileCachePath
   , fileCachePathIO
-  , FileCacheT
-  , runFileCacheT, evalFileCacheT, execFileCacheT
+  -- , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
   , cacheLook, cacheDelete, cacheMap
   , cachePut, cachePut_
   ) where
 
-import Control.Exception ( IOException )
-import Control.Lens ( _1, _2, view )
-import Control.Monad.RWS ( RWST(runRWST) )
+-- import Control.Lens ( _1, _2, view )
+-- import Control.Monad.RWS ( RWST(runRWST) )
 import Control.Monad.Reader ( MonadReader(ask) )
 import Data.Acid ( query, update, AcidState )
 import Data.FileCache.FileCacheTop
@@ -23,14 +21,12 @@ import Data.FileCache.File
 import Data.FileCache.FileError
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
-import Data.FileCache.ImageShape
 import Data.Monoid ( (<>) )
 import Data.Proxy ( Proxy )
 import Data.Set as Set ( Set )
 import Data.Text as T ( unpack )
-import SeeReason.Errors (Member, OneOf)
-import SeeReason.UIO (liftUIO, NonIOException, Unexceptional )
-import Extra.Except ( MonadError )
+import GHC.Stack (callStack, HasCallStack)
+import SeeReason.UIO (liftUIO)
 import System.Directory ( createDirectoryIfMissing )
 import System.FilePath ( (</>), makeRelative, takeDirectory )
 import Web.Routes ( toPathInfo )
@@ -66,15 +62,19 @@ instance HasImageFilePath ImageKey where
   toFilePath key = toFilePath (ImagePath key)
 
 -- | The full path name for the local cache of the file.
-fileCachePath :: (HasImageFilePath a, MonadReader r m, HasFileCacheTop r) => a -> m FilePath
+fileCachePath ::
+  (HasImageFilePath a, MonadReader r m, HasFileCacheTop r, HasCallStack)
+  => a -> m FilePath
 fileCachePath file = do
   (FileCacheTop top) <- fileCacheTop <$> ask
   let path = toFilePath file
   return $ top </> makeRelative "/" path
+  where _ = callStack
 
 -- | Create any missing directories and evaluate 'fileCachePath'
-fileCachePathIO :: (HasImageFilePath a, MonadReader r m, HasFileCacheTop r, Unexceptional m,
-                    Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => a -> m FilePath
+fileCachePathIO ::
+  (MonadFileCache r e m, HasImageFilePath a, HasCallStack)
+  => a -> m FilePath
 fileCachePathIO file = do
   path <- fileCachePath file
   let dir = takeDirectory path
@@ -83,22 +83,25 @@ fileCachePathIO file = do
 
 -- * FileCacheT
 
+#if 0
 type FileCacheT r s m = RWST r () s m
 
-runFileCacheT :: {-(HasFileCacheTop r, HasCacheAcid r) =>-} r -> s -> FileCacheT r s m a -> m (a, s, ())
+runFileCacheT :: r -> s -> FileCacheT r s m a -> m (a, s, ())
 runFileCacheT r s0 action = runRWST action r s0
 
-evalFileCacheT :: {-(HasFileCacheTop r, HasCacheAcid r) =>-} Functor m => r -> s -> FileCacheT r s m a -> m a
+evalFileCacheT :: Functor m => r -> s -> FileCacheT r s m a -> m a
 evalFileCacheT r s0 action = view _1 <$> runFileCacheT r s0 action
-execFileCacheT :: {-(HasFileCacheTop r, HasCacheAcid r) =>-} Functor m => r -> s -> FileCacheT r s m a-> m s
+execFileCacheT :: Functor m => r -> s -> FileCacheT r s m a-> m s
 execFileCacheT r s0 action = view _2 <$> runFileCacheT r s0 action
+#endif
 
-askCacheAcid :: (MonadReader r m, HasCacheAcid r) => m CacheAcid
+askCacheAcid :: (MonadReader r m, HasCacheAcid r, HasCallStack) => m CacheAcid
 askCacheAcid = cacheAcid <$> ask
+  where _ = callStack
 
 -- | insert a (key, value) pair into the cache
 cachePut ::
-  forall r e m. (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e, MonadReader r m, HasCacheAcid r)
+  forall r e m. (MonadFileCache r e m, HasCallStack)
   => ImageKey -> Either FileError ImageFile -> m (Either FileError ImageFile)
 cachePut key val = do
   st <- askCacheAcid
@@ -107,7 +110,7 @@ cachePut key val = do
 
 -- | insert a (key, value) pair into the cache, discard result.
 cachePut_ ::
-  (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e,MonadReader r m, HasCacheAcid r)
+  (MonadFileCache r e m, HasCallStack)
   => ImageKey -> Either FileError ImageFile -> m ()
 cachePut_ key val = do
   st <- askCacheAcid
@@ -115,21 +118,22 @@ cachePut_ key val = do
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
-  forall e r m. (Unexceptional m, MonadError (OneOf e) m, Member NonIOException e, Member IOException e, MonadReader r m, HasCacheAcid r)
+  forall e r m. (MonadFileCache r e m, HasCallStack)
   => ImageKey -> m (Maybe (Either FileError ImageFile))
 cacheLook key = do
   st <- askCacheAcid
   {-either (Just . Left) (fmap id) <$>-}
   liftUIO $ query st (LookValue key)
 
-cacheMap :: (FileCacheErrors e m, MonadReader r m, HasCacheAcid r) => m CacheMap
+cacheMap :: (MonadFileCache r e m, HasCallStack) => m CacheMap
 cacheMap = do
   st <- askCacheAcid
   liftUIO (query st LookMap)
 
 cacheDelete ::
-  forall e r m. (FileCacheErrors e m, MonadReader r m, HasCacheAcid r)
+  forall e r m. (MonadFileCache r e m, HasCallStack)
   => Proxy ImageFile -> Set ImageKey -> m ()
 cacheDelete _ keys = do
   (st :: AcidState CacheMap) <- cacheAcid <$> ask
   liftUIO (update st (DeleteValues keys))
+  where _ = callStack

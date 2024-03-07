@@ -13,20 +13,30 @@ module Data.FileCache
   , module Data.FileCache.ImageFile
   , module Data.FileCache.ImageKey
   , module Data.FileCache.ImageRect
-  , module Data.FileCache.ImageShape
   , module Data.FileCache.ImageSize
   , module Data.FileCache.Rational
   ) where
 
-import Data.FileCache.CacheMap
-import Data.FileCache.CommandError
-import Data.FileCache.File
-import Data.FileCache.FileError
-import Data.FileCache.Happstack
-import Data.FileCache.ImageCrop
-import Data.FileCache.ImageFile
+import Data.FileCache.CacheMap (ImageCached(..), CacheMap(..))
+import Data.FileCache.CommandError (CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError))
+import Data.FileCache.File (File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension))
+import Data.FileCache.FileError (FileError(..), CommandError, HasFileError(fileError), MyMonadIO, MyIOErrors, MonadFileIO, E, runFileIOT)
+import Data.FileCache.Happstack (ContentType(..))
+import Data.FileCache.ImageCrop (ImageCrop(..), Rotation(..))
+import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)
 import Data.FileCache.ImageKey
+  (ImageKey(..), HasImageKey(imageKey), OriginalKey(originalKey), UprightKey(uprightKey), EditedKey(editedKey), ScaledKey(scaledKey),
+   ImagePath(ImagePath, _imagePathKey), HasImagePath(imagePath), shapeFromKey,
+   ImageType(..), HasImageType(imageType), supportedImageTypes, supportedMimeTypes,
+   ImageShape(..), HasImageShapeM(imageShapeM), HasImageShape, imageShape, HasOriginalShape(originalShape),
+   scaleFromDPI, ImageStats(..))
 import Data.FileCache.ImageRect
-import Data.FileCache.ImageShape
+  (ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation), makeImageRect,
+   imageAspect, HasImageRect(imageRect), widthInInches, widthInInches', heightInInches,
+   scaleImageRect, scaleFromDPI, cropImageRect, uprightImageRect)
 import Data.FileCache.ImageSize
+  (ImageSize(..), HasImageSize(imageSize), Dimension(..), Units(..),
+   saneSize, SaneSize(..), defaultSize, inches)
 import Data.FileCache.Rational
+  ((%), fromRat, -- re-exports
+   approx, rationalIso, rationalPrism, readRationalMaybe, showRational, rsqrt)
