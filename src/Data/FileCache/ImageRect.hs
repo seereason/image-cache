@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards, TemplateHaskell #-}
+{-# LANGUAGE NoOverloadedLists #-}
 
 module Data.FileCache.ImageRect
   ( ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation)
