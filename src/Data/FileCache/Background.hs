@@ -26,7 +26,7 @@ import Data.FileCache.ImageKey
 import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( length, show )
 import Data.Map.Strict as Map ( filter, fromList, keysSet, Map, size )
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isJust, mapMaybe)
 import Data.Monoid ( (<>) )
 import Data.Set as Set (Set, toList)
 import GHC.Stack (HasCallStack)
@@ -62,7 +62,7 @@ cacheDerivedImagesBackground flags keys =
   backgroundBuilds >>= pure . Map.fromList
 
 backgroundBuilds ::
-  (MonadFileCache r e m, HasImageBuilder r)
+  (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
   => [(ImageKey, Either FileError ImageFile)]
   -> m [(ImageKey, Either FileError ImageFile)]
 backgroundBuilds pairs =
@@ -159,13 +159,12 @@ testImageKeys ks = do
     alog DEBUG ("#ready=" <> show (_ready stats))
     alog DEBUG ("#unready image shapes: " <> show (_shapes stats))
     alog DEBUG ("#errors=" <> show (_errors stats))
-  case _shapes stats + _errors stats > 20 of
-    True -> do
+  view (to imageBuilder) >>= \case
+    Just _ | _shapes stats + _errors stats > 20 -> do
       unsafeFromIO $ alog DEBUG ("cacheDerivedImagesBackground " <> show needed)
       cacheDerivedImagesBackground mempty (Set.toList needed)
       throwMember stats
-    False -> do
+    otherwise -> do
       _ <- getImageFiles mempty needed
       unsafeFromIO $ alog DEBUG ("getImageFiles " <> show needed)
       pure ()
-

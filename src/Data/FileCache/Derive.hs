@@ -152,10 +152,10 @@ buildImageShape key0 =
     originalShape key@(ImageOriginal csum typ) =
       cacheLook (originalKey key) >>=
       maybe
-        (do unsafeFromIO $ alog ALERT ("Missing original: " <> show key)
+        (do unsafeFromIO $ alog ALERT ("Missing original: " <> show (originalKey key))
             path <- fileCachePath (csum, typ)
             (_key, file) <- cacheOriginalImage (Just (ThePath path)) path
-            unsafeFromIO $ alog ALERT ("Missing original found: " <> show (key, file))
+            unsafeFromIO $ alog ALERT ("Missing original found: " <> show path)
             pure $ fileShape file)
         (either throwMember (pure . fileShape))
     originalShape key = originalShape (originalKey key)
