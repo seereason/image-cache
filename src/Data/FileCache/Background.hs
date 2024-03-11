@@ -21,7 +21,7 @@ import Control.Monad.Reader (MonadReader(ask), runReaderT)
 import Control.Monad.Except (runExceptT)
 import Data.FileCache.FileCacheTop
 import Data.FileCache.Derive (CacheFlag, cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
-import Data.FileCache.FileError (FileError, MonadFileIO)
+import Data.FileCache.FileError (FileError)
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
 import Data.Generics.Sum (_Ctor)
@@ -48,9 +48,10 @@ instance HasSomeNonPseudoException ReportError where
 -}
 
 type ImageChan = Chan [(ImageKey, ImageShape)]
-class HasImageBuilder a where imageBuilder :: a -> Maybe ImageChan
-instance HasImageBuilder ImageChan where imageBuilder = Just
-instance HasImageBuilder (a, b, ImageChan) where imageBuilder = Just . view _3
+class HasImageBuilder a where
+  imageBuilder :: a -> Maybe (ImageChan, (ThreadId, IO (Result ())))
+instance HasImageBuilder (ImageChan, (ThreadId, IO (Result ()))) where imageBuilder = Just
+instance HasImageBuilder (a, b, (ImageChan, (ThreadId, IO (Result ())))) where imageBuilder = Just . view _3
 instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
 cacheDerivedImagesBackground ::
@@ -81,7 +82,7 @@ queueImageBuild pairs = do
   -- Write empty files into cache
   -- mapM (runExceptT . fileCachePathIO) pairs >>= mapM_ (either (throwError . review fileError) (liftUIO . flip writeFile mempty))
   unsafeFromIO $ alog DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
-  chan <- maybe (error "Chan Is Missing") pure =<< (imageBuilder <$> ask)
+  (chan, _) <- maybe (error "Chan Is Missing") pure =<< (imageBuilder <$> ask)
   liftUIO (writeChan chan pairs)
   unsafeFromIO $ alog DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
@@ -91,17 +92,16 @@ type E = '[FileError, IOException, NonIOException]
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startImageBuilder ::
-  forall r e m.
-  (MonadFileIO e m,
-   HasCacheAcid r,
+  forall r.
+  (HasCacheAcid r,
    HasFileCacheTop r,
    HasCallStack)
   => r
-  -> m (ImageChan, (ThreadId, IO (Result ())))
+  -> IO (ImageChan, (ThreadId, IO (Result ())))
 startImageBuilder r = do
-  (chan :: ImageChan) <- liftUIO newChan
-  unsafeFromIO $ alog DEBUG "Starting background image builder"
-  (,) <$> pure chan <*> liftUIO (forkIO (task chan))
+  (chan :: ImageChan) <- newChan
+  alog DEBUG "Starting background image builder"
+  (,) <$> pure chan <*> forkIO (task chan)
   where
     task :: ImageChan -> IO ()
     task chan = forever $
