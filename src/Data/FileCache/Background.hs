@@ -11,8 +11,9 @@ module Data.FileCache.Background
   , testImageKeys
   ) where
 
-import Control.Concurrent (ThreadId{-, threadDelay-}, newChan, readChan, writeChan)
+import Control.Concurrent as IO (ThreadId{-, threadDelay-}, newChan, readChan, writeChan)
 import Control.Concurrent.Chan (Chan)
+import Control.Concurrent.Thread (forkIO, Result)
 import Control.Exception (IOException)
 import Control.Lens
 import Control.Monad (forever, when)
@@ -26,7 +27,7 @@ import Data.FileCache.ImageKey
 import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( length, show )
 import Data.Map.Strict as Map ( filter, fromList, keysSet, Map, size )
-import Data.Maybe (isJust, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
 import Data.Set as Set (Set, toList)
 import GHC.Stack (HasCallStack)
@@ -36,7 +37,7 @@ import SeeReason.LogServer (alog)
 import SeeReason.Errors (Member, OneOf, throwMember)
 import SeeReason.UIO (liftUIO, NonIOException)
 import System.Log.Logger (Priority(..))
-import UnexceptionalIO.Trans (fork, UIO, unsafeFromIO)
+import UnexceptionalIO.Trans as UIO (unsafeFromIO)
 
 {-
 class HasSomeNonPseudoException e where
@@ -96,34 +97,32 @@ startImageBuilder ::
    HasFileCacheTop r,
    HasCallStack)
   => r
-  -> m (ImageChan, ThreadId)
+  -> m (ImageChan, (ThreadId, IO (Result ())))
 startImageBuilder r = do
   (chan :: ImageChan) <- liftUIO newChan
   unsafeFromIO $ alog DEBUG "Starting background image builder"
-  (,) <$> pure chan <*> fork (task chan)
+  (,) <$> pure chan <*> liftUIO (forkIO (task chan))
   where
-    task :: ImageChan -> UIO ()
+    task :: ImageChan -> IO ()
     task chan = forever $
-      runExceptT @(OneOf E) (liftUIO (readChan chan)) >>= \case
-        Left e -> unsafeFromIO $ alog ERROR ("Image Builder error: " <> show e)
-        Right pairs -> doImages r pairs
+      readChan chan >>= doImages r
 
 -- | This is the background task.
 doImages ::
   forall r. (HasCacheAcid r, HasFileCacheTop r, HasCallStack)
   => r
   -> [(ImageKey, ImageShape)]
-  -> UIO ()
+  -> IO ()
 doImages r pairs = do
-  when (length pairs > 0) $ unsafeFromIO $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
+  when (length pairs > 0) $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
   -- the threadDelay is to test the behavior of the server for lengthy image builds
   files <- mapM doShape pairs
   mapM_ doFile (zip pairs files)
   where
-    doShape :: (ImageKey, ImageShape) -> UIO (Either (OneOf E) (Either FileError ImageFile))
+    doShape :: (ImageKey, ImageShape) -> IO (Either (OneOf E) (Either FileError ImageFile))
     doShape (key, shape) = runExceptT (runReaderT (cacheImageFile key shape {- >> unsafeFromIO (threadDelay 5000000)-}) r)
 
-    doFile :: ((ImageKey, ImageShape), Either (OneOf E) (Either FileError ImageFile)) -> UIO ()
+    doFile :: ((ImageKey, ImageShape), Either (OneOf E) (Either FileError ImageFile)) -> IO ()
     doFile ((key, _shape), Left e) = unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
     doFile ((key, _shape), Right (Left e)) = unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
     doFile ((key, _shape), Right (Right _file)) = unsafeFromIO (alog ERROR ("doImages - completed " <> show key))
@@ -164,7 +163,7 @@ testImageKeys ks = do
       unsafeFromIO $ alog DEBUG ("cacheDerivedImagesBackground " <> show needed)
       cacheDerivedImagesBackground mempty (Set.toList needed)
       throwMember stats
-    otherwise -> do
+    _ -> do
       _ <- getImageFiles mempty needed
       unsafeFromIO $ alog DEBUG ("getImageFiles " <> show needed)
       pure ()

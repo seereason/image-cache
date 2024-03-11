@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.27
+Version:        0.28
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -70,6 +70,7 @@ Library
     text,
     th-lift,
     th-orphans >= 0.9,
+    threads,
     transformers,
     unix,
     unexceptionalio-trans,

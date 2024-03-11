@@ -11,12 +11,12 @@ let
       , parsec, pretty, process, process-extras, pureMD5, QuickCheck
       , regex-compat-tdfa, regex-tdfa, safecopy, sr-errors, sr-log
       , sr-utils, stdenv, syb, template-haskell, temporary, text, th-lift
-      , th-orphans, transformers, unexceptionalio-trans, unix, Unixutils
-      , utf8-string, web-routes, web-routes-th
+      , th-orphans, threads, transformers, unexceptionalio-trans, unix
+      , Unixutils, utf8-string, web-routes, web-routes-th
       }:
       mkDerivation {
         pname = "image-cache";
-        version = "0.22.2";
+        version = "0.27";
         src = ./.;
         libraryHaskellDepends = [
           acid-state base binary bytestring cereal containers data-default
@@ -24,16 +24,15 @@ let
           generic-lens hslogger HUnit JuicyPixels lens lens-path ListLike mtl
           network-uri parsec pretty process process-extras pureMD5 QuickCheck
           regex-compat-tdfa regex-tdfa safecopy sr-errors sr-log sr-utils syb
-          template-haskell temporary text th-lift th-orphans transformers
-          unexceptionalio-trans unix Unixutils utf8-string web-routes
-          web-routes-th
+          template-haskell temporary text th-lift th-orphans threads
+          transformers unexceptionalio-trans unix Unixutils utf8-string
+          web-routes web-routes-th
         ];
         libraryToolDepends = [ fbida ];
         homepage = "http://src.seereason.com/image-cache";
         description = "Support for image file processing and caching";
         license = stdenv.lib.licenses.unfree;
         hydraPlatforms = stdenv.lib.platforms.none;
-        buildInputs = [ netpbm libheif libjpeg ]; # not sure this is right -- cb
       };
 
   haskellPackages = if compiler == "default"
