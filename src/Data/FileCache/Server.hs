@@ -29,7 +29,7 @@ import Data.FileCache.Acid
   , Dequeue(..)
   , Complete(..))
 import Data.FileCache.FileCache
-  ( HasImageFilePath(toFilePath)
+  ( HasFilePath(toFilePath)
   , fileCachePath
   , fileCachePathIO
   -- , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
@@ -59,6 +59,6 @@ import Data.FileCache.Process
   , pipeline )
 import Data.FileCache.Test
 import Data.FileCache.Upload
-  ( cacheOriginalImage
-  , cacheOriginalImage'
-  , cacheOriginalImages )
+  ( cacheOriginalFile
+  , cacheOriginalFile'
+  , cacheOriginalFiles )

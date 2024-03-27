@@ -12,7 +12,7 @@ import Data.ByteString.Lazy as BS ( ByteString, toStrict )
 import Data.FileCache.FileError (MonadFileIO, FileError(NoShapeFromPath))
 import Data.FileCache.ImageCrop (Rotation(..))
 import Data.FileCache.ImageRect (makeImageRect)
-import Data.FileCache.ImageShape (HasImageShapeM(..), ImageShape(..), ImageType(..))
+import Data.FileCache.ImageShape (HasImageShapeM(..), ImageShape(..), FileType(..))
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, listToMaybe )
 import Data.Text ( Text )
@@ -31,7 +31,7 @@ instance MonadFileIO e m => HasImageShapeM m BS.ByteString where
 instance MonadFileIO e m => HasImageShapeM m (FilePath, BS.ByteString) where
   imageShapeM (path, input) = fileInfoFromPath (path, input)
 
--- | Helper function to learn the 'ImageType' of a file by running
+-- | Helper function to learn the 'FileType' of a file by running
 -- @file -b@.
 fileInfoFromBytes :: forall e m. (MonadFileIO e m) => BS.ByteString -> m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath ("-", bytes)
@@ -72,7 +72,7 @@ fileInfoFromOutput path output = do
 
 data ImageAttribute = Shape (Int, Int) | Orientation Rotation deriving Show
 
-pFileOutput :: Parser (ImageType, [ImageAttribute])
+pFileOutput :: Parser (FileType, [ImageAttribute])
 pFileOutput =
   (,) <$> choice [pPPM, pJPEG, pPNG, pGIF, pPDF]
       <*> (catMaybes <$> (sepBy (Parsec.try pShape <|> pOrientation <|> pNotAShape) pSep))
@@ -109,22 +109,22 @@ pNotAShape = many (noneOf [',']) >> pure Nothing
 pBy :: Parser ()
 pBy = spaces >> char 'x' >> spaces >> pure ()
 
-pJPEG :: Parser ImageType
+pJPEG :: Parser FileType
 pJPEG = Parsec.try (string "JPEG image data" >> pSep >> return JPEG)
-pPNG :: Parser ImageType
+pPNG :: Parser FileType
 pPNG = Parsec.try (string "PNG image data" >> pSep >> return PNG)
-pGIF :: Parser ImageType
+pGIF :: Parser FileType
 pGIF = Parsec.try (string "GIF image data" >> pSep >> return GIF)
-pPPM :: Parser ImageType
+pPPM :: Parser FileType
 pPPM = Parsec.try (string "Netpbm P[BGPP]M \"rawbits\" image data$" >> pSep >> return PPM)
-pPDF :: Parser ImageType
+pPDF :: Parser FileType
 pPDF = Parsec.try (string "PDF document" >> pSep >> return PDF)
 #if 0
 pICON = string "MS Windows icon resource" >> many anyChar >> return ???
 #endif
 
 #if 0
-tests :: [Either ParseError (ImageType, [(Int, Int)])]
+tests :: [Either ParseError (FileType, [(Int, Int)])]
 tests = fmap (parse pFileOutput "<text>")
   [ "JPEG image data, JFIF standard 1.02, aspect ratio, density 100x100, segment length 16, baseline, precision 8, 2861x2055, frames 3",
     "JPEG image data, Exif standard: [TIFF image data, big-endian, direntries=6, manufacturer=Apple, model=iPhone, orientation=upper-right, resolutionunit=2, datetime=2007:11:22 15:29:35], baseline, precision 8, 1600x1200, frames 3",

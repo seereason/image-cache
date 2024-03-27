@@ -23,7 +23,7 @@ import Data.FileCache.File (File, HasFileExtension(..))
 import Data.FileCache.ImageKey ( ScaledKey(..), EditedKey(..), UprightKey(..), OriginalKey(..),
                                  ImageKey(ImageUpright, ImageScaled), shapeFromKey )
 import Data.FileCache.ImageRect (HasImageRect(imageRect))
-import Data.FileCache.ImageShape (imageShape, HasImageType(..), HasImageShapeM(..), ImageShape(_imageShapeRect))
+import Data.FileCache.ImageShape (imageShape, HasFileType(..), HasImageShapeM(..), ImageShape(_imageShapeRect))
 import Data.FileCache.ImageSize ( HasImageSize(imageSize), ImageSize, SaneSize(SaneSize) )
 import Data.FileCache.Happstack ()
 import Data.Monoid ( (<>) )
@@ -53,7 +53,7 @@ instance Serialize ImageFile where get = safeGet; put = safePut
 instance Pretty ImageFile where
   pPrint (ImageFileShape s) = text "ImageFileShape (" <> pPrint s <> text ")"
   pPrint (ImageFileReady f) = text "ImageFileReady (" <> pPrint f <> text ")"
-instance HasImageType ImageFile where
+instance HasFileType ImageFile where
   imageType (ImageFileReady f) = imageType f
   imageType (ImageFileShape s) = imageType s
 instance View (Maybe ImageFile) where
@@ -89,7 +89,7 @@ instance HasFileExtension ImageReady where
 instance Serialize ImageReady where get = safeGet; put = safePut
 instance Pretty ImageReady where
   pPrint (ImageReady f s) = text "ImageReady (" <> pPrint f <> text ") (" <> pPrint s <> text ")"
-instance HasImageType ImageReady where
+instance HasFileType ImageReady where
   imageType = imageType . _imageShape
 instance OriginalKey ImageReady where
   originalKey i = originalKey (_imageFile i, _imageShape i)

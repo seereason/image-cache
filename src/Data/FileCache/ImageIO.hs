@@ -26,7 +26,7 @@ import Data.FileCache.CommandError ( CommandInfo(..) )
 import Data.FileCache.FileError (FileError(..))
 import Data.FileCache.ImageCrop ( ImageCrop(..), Rotation(..) )
 import Data.FileCache.ImageRect (ImageRect (_imageRectWidth, _imageRectHeight))
-import Data.FileCache.ImageShape ( ImageShape(..), ImageType(..) )
+import Data.FileCache.ImageShape ( ImageShape(..), FileType(..) )
 import Data.FileCache.LogException ( logException )
 import Data.FileCache.Pipify ( heifConvert )
 import Data.FileCache.Process ( readCreateProcessWithExitCode', pipeline )
@@ -282,7 +282,7 @@ scaleImage' ::
   (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
   => Double
   -> BS.ByteString
-  -> ImageType
+  -> FileType
   -> m (Maybe BS.ByteString)
 scaleImage' sc _ _ | approx (toRational sc) == 1 = return Nothing
 scaleImage' _ _ PDF = throwMember $ CannotScale PDF
@@ -318,7 +318,7 @@ logIOError' io =
 
 editImage' ::
     forall e m. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
-    => ImageCrop -> BS.ByteString -> ImageType -> ImageShape -> m (Maybe BS.ByteString)
+    => ImageCrop -> BS.ByteString -> FileType -> ImageShape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' crop bs typ ImageShape{_imageShapeRect = Just rect} =
   logIOError' $
@@ -349,7 +349,7 @@ editImage' crop bs typ ImageShape{_imageShapeRect = Just rect} =
                  NineHr -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
                  ZeroHr -> Nothing
       -- ImageShape {_imageShapeWidth = w, _imageShapeHeight = h} = imageShape shape
-      buildPipeline :: ImageType -> [Maybe (ImageType, CreateProcess, ImageType)] -> ImageType -> [CreateProcess]
+      buildPipeline :: FileType -> [Maybe (FileType, CreateProcess, FileType)] -> FileType -> [CreateProcess]
       buildPipeline start [] end = convert start end
       buildPipeline start (Nothing : ops) end = buildPipeline start ops end
       buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end

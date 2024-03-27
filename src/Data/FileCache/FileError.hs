@@ -30,7 +30,7 @@ import Control.Monad.State (StateT)
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.ImageFile (ImageReady)
 import Data.FileCache.ImageKey (ImageKey)
-import Data.FileCache.ImageShape (ImageType)
+import Data.FileCache.ImageShape (FileType)
 import Data.SafeCopy ( base, extension, Migrate(..), safeGet, safePut, SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
@@ -116,8 +116,8 @@ data FileError
       -- from failed attempt to parse the output of the unix file(1)
       -- command, or attempts to scale or edit inappropriate file
       -- types such as pdf.
-    | CannotScale ImageType
-    | CannotCrop ImageType
+    | CannotScale FileType
+    | CannotCrop FileType
     deriving (Eq, Ord, Generic)
 
 -- Dubious instance, but omitting makes other things more dubious.

@@ -2,7 +2,7 @@
 {-# OPTIONS -ddump-minimal-imports #-}
 
 module Data.FileCache.FileCache
-  ( HasImageFilePath(toFilePath)
+  ( HasFilePath(toFilePath)
   , fileCachePath
   , fileCachePathIO
   -- , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
@@ -35,16 +35,16 @@ import Web.Routes ( toPathInfo )
 
 -- | The common suffix of the path to the image URI and its server
 -- FilePath.
-class HasImageFilePath a where
+class HasFilePath a where
   toFilePath :: a -> FilePath
   toURIDir :: a -> FilePath
 
-instance HasImageFilePath (Checksum, ImageType) where
+instance HasFilePath (Checksum, FileType) where
   toURIDir (csum, _typ) = take 2 $ unpack csum
   toFilePath p@(csum, typ) =
      toURIDir p </> unpack (csum <> fileExtension typ)
 
-instance HasImageFilePath ImagePath where
+instance HasFilePath ImagePath where
   toURIDir (ImagePath (ImageOriginal csum typ)) = toURIDir (csum, typ)
   toURIDir (ImagePath (ImageUpright key)) = toURIDir (ImagePath key)
   toURIDir (ImagePath (ImageScaled _ _ key)) = toURIDir (ImagePath key)
@@ -53,17 +53,17 @@ instance HasImageFilePath ImagePath where
   toFilePath (ImagePath (ImageOriginal csum typ)) = toFilePath (csum, typ)
   toFilePath p = toURIDir p </> makeRelative "/" (unpack (toPathInfo p))
 
-instance HasImageFilePath ImageCached where
+instance HasFilePath ImageCached where
   toURIDir c = toURIDir (imagePath c)
   toFilePath c@(ImageCached _ _) = toFilePath (imagePath c)
 
-instance HasImageFilePath ImageKey where
+instance HasFilePath ImageKey where
   toURIDir key = toURIDir (ImagePath key)
   toFilePath key = toFilePath (ImagePath key)
 
 -- | The full path name for the local cache of the file.
 fileCachePath ::
-  (HasImageFilePath a, MonadReader r m, HasFileCacheTop r, HasCallStack)
+  (HasFilePath a, MonadReader r m, HasFileCacheTop r, HasCallStack)
   => a -> m FilePath
 fileCachePath file = do
   (FileCacheTop top) <- fileCacheTop <$> ask
@@ -73,7 +73,7 @@ fileCachePath file = do
 
 -- | Create any missing directories and evaluate 'fileCachePath'
 fileCachePathIO ::
-  (MonadFileCache r e m, HasImageFilePath a, HasCallStack)
+  (MonadFileCache r e m, HasFilePath a, HasCallStack)
   => a -> m FilePath
 fileCachePathIO file = do
   path <- fileCachePath file

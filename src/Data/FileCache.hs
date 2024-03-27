@@ -27,7 +27,7 @@ import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)
 import Data.FileCache.ImageKey
   (ImageKey(..), HasImageKey(imageKey), OriginalKey(originalKey), UprightKey(uprightKey), EditedKey(editedKey), ScaledKey(scaledKey),
    ImagePath(ImagePath, _imagePathKey), HasImagePath(imagePath), shapeFromKey,
-   ImageType(..), HasImageType(imageType), supportedImageTypes, supportedMimeTypes,
+   FileType(..), HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
    ImageShape(..), HasImageShapeM(imageShapeM), HasImageShape, imageShape, HasOriginalShape(originalShape),
    scaleFromDPI, ImageStats(..))
 import Data.FileCache.ImageRect

@@ -21,7 +21,7 @@ import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
-import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasImageFilePath(..) )
+import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath(..) )
 import Data.FileCache.FileCacheTop ( MonadFileCache )
 import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
@@ -31,10 +31,10 @@ import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByte
 import Data.FileCache.ImageKey ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey )
 import Data.FileCache.ImageRect (HasImageRect(imageRect))
 import Data.FileCache.ImageShape
-  ( HasImageType(imageType), ImageType, imageShape, scaleFromDPI, HasImageShapeM(imageShapeM),
+  ( HasFileType(imageType), FileType, imageShape, scaleFromDPI, HasImageShapeM(imageShapeM),
     ImageShape(_imageShapeType) )
 import Data.FileCache.Rational (fromRat)
-import Data.FileCache.Upload ( cacheOriginalImage )
+import Data.FileCache.Upload ( cacheOriginalFile )
 import Data.ListLike ( ListLike(length) )
 import Data.Map.Strict as Map ( Map, fromSet, mapWithKey )
 import Data.Monoid ( (<>) )
@@ -154,7 +154,7 @@ buildImageShape key0 =
       maybe
         (do unsafeFromIO $ alog ALERT ("Missing original: " <> show (originalKey key))
             path <- fileCachePath (csum, typ)
-            (_key, file) <- cacheOriginalImage (Just (ThePath path)) path
+            (_key, file) <- cacheOriginalFile (Just (ThePath path)) path
             unsafeFromIO $ alog ALERT ("Missing original found: " <> show path)
             pure $ fileShape file)
         (either throwMember (pure . fileShape))
@@ -265,7 +265,7 @@ buildImageBytes source key@(ImageCropped crop key') = do
 
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
-  forall r e m a. (MonadFileCache r e m, HasImageFilePath a, HasCallStack)
+  forall r e m a. (MonadFileCache r e m, HasFilePath a, HasCallStack)
   => a -> m BS.ByteString
 lookImageBytes a = fileCachePath a >>= liftUIO . BS.readFile
   where _ = callStack
@@ -274,14 +274,14 @@ lookImageBytes a = fileCachePath a >>= liftUIO . BS.readFile
 -- now?  Be careful not to get into a loop doing this.
 rebuildImageBytes ::
   forall e r m. (MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> ImageType -> FileError -> m BS.ByteString
+  => Maybe FileSource -> ImageKey -> FileType -> FileError -> m BS.ByteString
 rebuildImageBytes source key _typ e | retry e = do
   unsafeFromIO (alog ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")"))
   path <- fileCachePath (ImagePath key)
   -- This and other operations like it may throw an
   -- IOException - I need LyftIO to make sure this is caught.
   bs <- liftUIO (BS.readFile path)
-  _cached <- cacheOriginalImage source bs
+  _cached <- cacheOriginalFile source bs
   return bs
     where
       retry (MissingOriginalEntry _) = True -- transient I think
@@ -297,7 +297,7 @@ rebuildImageBytes _ key _typ e = do
 -- its checksum.
 buildImageBytesFromFile ::
   forall r e m. (MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> Text -> ImageType -> m BS.ByteString
+  => Maybe FileSource -> ImageKey -> Text -> FileType -> m BS.ByteString
 buildImageBytesFromFile source key csum _typ = do
   -- If we get a cache miss for an ImageOriginal key something
   -- has gone wrong.  Try to rebuild from the file if it exists.
@@ -319,7 +319,7 @@ buildImageBytesFromFile source key csum _typ = do
           throwMember e
         True -> do
           unsafeFromIO (alog ALERT ("recaching " ++ show key))
-          _cached <- cacheOriginalImage source bs
+          _cached <- cacheOriginalFile source bs
           return bs
 
 -- | See if images are already in the cache

@@ -13,7 +13,7 @@ import qualified Data.ByteString.Lazy as BS ( ByteString, empty, readFile )
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached, _imageCachedFile, _imageCachedKey) )
 import Data.FileCache.File
-import Data.FileCache.FileCache ( HasImageFilePath, fileCachePath, cacheLook )
+import Data.FileCache.FileCache ( HasFilePath, fileCachePath, cacheLook )
 import Data.FileCache.FileCacheTop (MonadFileCache)
 import Data.FileCache.FileError
 import Data.FileCache.FileInfo ()
@@ -73,9 +73,9 @@ splits :: ([a] -> ([a], [a])) -> [a] -> [[a]]
 splits _ [] = []
 splits f xs = let (lhs, rhs) = f xs in (lhs : splits f rhs)
 
--- | The migration of 'ImageKey' sets the 'ImageType' field to
+-- | The migration of 'ImageKey' sets the 'FileType' field to
 -- 'Unknown' everywhere, this looks at the pairs in the cache map and
--- copies the 'ImageType' of the 'ImageFile' into the keys.  We can't
+-- copies the 'FileType' of the 'ImageFile' into the keys.  We can't
 -- do this in the CacheMap migration above because the types are too
 -- specific.  But this should be removed when 'ImageKey' version 2 is
 -- removed.
@@ -108,7 +108,7 @@ fixImageCached x = return x
 
 -- Actually we just compute it from scratch
 fixImageShape ::
-  forall e r m a. (MonadFileCache r e m, HasImageFilePath a)
+  forall e r m a. (MonadFileCache r e m, HasFilePath a)
   => a -> m ImageShape
 fixImageShape a = fileCachePath a >>= imageShapeM . (, BS.empty)
 
@@ -152,7 +152,7 @@ instance Arbitrary ImageSize where
 instance Arbitrary ImageCrop where
   arbitrary = ImageCrop <$> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> arbitrary
 
-instance Arbitrary ImageType where
+instance Arbitrary FileType where
   arbitrary = oneof [pure PPM, pure JPEG, pure GIF, pure PNG, pure PDF, pure Unknown]
 
 instance Arbitrary Dimension where arbitrary = elements [minBound..maxBound]

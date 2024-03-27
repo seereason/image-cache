@@ -4,9 +4,9 @@
 
 module Data.FileCache.Upload
   ( -- * Create original and derived images
-    cacheOriginalImage
-  , cacheOriginalImage'
-  , cacheOriginalImages
+    cacheOriginalFile
+  , cacheOriginalFile'
+  , cacheOriginalFiles
   ) where
 
 import Control.Monad ( unless )
@@ -22,7 +22,7 @@ import Data.FileCache.FileInfo ({-instances-} fileInfoFromPath)
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageIO ( MakeByteString(..) )
 import Data.FileCache.ImageKey
-import Data.FileCache.ImageShape (HasImageShapeM, ImageShape(..), imageShapeM, ImageType, imageType)
+import Data.FileCache.ImageShape (HasImageShapeM, ImageShape(..), imageShapeM, FileType, imageType)
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, insert )
 import Data.Maybe ( fromMaybe )
@@ -36,41 +36,42 @@ import System.Log.Logger ( Priority(..) )
 import SeeReason.Errors (tryMember)
 import SeeReason.UIO (liftUIO, unsafeFromIO )
 
-instance (MonadFileCache r e m) => HasImageShapeM m (Checksum, ImageType) where
+instance (MonadFileCache r e m) => HasImageShapeM m (Checksum, FileType) where
   imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath . (, BS.empty)
 
 -- | Add some image files to an image repository - updates the acid
 -- state image map and copies the file to a location determined by the
 -- FileCacheTop and its checksum.
-cacheOriginalImages ::
+cacheOriginalFiles ::
   forall x e r m. (MakeByteString x, Ord x,
                    MonadFileCache r e m,
                    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
   => [(FileSource, x)] -> m ()
-cacheOriginalImages pairs =
+cacheOriginalFiles pairs =
   mapM_ doPair pairs
   where
     doPair :: (FileSource, x) -> m ()
-    doPair (source, x) = tryMember @FileError (cacheOriginalImage (Just source) x) >>= modify . Map.insert x
+    doPair (source, x) = tryMember @FileError (cacheOriginalFile (Just source) x) >>= modify . Map.insert x
 
-cacheOriginalImage' ::
+-- | 'cacheOriginalFile' with the 'FileError' captured.
+cacheOriginalFile' ::
   forall x e r m.
   (MakeByteString x, MonadFileCache r e m)
   => Maybe FileSource
   -> x
   -> m (Either FileError (ImageKey, ImageFile))
-cacheOriginalImage' source x =
-  tryMember @FileError (cacheOriginalImage source x)
+cacheOriginalFile' source x =
+  tryMember @FileError (cacheOriginalFile source x)
 
 -- | Build an original (not derived) ImageFile from a URI or a
 -- ByteString, insert it into the cache, and return it.
-cacheOriginalImage ::
+cacheOriginalFile ::
   forall x e r m.
   (MakeByteString x, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource
   -> x
   -> m (ImageKey, ImageFile)
-cacheOriginalImage source x = do
+cacheOriginalFile source x = do
   img <- buildOriginalImage source x
   let key = originalKey img
       val = ImageFileReady img
