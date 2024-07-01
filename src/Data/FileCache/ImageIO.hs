@@ -286,6 +286,7 @@ scaleImage' ::
   -> m (Maybe BS.ByteString)
 scaleImage' sc _ _ | approx (toRational sc) == 1 = return Nothing
 scaleImage' _ _ PDF = throwMember $ CannotScale PDF
+scaleImage' _ _ CSV = throwMember $ CannotScale CSV
 scaleImage' _ _ Unknown = throwMember $ CannotScale Unknown
 scaleImage' sc bytes typ = do
     let decoder = case typ of
@@ -293,17 +294,19 @@ scaleImage' sc bytes typ = do
                     HEIC -> heifConvert
                     JPEG -> showCommandForUser "jpegtopnm" ["-"]
                     PDF -> error "scaleImage' - Unexpected file type"
+                    CSV -> error "scaleImage' - Unexpected file type"
                     PNG -> showCommandForUser "pngtopnm" ["-"]
                     PPM -> showCommandForUser "cat" ["-"]
                     TIFF -> showCommandForUser "tifftopnm" ["-"]
-                    Unknown -> error "scaleImge' - Unexpected file type"
+                    Unknown -> error "scaleImage' - Unexpected file type"
         scaler = showCommandForUser "pnmscale" [showFFloat (Just 6) sc ""]
         -- To save space, build a jpeg here rather than the original file type.
         encoder = case typ of
                     GIF -> showCommandForUser {-"ppmtogif"-} "cjpeg" []
                     HEIC -> showCommandForUser "cjpeg" []
                     JPEG -> showCommandForUser "cjpeg" []
-                    PDF -> error "scaleImge' - Unexpected file type"
+                    PDF -> error "scaleImage' - Unexpected file type"
+                    CSV -> error "scaleImage' - Unexpected file type"
                     PNG -> showCommandForUser {-"pnmtopng"-} "cjpeg" []
                     PPM -> showCommandForUser {-"cat"-} "cjpeg" []
                     TIFF -> showCommandForUser "cjpeg" []
@@ -335,6 +338,7 @@ editImage' crop bs typ ImageShape{_imageShapeRect = Just rect} =
       latexImageFileType JPEG = JPEG
       latexImageFileType PNG = JPEG
       latexImageFileType PDF = error "editImage' - Unexpected file type"
+      latexImageFileType CSV = error "editImage' - Unexpected file type"
       latexImageFileType TIFF = JPEG
       latexImageFileType Unknown = error "editImage' - Unexpected file type"
       cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of

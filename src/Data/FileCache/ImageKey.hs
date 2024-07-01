@@ -10,6 +10,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# OPTIONS -Werror=incomplete-patterns #-}
 
 module Data.FileCache.ImageKey
   ( ImageKey(..)
@@ -204,6 +205,7 @@ instance PathInfo ImageKey where
                                                  ".png" -> PNG
                                                  ".gif" -> GIF
                                                  ".pdf" -> PDF
+                                                 ".csv" -> CSV
                                                  _ -> Unknown)
 
 -- | In order to build an image's path or url we need the ImageKey,
@@ -226,29 +228,48 @@ instance Value ImageKey where hops _ = [RecType, CtorType]
 
 -- HEIC, should also have HEIF?
 
-data FileType = GIF | HEIC | JPEG | PDF | PNG | PPM | TIFF | Unknown deriving (Generic, Eq, Ord, Enum, Bounded)
+data FileType = GIF | HEIC | JPEG | PDF | PNG | PPM | TIFF | CSV | Unknown deriving (Generic, Eq, Ord, Enum, Bounded)
 
+instance SafeCopy FileType where version = 3; kind = extension
+instance Serialize FileType where get = safeGet; put = safePut
+instance Migrate FileType where
+  type MigrateFrom FileType = FileType_2
+  migrate old =
+    case old of
+      PPM_2 -> PPM
+      JPEG_2 -> JPEG
+      GIF_2 -> GIF
+      PNG_2 -> PNG
+      PDF_2 -> PDF
+      TIFF_2 -> TIFF
+      HEIC_2 -> HEIC
+      Unknown_2 -> Unknown
+
+data FileType_2 = GIF_2 | HEIC_2 | JPEG_2 | PDF_2 | PNG_2 | PPM_2 | TIFF_2 | Unknown_2 deriving (Generic, Eq, Ord, Enum, Bounded)
+
+instance SafeCopy FileType_1 where version = 1; kind = base
+
+instance SafeCopy FileType_2 where version = 2; kind = extension
+instance Value FileType where hops _ = []
+
+instance Migrate FileType_2 where
+  type MigrateFrom FileType_2 = FileType_1
+  migrate old =
+    case old of
+      PPM_1 -> PPM_2
+      JPEG_1 -> JPEG_2
+      GIF_1 -> GIF_2
+      PNG_1 -> PNG_2
+      PDF_1 -> PDF_2
+      Unknown_1 -> Unknown_2
+
+data FileType_1 = PPM_1 | JPEG_1 | GIF_1 | PNG_1 | PDF_1 | Unknown_1 deriving (Generic, Eq, Ord, Enum, Bounded)
+
+instance Pretty FileType where pPrint = text . noQuotes . show
 deriving instance Data FileType
 deriving instance Read FileType
 deriving instance Show FileType
 deriving instance Typeable FileType
-instance Serialize FileType where get = safeGet; put = safePut
-instance SafeCopy FileType_1 where version = 1; kind = base
-instance SafeCopy FileType where version = 2; kind = extension
-instance Value FileType where hops _ = []
-instance Migrate FileType where
-  type MigrateFrom FileType = FileType_1
-  migrate old =
-    case old of
-      PPM_1 -> PPM
-      JPEG_1 -> JPEG
-      GIF_1 -> GIF
-      PNG_1 -> PNG
-      PDF_1 -> PDF
-      Unknown_1 -> Unknown
-data FileType_1 = PPM_1 | JPEG_1 | GIF_1 | PNG_1 | PDF_1 | Unknown_1 deriving (Generic, Eq, Ord, Enum, Bounded)
-
-instance Pretty FileType where pPrint = text . noQuotes . show
 
 noQuotes :: String -> String
 noQuotes = filter (/= '"')
@@ -263,6 +284,7 @@ instance HasFileExtension FileType where
   fileExtension PNG = ".png"
   fileExtension PPM = ".ppm"
   fileExtension TIFF = ".tiff"
+  fileExtension CSV = ".csv"
   fileExtension Unknown = ".xxx"
 
 allSupported :: [FileType]
@@ -302,6 +324,7 @@ instance HasMimeType FileType where
   mimeType PNG = "image/png"
   mimeType PDF = "application/pdf"
   mimeType TIFF = "image/tiff"
+  mimeType CSV = "application/csv"
   mimeType Unknown = "application/unknown"
 
 supportedMimeTypes :: [MimeType]

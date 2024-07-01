@@ -153,7 +153,7 @@ instance Arbitrary ImageCrop where
   arbitrary = ImageCrop <$> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> (abs <$> arbitrary) <*> arbitrary
 
 instance Arbitrary FileType where
-  arbitrary = oneof [pure PPM, pure JPEG, pure GIF, pure PNG, pure PDF, pure Unknown]
+  arbitrary = oneof [pure PPM, pure JPEG, pure GIF, pure PNG, pure PDF, pure CSV, pure Unknown]
 
 instance Arbitrary Dimension where arbitrary = elements [minBound..maxBound]
 instance Arbitrary Units where arbitrary = elements [minBound..maxBound]

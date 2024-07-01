@@ -54,6 +54,7 @@ fileInfoFromOutput path output = do
       return $ ImageShape {_imageShapeType = Unknown, _imageShapeRect = Nothing}
       -- throwError $ fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (PDF, []) -> return $ ImageShape PDF Nothing
+    Right (CSV, []) -> return $ ImageShape CSV Nothing
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of
@@ -74,7 +75,7 @@ data ImageAttribute = Shape (Int, Int) | Orientation Rotation deriving Show
 
 pFileOutput :: Parser (FileType, [ImageAttribute])
 pFileOutput =
-  (,) <$> choice [pPPM, pJPEG, pPNG, pGIF, pPDF]
+  (,) <$> choice [pPPM, pJPEG, pPNG, pGIF, pPDF, pCSV]
       <*> (catMaybes <$> (sepBy (Parsec.try pShape <|> pOrientation <|> pNotAShape) pSep))
 
 pSep :: Parser ()
@@ -119,6 +120,8 @@ pPPM :: Parser FileType
 pPPM = Parsec.try (string "Netpbm P[BGPP]M \"rawbits\" image data$" >> pSep >> return PPM)
 pPDF :: Parser FileType
 pPDF = Parsec.try (string "PDF document" >> pSep >> return PDF)
+pCSV :: Parser FileType
+pCSV = Parsec.try (string "ASCII text" >> pSep >> return CSV)
 #if 0
 pICON = string "MS Windows icon resource" >> many anyChar >> return ???
 #endif
