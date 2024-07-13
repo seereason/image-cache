@@ -36,7 +36,7 @@ import SeeReason.Errors (tryMember)
 import SeeReason.UIO (liftUIO, unsafeFromIO )
 
 instance (MonadFileCache r e m) => HasImageShapeM m (Checksum, FileType) where
-  imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath . (, BS.empty)
+  imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath (Just typ) . (, BS.empty)
 
 -- | Add some image files to an image repository - updates the acid
 -- state image map and copies the file to a location determined by the

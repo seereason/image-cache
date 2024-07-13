@@ -14,7 +14,7 @@ import Data.FileCache.ImageCrop (Rotation(..))
 import Data.FileCache.ImageKey (HasImageShapeM(..), ImageShape(..), FileType(..))
 import Data.FileCache.ImageRect (makeImageRect)
 import Data.ListLike ( show )
-import Data.Maybe ( catMaybes, listToMaybe )
+import Data.Maybe ( catMaybes, fromMaybe, listToMaybe )
 import Data.Text ( Text )
 import Data.Text.Encoding (decodeUtf8)
 import SeeReason.Errors (throwMember)
@@ -27,41 +27,41 @@ import Text.Parsec as Parsec
 import Text.Parsec.Text ( Parser )
 
 instance MonadFileIO e m => HasImageShapeM m BS.ByteString where
-  imageShapeM bytes = fileInfoFromPath ("-", bytes)
+  imageShapeM bytes = fileInfoFromPath Nothing ("-", bytes)
 instance MonadFileIO e m => HasImageShapeM m (FilePath, BS.ByteString) where
-  imageShapeM (path, input) = fileInfoFromPath (path, input)
+  imageShapeM (path, input) = fileInfoFromPath Nothing (path, input)
 
 -- | Helper function to learn the 'FileType' of a file by running
 -- @file -b@.
 fileInfoFromBytes :: forall e m. (MonadFileIO e m) => BS.ByteString -> m ImageShape
-fileInfoFromBytes bytes = fileInfoFromPath ("-", bytes)
+fileInfoFromBytes bytes = fileInfoFromPath Nothing ("-", bytes)
 
-fileInfoFromPath :: forall e m. MonadFileIO e m => (FilePath, BS.ByteString) -> m ImageShape
-fileInfoFromPath (path, input) =
-  liftUIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput path . decodeUtf8 . toStrict . view _2)
+fileInfoFromPath :: forall e m. MonadFileIO e m => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
+fileInfoFromPath mtyp (path, input) =
+  liftUIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
   where
     cmd = "file"
     args = ["-b", path]
 
 -- Parse the output of file -b.   Note - no IO here
 fileInfoFromOutput ::
-  forall e m. MonadFileIO e m => FilePath -> Text -> m ImageShape
-fileInfoFromOutput path output = do
-  unsafeFromIO $ alog DEBUG ("fileInfoFromOutput " <> show path <> " " <> show output)
+  forall e m. MonadFileIO e m => Maybe FileType -> FilePath -> Text -> m ImageShape
+fileInfoFromOutput mtyp path output = do
+  unsafeFromIO $ alog DEBUG ("fileInfoFromOutput " <> show mtyp <> " " <> show path <> " " <> show output)
   case parse pFileOutput path output of
     Left _e -> do
       unsafeFromIO $ alog ERROR ("pFileOutput -> " <> show _e)
-      return $ ImageShape {_imageShapeType = Unknown, _imageShapeRect = Nothing}
+      return $ ImageShape {_imageShapeType = fromMaybe Unknown mtyp, _imageShapeRect = Nothing}
       -- throwError $ fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
-    Right (PDF, []) -> return $ ImageShape PDF Nothing
-    Right (CSV, []) -> return $ ImageShape CSV Nothing
+    Right (PDF, []) -> return $ ImageShape (fromMaybe PDF mtyp) Nothing
+    Right (CSV, []) -> return $ ImageShape (fromMaybe CSV mtyp) Nothing
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of
         (Just (w, h), Just rot) ->
-          return $ ImageShape {_imageShapeType = typ, _imageShapeRect = Just $ makeImageRect w h rot}
+          return $ ImageShape {_imageShapeType = fromMaybe typ mtyp, _imageShapeRect = Just $ makeImageRect w h rot}
         (Just (w, h), Nothing) ->
-          return $ ImageShape {_imageShapeType = typ, _imageShapeRect = Just $ makeImageRect w h ZeroHr}
+          return $ ImageShape {_imageShapeType = fromMaybe typ mtyp, _imageShapeRect = Just $ makeImageRect w h ZeroHr}
         _ -> throwMember (NoShapeFromPath path output)
   where
     findShape :: ImageAttribute -> Maybe (Int, Int)
