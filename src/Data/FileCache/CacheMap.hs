@@ -16,9 +16,9 @@ import Control.Monad.Except (throwError)
 import Control.Lens ( Identity )
 import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..) )
 import Data.FileCache.FileError ( FileError )
-import Data.FileCache.ImageShape ( HasImageShapeM(..), ImageShape )
 import Data.FileCache.ImageKey
-    ( HasImagePath(..),
+    ( HasImageShapeM(..), ImageShape,
+      HasImagePath(..),
       ImagePath(ImagePath),
       HasImageKey(..),
       ImageKey(..) )

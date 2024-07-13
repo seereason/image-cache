@@ -28,11 +28,11 @@ import Data.FileCache.FileError
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
 import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
-import Data.FileCache.ImageKey ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey )
-import Data.FileCache.ImageRect (HasImageRect(imageRect))
-import Data.FileCache.ImageShape
-  ( HasFileType(imageType), FileType, imageShape, scaleFromDPI, HasImageShapeM(imageShapeM),
+import Data.FileCache.ImageKey
+  ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey,
+    HasFileType(imageType), FileType, imageShape, scaleFromDPI, HasImageShapeM(imageShapeM),
     ImageShape(_imageShapeType) )
+import Data.FileCache.ImageRect (HasImageRect(imageRect))
 import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalFile )
 import Data.ListLike ( ListLike(length) )

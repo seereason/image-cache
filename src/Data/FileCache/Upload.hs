@@ -21,8 +21,7 @@ import Data.FileCache.FileError
 import Data.FileCache.FileInfo ({-instances-} fileInfoFromPath)
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageIO ( MakeByteString(..) )
-import Data.FileCache.ImageKey
-import Data.FileCache.ImageShape (HasImageShapeM, ImageShape(..), imageShapeM, FileType, imageType)
+import Data.FileCache.ImageKey (HasImageShapeM, ImageKey(ImageOriginal), ImageShape(..), imageShapeM, FileType, imageType, originalKey)
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, insert )
 import Data.Maybe ( fromMaybe )

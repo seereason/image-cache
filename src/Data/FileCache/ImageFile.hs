@@ -20,10 +20,11 @@ import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.FileCache.File (File, HasFileExtension(..))
-import Data.FileCache.ImageKey ( ScaledKey(..), EditedKey(..), UprightKey(..), OriginalKey(..),
-                                 ImageKey(ImageUpright, ImageScaled), shapeFromKey )
+import Data.FileCache.ImageKey
+  (ScaledKey(..), EditedKey(..), UprightKey(..), OriginalKey(..),
+   ImageKey(ImageUpright, ImageScaled), shapeFromKey,
+   imageShape, HasFileType(..), HasImageShapeM(..), ImageShape(_imageShapeRect))
 import Data.FileCache.ImageRect (HasImageRect(imageRect))
-import Data.FileCache.ImageShape (imageShape, HasFileType(..), HasImageShapeM(..), ImageShape(_imageShapeRect))
 import Data.FileCache.ImageSize ( HasImageSize(imageSize), ImageSize, SaneSize(SaneSize) )
 import Data.FileCache.Happstack ()
 import Data.Monoid ( (<>) )

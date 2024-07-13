@@ -35,7 +35,6 @@ Library
     Data.FileCache.ImageFile
     Data.FileCache.ImageKey
     Data.FileCache.ImageRect
-    Data.FileCache.ImageShape
     Data.FileCache.ImageSize
     Data.FileCache.Rational
   Build-Depends:
