@@ -7,25 +7,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 
--- This may be set by the .ghci file, otherwise it gets set here.
-#ifndef HAVE_HAPPSTACK
-#if __GHCJS__
-#define HAVE_HAPPSTACK 0
-#else
--- #define HAVE_HAPPSTACK 1
--- I can't seem to build this package with the happstack-server dependency
-#define HAVE_HAPPSTACK 0
-#endif
-#endif
-
 module Data.FileCache.Happstack
-  (
-    -- * Happstack
-#if HAVE_HAPPSTACK
-    Real.ContentType(..)
-#else
-    ContentType(..)
-#endif
+  ( ContentType(..)
   ) where
 
 import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops))
@@ -38,14 +21,14 @@ import GHC.Generics ( Generic )
 -- import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ( Lift )
 
-#if HAVE_HAPPSTACK
+#ifdef MIN_VERSION_happstack_server
 import Happstack.Server as Real (ContentType(..))
 deriving instance Generic Real.ContentType
 deriving instance Serialize Real.ContentType
 #endif
 
 -- * Happstack Types
-#if !HAVE_HAPPSTACK
+#ifndef MIN_VERSION_happstack_server
 data ContentType =
         ContentType {
                      -- | The top-level media type, the general type
