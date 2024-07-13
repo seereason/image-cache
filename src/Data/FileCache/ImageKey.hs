@@ -27,6 +27,7 @@ module Data.FileCache.ImageKey
   , FileType(..)
   , HasFileType(imageType)
   , supportedFileTypes
+  , allSupported
 
   , supportedMimeTypes
   , MimeType
