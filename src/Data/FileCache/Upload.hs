@@ -11,7 +11,7 @@ module Data.FileCache.Upload
 
 import Control.Monad ( unless )
 import Control.Monad.RWS ( MonadState, modify )
-import qualified Data.ByteString.Lazy as BS ( empty )
+import qualified Data.ByteString.Lazy as BS (ByteString, empty)
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File
@@ -37,6 +37,12 @@ import SeeReason.UIO (liftUIO, unsafeFromIO )
 
 instance (MonadFileCache r e m) => HasImageShapeM m (Checksum, FileType) where
   imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath (Just typ) . (, BS.empty)
+
+instance (MonadFileCache r e m) => HasImageShapeM m (Maybe FileSource, BS.ByteString) where
+  imageShapeM (Just (TheUpload (path, typ)), bytes) = fileInfoFromPath (Just (imageType typ)) (path, bytes)
+  imageShapeM (Just (ThePath path), bytes) = fileInfoFromPath Nothing (path, bytes)
+  imageShapeM (Just (TheURI uri), bytes) = fileInfoFromPath Nothing (uri, bytes)
+  imageShapeM (_, bytes) = fileInfoFromPath Nothing ("-", bytes)
 
 -- | Add some image files to an image repository - updates the acid
 -- state image map and copies the file to a location determined by the
@@ -87,7 +93,8 @@ buildOriginalImage ::
 buildOriginalImage source x = do
   bs <- makeByteString x
   let csum = T.pack $ show $ md5 bs
-  shape@ImageShape {..} <- imageShapeM bs
+  shape@ImageShape {..} <- imageShapeM (source, bs)
+  liftUIO $ alog DEBUG ("shape=" <> show shape)
   -- FIXME: The image-replace command in appraisalscope will pass
   -- Nothing to the source parameter.  Could the correct source
   -- possibly be found in by looking in the image database?

@@ -54,6 +54,7 @@ import Control.Monad.Except ( throwError )
 import Data.Data ( Data )
 import Data.Default ( def )
 import Data.FileCache.File ( Checksum, File(_fileChksum), HasFileExtension(fileExtension) )
+import Data.FileCache.Happstack (ContentType(..))
 import Data.FileCache.ImageCrop ( ImageCrop(..), Rotation )
 import Data.FileCache.ImageRect ( HasImageRect(imageRect), ImageRect, makeImageRect, scaleImageRect, scaleFromDPI, cropImageRect, uprightImageRect )
 import Data.FileCache.ImageSize ( HasImageSize(..), ImageSize(..) )
@@ -229,6 +230,7 @@ instance Value ImageKey where hops _ = [RecType, CtorType]
 
 -- HEIC, should also have HEIF?
 
+-- Should FileType be replaced by ContentType?
 data FileType = GIF | HEIC | JPEG | PDF | PNG | PPM | TIFF | CSV | Unknown deriving (Generic, Eq, Ord, Enum, Bounded)
 
 instance SafeCopy FileType where version = 3; kind = extension
@@ -328,6 +330,17 @@ instance HasMimeType FileType where
   mimeType CSV = "application/csv"
   mimeType Unknown = "application/unknown"
 
+instance HasFileType ContentType where
+  imageType (ContentType{..}) | ctSubtype == "csv" = CSV
+  imageType (ContentType{..}) | ctSubtype == "gif" = GIF
+  imageType (ContentType{..}) | ctSubtype == "heif" = HEIC
+  imageType (ContentType{..}) | elem ctSubtype ["jpeg", "jpg"] = JPEG
+  imageType (ContentType{..}) | ctSubtype == "pdf" = PDF
+  imageType (ContentType{..}) | ctSubtype == "png" = PNG
+  imageType (ContentType{..}) | ctSubtype == "ppm" = PPM
+  imageType (ContentType{..}) | ctSubtype == "tiff" = TIFF
+  imageType (ContentType{..}) = Unknown
+
 supportedMimeTypes :: [MimeType]
 supportedMimeTypes = map mimeType allSupported
 
@@ -365,7 +378,7 @@ class HasOriginalShape a where
 -- the original dimensions of the image, so we can compute the aspect
 -- ratio.
 class HasImageShapeM m a where
-  imageShapeM :: a -> m ImageShape
+  imageShapeM :: HasCallStack => a -> m ImageShape
 
 type HasImageShape a = HasImageShapeM Identity a
 imageShape :: HasImageShape a => a -> ImageShape

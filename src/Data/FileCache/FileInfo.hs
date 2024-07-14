@@ -17,6 +17,7 @@ import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, fromMaybe, listToMaybe )
 import Data.Text ( Text )
 import Data.Text.Encoding (decodeUtf8)
+import GHC.Stack (HasCallStack)
 import SeeReason.Errors (throwMember)
 import SeeReason.UIO (liftUIO, unsafeFromIO)
 import Prelude hiding (show)
@@ -36,7 +37,7 @@ instance MonadFileIO e m => HasImageShapeM m (FilePath, BS.ByteString) where
 fileInfoFromBytes :: forall e m. (MonadFileIO e m) => BS.ByteString -> m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath Nothing ("-", bytes)
 
-fileInfoFromPath :: forall e m. MonadFileIO e m => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
+fileInfoFromPath :: forall e m. (MonadFileIO e m, HasCallStack) => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
 fileInfoFromPath mtyp (path, input) =
   liftUIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
   where
