@@ -9,6 +9,7 @@
 
 module Data.FileCache.Happstack
   ( ContentType(..)
+  , showContentType
   ) where
 
 import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops))
@@ -23,6 +24,7 @@ import Language.Haskell.TH.Lift as TH ( Lift )
 
 #ifdef MIN_VERSION_happstack_server
 import Happstack.Server as Real (ContentType(..))
+import Happstack.Server.Internal.RFC822Headers (showContentType)
 deriving instance Generic Real.ContentType
 deriving instance Serialize Real.ContentType
 #endif
@@ -46,6 +48,17 @@ data ContentType =
                      ctParameters :: [(String, String)]
                     }
     deriving (Show, Read, Eq, Ord, Generic, Serialize)
+
+showContentType :: ContentType -> String
+showContentType (ContentType x y ps) = x ++ "/" ++ y ++ showParameters ps
+
+showParameters :: [(String,String)] -> String
+showParameters = concatMap f
+    where f (n,v) = "; " ++ n ++ "=\"" ++ concatMap esc v ++ "\""
+          esc '\\' = "\\\\"
+          esc '"'  = "\\\""
+          esc c | c `elem` ['\\','"'] = '\\':[c]
+                | otherwise = [c]
 
 -- Happstack does not create a SafeCopy instance for ContentType.
 -- This gives it version 0.
