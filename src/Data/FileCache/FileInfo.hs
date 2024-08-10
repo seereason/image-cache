@@ -34,7 +34,7 @@ instance MonadFileIO e m => HasImageShapeM m (FilePath, BS.ByteString) where
 
 -- | Helper function to learn the 'FileType' of a file by running
 -- @file -b@.
-fileInfoFromBytes :: forall e m. (MonadFileIO e m) => BS.ByteString -> m ImageShape
+fileInfoFromBytes :: forall e m. (MonadFileIO e m, HasCallStack) => BS.ByteString -> m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath Nothing ("-", bytes)
 
 fileInfoFromPath :: forall e m. (MonadFileIO e m, HasCallStack) => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
@@ -46,7 +46,7 @@ fileInfoFromPath mtyp (path, input) =
 
 -- Parse the output of file -b.   Note - no IO here
 fileInfoFromOutput ::
-  forall e m. MonadFileIO e m => Maybe FileType -> FilePath -> Text -> m ImageShape
+  forall e m. (MonadFileIO e m, HasCallStack) => Maybe FileType -> FilePath -> Text -> m ImageShape
 fileInfoFromOutput mtyp path output = do
   unsafeFromIO $ alog DEBUG ("fileInfoFromOutput " <> show mtyp <> " " <> show path <> " " <> show output)
   case parse pFileOutput path output of
