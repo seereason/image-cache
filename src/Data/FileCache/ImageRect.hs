@@ -154,7 +154,7 @@ cropImageRect (ImageCrop{..}) rect =
         _imageRectHeight = _imageRectHeight rect - (topCrop + bottomCrop) }
   where _ = callStack
 
-class HasImageRect a where imageRect :: a -> Maybe ImageRect
+class HasImageRect a where imageRect :: a -> Either String ImageRect
 
 $(concat <$>
   sequence

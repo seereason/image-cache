@@ -119,8 +119,8 @@ instance HasImageShape a => HasFileType (ImageKey, a) where
     if crop == def then imageType (key, shape) else JPEG
   imageType (ImageScaled sz dpi key, shape) =
     case _imageShapeRect (imageShape shape) of
-      Nothing -> imageType (key, shape)
-      Just rect ->
+      Left _ -> imageType (key, shape)
+      Right rect ->
         let sc' = scaleFromDPI sz dpi rect
             sc :: Double
             sc = fromRat (fromMaybe 1 sc') in
@@ -346,22 +346,37 @@ supportedMimeTypes = map mimeType allSupported
 
 -- * ImageShape
 
+data ImageShape_2
+  = ImageShape_2
+    { _imageShapeType_2 :: FileType
+    , _imageShapeRect_2 :: Maybe ImageRect
+      -- ^ this could be safer, there should be different constructors
+      -- for image types that have or do not have an ImageRect.
+    } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance Serialize ImageShape_2 where get = safeGet; put = safePut
+instance SafeCopy ImageShape_2 where version = 2; kind = extension
+instance Migrate ImageShape where
+  type MigrateFrom ImageShape = ImageShape_2
+  migrate (ImageShape_2 a b) =
+    ImageShape a (maybe (Left "") Right b)
+
 data ImageShape
   = ImageShape
     { _imageShapeType :: FileType
-    , _imageShapeRect :: Maybe ImageRect
+    , _imageShapeRect :: Either String ImageRect
       -- ^ this could be safer, there should be different constructors
       -- for image types that have or do not have an ImageRect.
     } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
 
 instance Serialize ImageShape where get = safeGet; put = safePut
-instance SafeCopy ImageShape where version = 2; kind = extension
+instance SafeCopy ImageShape where version = 3; kind = extension
 instance Value ImageShape where hops _ = [RecType, CtorType]
 
 instance Pretty ImageShape where
   pPrint (ImageShape typ mrect) =
     text "ImageShape (" <> pPrint typ <>
-    maybe empty (\rect -> text " " <> pPrint rect) mrect <>
+    either (text . ("missing: " <>)) (\rect -> text " " <> pPrint rect) mrect <>
     text ")"
 
 instance HasFileType ImageShape where imageType = _imageShapeType
@@ -392,20 +407,20 @@ instance HasImageRect ImageShape where imageRect = _imageShapeRect
 scaleImageShape :: ImageSize -> Rational -> ImageShape -> ImageShape
 scaleImageShape sz dpi shape =
   case _imageShapeRect shape of
-    Nothing -> shape
-    Just rect | scale rect == 1 -> shape
-    Just rect ->
+    Left _ -> shape
+    Right rect | scale rect == 1 -> shape
+    Right rect ->
       shape { _imageShapeType = JPEG -- the scaling pipeline results in a jpeg file
-            , _imageShapeRect = Just (scaleImageRect sz dpi rect) }
+            , _imageShapeRect = Right (scaleImageRect sz dpi rect) }
   where
     scale :: ImageRect -> Rational
     scale rect = maybe 1 approx $ scaleFromDPI sz dpi rect
 
 cropImageShape :: ImageCrop -> ImageShape -> ImageShape
 cropImageShape crop shape | crop == def = shape
-cropImageShape _ shape@ImageShape{_imageShapeRect = Nothing} = shape
-cropImageShape crop shape@ImageShape{_imageShapeRect = Just rect} =
-  shape {_imageShapeRect = Just (cropImageRect crop rect)}
+cropImageShape _ shape@ImageShape{_imageShapeRect = Left _} = shape
+cropImageShape crop shape@ImageShape{_imageShapeRect = Right rect} =
+  shape {_imageShapeRect = Right (cropImageRect crop rect)}
 
 -- | Does this change _imageShapeType?  Should it?
 uprightImageShape :: ImageShape -> ImageShape
@@ -413,15 +428,15 @@ uprightImageShape shape =
   shape {_imageShapeType = JPEG,
          _imageShapeRect = fmap uprightImageRect (_imageShapeRect shape)}
 
-instance Migrate ImageShape where
-  type MigrateFrom ImageShape = ImageShape_1
+instance Migrate ImageShape_2 where
+  type MigrateFrom ImageShape_2 = ImageShape_1
   migrate (ImageShape_1 typ w h rot) =
-    ImageShape { _imageShapeType = typ,
-                 _imageShapeRect =
-                   case typ of
-                     Unknown -> Nothing
-                     PDF -> Nothing
-                     _ -> Just (makeImageRect w h rot) }
+    ImageShape_2 { _imageShapeType_2 = typ,
+                   _imageShapeRect_2 =
+                     case typ of
+                       Unknown -> Nothing
+                       PDF -> Nothing
+                       _ -> Just (makeImageRect w h rot) }
 
 data ImageShape_1
   = ImageShape_1

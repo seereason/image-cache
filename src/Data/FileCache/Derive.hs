@@ -254,7 +254,7 @@ buildImageBytes source key@(ImageScaled sz dpi key') = do
   (key'', bs) <- buildImageBytes source key'
   -- the buildImageBytes that just ran might have this info
   shape <- imageShapeM bs
-  case scaleFromDPI sz dpi =<< imageRect shape of
+  case either (const Nothing) (scaleFromDPI sz dpi) (imageRect shape) of
     Nothing -> return (key'', bs)
     Just sc ->
       maybe (key'', bs) (key,) <$> scaleImage' (fromRat sc) bs (imageType shape)

@@ -50,19 +50,19 @@ fileInfoFromOutput ::
 fileInfoFromOutput mtyp path output = do
   unsafeFromIO $ alog DEBUG ("fileInfoFromOutput " <> show mtyp <> " " <> show path <> " " <> show output)
   case parse pFileOutput path output of
-    Left _e -> do
-      unsafeFromIO $ alog ERROR ("pFileOutput -> " <> show _e)
-      return $ ImageShape {_imageShapeType = fromMaybe Unknown mtyp, _imageShapeRect = Nothing}
+    Left e -> do
+      unsafeFromIO $ alog ERROR ("pFileOutput -> " <> show e)
+      return $ ImageShape {_imageShapeType = fromMaybe Unknown mtyp, _imageShapeRect = Left ("parse pFileOutput " <> show path <> " " <> show output <> " -> " <> show e)}
       -- throwError $ fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
-    Right (PDF, []) -> return $ ImageShape (fromMaybe PDF mtyp) Nothing
-    Right (CSV, []) -> return $ ImageShape (fromMaybe CSV mtyp) Nothing
+    Right (PDF, []) -> return $ ImageShape (fromMaybe PDF mtyp) (Left "PDF")
+    Right (CSV, []) -> return $ ImageShape (fromMaybe CSV mtyp) (Left "CSV")
     Right (typ, attrs) ->
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of
         (Just (w, h), Just rot) ->
-          return $ ImageShape {_imageShapeType = fromMaybe typ mtyp, _imageShapeRect = Just $ makeImageRect w h rot}
+          return $ ImageShape {_imageShapeType = fromMaybe typ mtyp, _imageShapeRect = Right $ makeImageRect w h rot}
         (Just (w, h), Nothing) ->
-          return $ ImageShape {_imageShapeType = fromMaybe typ mtyp, _imageShapeRect = Just $ makeImageRect w h ZeroHr}
+          return $ ImageShape {_imageShapeType = fromMaybe typ mtyp, _imageShapeRect = Right $ makeImageRect w h ZeroHr}
         _ -> throwMember (NoShapeFromPath path output)
   where
     findShape :: ImageAttribute -> Maybe (Int, Int)

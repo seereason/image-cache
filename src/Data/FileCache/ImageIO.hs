@@ -323,7 +323,7 @@ editImage' ::
     forall e m. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
     => ImageCrop -> BS.ByteString -> FileType -> ImageShape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
-editImage' crop bs typ ImageShape{_imageShapeRect = Just rect} =
+editImage' crop bs typ ImageShape{_imageShapeRect = Right rect} =
   logIOError' $
     case commands of
       [] -> return Nothing

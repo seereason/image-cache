@@ -179,7 +179,7 @@ test1 =
                                                                                 _fileMessages = [],
                                                                                 _fileExt = ".jpg"},
                                                              _imageShape = ImageShape{_imageShapeType = JPEG,
-                                                                                      _imageShapeRect = Just (makeImageRect 885 170 ZeroHr)}})}
+                                                                                      _imageShapeRect = Right (makeImageRect 885 170 ZeroHr)}})}
 
 #endif
 
