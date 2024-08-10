@@ -396,7 +396,7 @@ class HasImageShapeM m a where
   imageShapeM :: HasCallStack => a -> m ImageShape
 
 type HasImageShape a = HasImageShapeM Identity a
-imageShape :: HasImageShape a => a -> ImageShape
+imageShape :: (HasImageShape a, HasCallStack) => a -> ImageShape
 imageShape = runIdentity . imageShapeM
 
 instance HasImageShapeM Identity ImageShape where

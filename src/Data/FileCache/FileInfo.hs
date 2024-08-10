@@ -42,7 +42,7 @@ fileInfoFromPath mtyp (path, input) =
   liftUIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
   where
     cmd = "file"
-    args = ["-b", path]
+    args = ["-b", "-"]
 
 -- Parse the output of file -b.   Note - no IO here
 fileInfoFromOutput ::
