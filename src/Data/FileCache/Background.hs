@@ -55,7 +55,7 @@ instance HasImageBuilder (a, b, (ImageChan, (ThreadId, IO (Result ())))) where i
 instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
 cacheDerivedImagesBackground ::
-  forall r e m. (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
+  forall r e m. (MonadFileCacheUIO r e m, HasImageBuilder r, HasCallStack)
   => Set CacheFlag
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
@@ -64,7 +64,7 @@ cacheDerivedImagesBackground flags keys =
   backgroundBuilds >>= pure . Map.fromList
 
 backgroundBuilds ::
-  (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
+  (MonadFileCacheUIO r e m, HasImageBuilder r, HasCallStack)
   => [(ImageKey, Either FileError ImageFile)]
   -> m [(ImageKey, Either FileError ImageFile)]
 backgroundBuilds pairs =
@@ -75,7 +75,7 @@ backgroundBuilds pairs =
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
-  (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
+  (MonadFileCacheUIO r e m, HasImageBuilder r, HasCallStack)
   => [(ImageKey, ImageShape)]
   -> m ()
 queueImageBuild pairs = do
@@ -133,7 +133,7 @@ doImages r pairs = do
 -- "come back later" message.
 testImageKeys ::
   forall r e m.
-  (MonadFileCache r e m,
+  (MonadFileCacheUIO r e m,
    HasImageBuilder r,
    Member ImageStats e,
    HasCallStack)

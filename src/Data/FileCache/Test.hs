@@ -14,7 +14,7 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached, _imageCachedFile, _imageCachedKey) )
 import Data.FileCache.File
 import Data.FileCache.FileCache ( HasFilePath, fileCachePath, cacheLook )
-import Data.FileCache.FileCacheTop (MonadFileCache)
+import Data.FileCache.FileCacheTop (MonadFileCacheUIO)
 import Data.FileCache.FileError
 import Data.FileCache.FileInfo ()
 import Data.FileCache.ImageCrop
@@ -40,13 +40,13 @@ import Web.Routes.QuickCheck ( pathInfoInverse_prop )
 
 -- | Integrity testing
 validateImageKey ::
-  forall e r m. MonadFileCache r e m => ImageKey -> m ()
+  forall e r m. MonadFileCacheUIO r e m => ImageKey -> m ()
 validateImageKey key = do
   cacheLook key >>=
     maybe (throwMember (MissingDerivedEntry key))
           (either throwMember (validateImageFile key))
 
-validateImageFile :: forall e r m. MonadFileCache r e m => ImageKey -> ImageFile -> m ()
+validateImageFile :: forall e r m. MonadFileCacheUIO r e m => ImageKey -> ImageFile -> m ()
 validateImageFile _key (ImageFileShape _) = return ()
 validateImageFile key (ImageFileReady i@(ImageReady {..})) = do
   path <- fileCachePath (ImagePath key)
@@ -82,7 +82,7 @@ splits f xs = let (lhs, rhs) = f xs in (lhs : splits f rhs)
 --
 -- Also recomputes the orientation field of ImageShape.
 fixImageShapes ::
-  forall r e m. (MonadFileCache r e m)
+  forall r e m. (MonadFileCacheUIO r e m)
   => Map ImageKey (Either FileError ImageFile)
   -> m (Map ImageKey (Either FileError ImageFile))
 fixImageShapes mp =
@@ -98,7 +98,7 @@ fixImageShapes mp =
     fixPair (key, Right val) = tryMember @FileError (fixImageCached (key, Right val)) >>= either (\_ -> return (key, Right val)) return
 
 fixImageCached ::
-  forall e r m. (MonadFileCache r e m)
+  forall e r m. (MonadFileCacheUIO r e m)
   => (ImageKey, Either FileError ImageFile) -> m (ImageKey, Either FileError ImageFile)
 fixImageCached (key@(ImageOriginal csum typ), Right (ImageFileShape _s)) =
   fixImageShape (csum, typ) >>= \s' -> return (key, Right (ImageFileShape s'))
@@ -108,7 +108,7 @@ fixImageCached x = return x
 
 -- Actually we just compute it from scratch
 fixImageShape ::
-  forall e r m a. (MonadFileCache r e m, HasFilePath a)
+  forall e r m a. (MonadFileCacheUIO r e m, HasFilePath a)
   => a -> m ImageShape
 fixImageShape a = fileCachePath a >>= imageShapeM . (, BS.empty)
 

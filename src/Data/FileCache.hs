@@ -20,7 +20,7 @@ module Data.FileCache
 import Data.FileCache.CacheMap (ImageCached(..), CacheMap(..))
 import Data.FileCache.CommandError (CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError))
 import Data.FileCache.File (File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension))
-import Data.FileCache.FileError (FileError(..), CommandError, HasFileError(fileError), MyMonadIO, MyIOErrors, MonadFileIO, E, runFileIOT)
+import Data.FileCache.FileError (FileError(..), CommandError, HasFileError(fileError), MyMonadUIO, MyMonadIONew, MyIOErrors, MonadFileUIO, MonadFileIONew, E, runFileIOT)
 import Data.FileCache.Happstack (ContentType(..))
 import Data.FileCache.ImageCrop (ImageCrop(..), Rotation(..))
 import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)

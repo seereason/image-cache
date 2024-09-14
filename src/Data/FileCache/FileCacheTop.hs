@@ -7,7 +7,8 @@ module Data.FileCache.FileCacheTop
   , HasFileCacheTop(fileCacheTop)
   , HasCacheAcid(cacheAcid)
   , CacheAcid
-  , MonadFileCache
+  , MonadFileCacheUIO
+  , MonadFileCacheNew
   , FileCacheT
   , runFileCacheT
   ) where
@@ -18,7 +19,7 @@ import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Control.Monad.RWS (RWST)
 import Data.Acid ( AcidState )
 import Data.FileCache.CacheMap ( CacheMap )
-import Data.FileCache.FileError (E, MonadFileIO, runFileIOT)
+import Data.FileCache.FileError (E, MonadFileUIO, MyMonadUIO, MonadFileIONew, MyMonadIONew, runFileIOT)
 import SeeReason.Errors (OneOf)
 
 newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
@@ -36,22 +37,37 @@ instance  HasCacheAcid CacheAcid where cacheAcid = id
 instance  HasCacheAcid (CacheAcid, top) where cacheAcid = fst
 instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
 
-class (MonadFileIO e m,
+class (MonadFileUIO e m,
        MonadReader r m,
        HasCacheAcid r,
        HasFileCacheTop r
-      ) => MonadFileCache r e m
+      ) => MonadFileCacheUIO r e m
 
-instance (MonadFileIO e (ExceptT (OneOf e) m),
+instance (MonadFileUIO e (ExceptT (OneOf e) m),
           HasCacheAcid r,
           HasFileCacheTop r
-         ) => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
+         ) => MonadFileCacheUIO r e (ReaderT r (ExceptT (OneOf e) m))
 
-instance (MonadFileIO e (ExceptT (OneOf e) m),
+instance (MonadFileUIO e (ExceptT (OneOf e) m),
           HasCacheAcid r, HasFileCacheTop r
-         ) => MonadFileCache r e (RWST r () s (ExceptT (OneOf e) m))
+         ) => MonadFileCacheUIO r e (RWST r () s (ExceptT (OneOf e) m))
 
--- | A simple type that is an instance of 'MonadFileCache'.
+class (MonadFileIONew e m,
+       MonadReader r m,
+       HasCacheAcid r,
+       HasFileCacheTop r
+      ) => MonadFileCacheNew r e m
+
+instance (MonadFileIONew e (ExceptT (OneOf e) m),
+          HasCacheAcid r,
+          HasFileCacheTop r
+         ) => MonadFileCacheNew r e (ReaderT r (ExceptT (OneOf e) m))
+
+instance (MonadFileIONew e (ExceptT (OneOf e) m),
+          HasCacheAcid r, HasFileCacheTop r
+         ) => MonadFileCacheNew r e (RWST r () s (ExceptT (OneOf e) m))
+
+-- | A simple type that is an instance of 'MonadFileCacheUIO'.
 type FileCacheT r m = ReaderT r (ExceptT (OneOf E) m)
 
 runFileCacheT ::

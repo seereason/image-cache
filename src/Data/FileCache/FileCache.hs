@@ -4,7 +4,7 @@
 module Data.FileCache.FileCache
   ( HasFilePath(toFilePath)
   , fileCachePath
-  , fileCachePathIO
+  , fileCachePathUIO
   -- , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
   , cacheLook, cacheDelete, cacheMap
   , cachePut, cachePut_
@@ -72,10 +72,10 @@ fileCachePath file = do
   where _ = callStack
 
 -- | Create any missing directories and evaluate 'fileCachePath'
-fileCachePathIO ::
-  (MonadFileCache r e m, HasFilePath a, HasCallStack)
+fileCachePathUIO ::
+  (MonadFileCacheUIO r e m, HasFilePath a, HasCallStack)
   => a -> m FilePath
-fileCachePathIO file = do
+fileCachePathUIO file = do
   path <- fileCachePath file
   let dir = takeDirectory path
   liftUIO (createDirectoryIfMissing True dir)
@@ -101,7 +101,7 @@ askCacheAcid = cacheAcid <$> ask
 
 -- | insert a (key, value) pair into the cache
 cachePut ::
-  forall r e m. (MonadFileCache r e m, HasCallStack)
+  forall r e m. (MonadFileCacheUIO r e m, HasCallStack)
   => ImageKey -> Either FileError ImageFile -> m (Either FileError ImageFile)
 cachePut key val = do
   st <- askCacheAcid
@@ -110,7 +110,7 @@ cachePut key val = do
 
 -- | insert a (key, value) pair into the cache, discard result.
 cachePut_ ::
-  (MonadFileCache r e m, HasCallStack)
+  (MonadFileCacheUIO r e m, HasCallStack)
   => ImageKey -> Either FileError ImageFile -> m ()
 cachePut_ key val = do
   st <- askCacheAcid
@@ -118,20 +118,20 @@ cachePut_ key val = do
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
-  forall e r m. (MonadFileCache r e m, HasCallStack)
+  forall e r m. (MonadFileCacheUIO r e m, HasCallStack)
   => ImageKey -> m (Maybe (Either FileError ImageFile))
 cacheLook key = do
   st <- askCacheAcid
   {-either (Just . Left) (fmap id) <$>-}
   liftUIO $ query st (LookValue key)
 
-cacheMap :: (MonadFileCache r e m, HasCallStack) => m CacheMap
+cacheMap :: (MonadFileCacheUIO r e m, HasCallStack) => m CacheMap
 cacheMap = do
   st <- askCacheAcid
   liftUIO (query st LookMap)
 
 cacheDelete ::
-  forall e r m. (MonadFileCache r e m, HasCallStack)
+  forall e r m. (MonadFileCacheUIO r e m, HasCallStack)
   => Proxy ImageFile -> Set ImageKey -> m ()
 cacheDelete _ keys = do
   (st :: AcidState CacheMap) <- cacheAcid <$> ask
