@@ -125,7 +125,7 @@ doImages r pairs = do
     doFile :: ((ImageKey, ImageShape), Either (OneOf E) (Either FileError ImageFile)) -> IO ()
     doFile ((key, _shape), Left e) = unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
     doFile ((key, _shape), Right (Left e)) = unsafeFromIO (alog ERROR ("doImages - error building " <> show key <> ": " ++ show e))
-    doFile ((key, _shape), Right (Right _file)) = unsafeFromIO (alog ERROR ("doImages - completed " <> show key))
+    doFile ((key, _shape), Right (Right _file)) = unsafeFromIO (alog INFO ("doImages - completed " <> show key))
 
 -- | Throw an exception if there are more than 20 unavailable
 -- images.  This sends the images to the background image
