@@ -5,8 +5,8 @@ module Data.FileCache.Process
   , pipeline
   ) where
 
-import Control.Exception ( IOException )
-import Control.Monad.Except ( MonadError )
+import Control.Exception (IOException)
+import Control.Monad.Except (MonadError, MonadIO(liftIO))
 import qualified Data.ByteString.Lazy as BS ( ByteString )
 import Data.FileCache.FileError ( FileError )
 import Data.FileCache.LogException ( logException )
@@ -16,7 +16,7 @@ import GHC.Stack ( HasCallStack )
 import Prelude ( (++), Monad((>>=), (>>), return), IO )
 import SeeReason.LogServer (alog)
 import SeeReason.Errors ( throwMember, Member, OneOf )
-import SeeReason.UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO)
+import SeeReason.UIO (NonIOException)
 import System.Exit ( ExitCode(..) )
 import System.Log.Logger ( Priority(..) )
 import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
@@ -41,19 +41,19 @@ readCreateProcessWithExitCode' p s =
     $logException ERROR (LL.readCreateProcessWithExitCode p s)
 
 pipeline ::
-  forall e m. (Unexceptional m, Member FileError e, Member IOException e, Member NonIOException e, MonadError (OneOf e) m, HasCallStack)
+  forall e m. (MonadIO m, Member FileError e, Member IOException e, Member NonIOException e, MonadError (OneOf e) m, HasCallStack)
   => [CreateProcess]
   -> BS.ByteString
   -> m BS.ByteString
 pipeline [] bytes = return bytes
 pipeline (p : ps) bytes =
-  liftUIO (LL.readCreateProcessWithExitCode p bytes) >>= doResult
+  liftIO (LL.readCreateProcessWithExitCode p bytes) >>= doResult
   where
     doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m BS.ByteString
-    -- doResult (Left e) = unsafeFromIO (alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e)) >> throwError e
+    -- doResult (Left e) = alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e) >> throwError e
     doResult (ExitSuccess, out, _) = pipeline ps out
     doResult (code, _, err) =
       let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
-        unsafeFromIO (alog ERROR message) >>
+        alog ERROR message >>
         -- Not actually an IOExeption, this is a process error exit
         throwMember (fromString message :: FileError)

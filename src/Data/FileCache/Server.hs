@@ -31,8 +31,6 @@ import Data.FileCache.Acid
 import Data.FileCache.FileCache
   ( HasFilePath(toFilePath)
   , fileCachePath
-  , fileCachePathUIO
-  -- , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
   , cacheLook, cacheDelete, cacheMap
   , cachePut, cachePut_ )
 import Data.FileCache.FileCacheTop
@@ -40,7 +38,6 @@ import Data.FileCache.FileCacheTop
   , HasFileCacheTop(fileCacheTop)
   , HasCacheAcid(cacheAcid)
   , CacheAcid
-  , MonadFileCacheUIO
   , FileCacheT
   , runFileCacheT )
 import Data.FileCache.ImageIO

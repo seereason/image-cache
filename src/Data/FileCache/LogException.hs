@@ -7,18 +7,17 @@ module Data.FileCache.LogException
     , Loggable(logit)
     ) where
 
-import Control.Monad.Except (MonadError(catchError, throwError))
+import Control.Monad.Except (MonadIO(liftIO), MonadError(catchError, throwError))
 import Language.Haskell.TH (ExpQ, Exp, Loc(..), location, pprint, Q)
 import Language.Haskell.TH.Instances ()
 import qualified Language.Haskell.TH.Lift as TH (Lift(lift))
 import System.Log.Logger (Priority, logM)
-import SeeReason.UIO (Unexceptional, unsafeFromIO)
 
 __LOC__ :: Q Exp
 __LOC__ = TH.lift =<< location
 
-logAndThrow :: (MonadError e m, Unexceptional m, Show e) => String -> Priority -> e -> m b
-logAndThrow m p e = unsafeFromIO (logM m p ("logAndThrow - " ++ show e)) >> throwError e
+logAndThrow :: (MonadError e m, MonadIO m, Show e) => String -> Priority -> e -> m b
+logAndThrow m p e = liftIO (logM m p ("logAndThrow - " ++ show e)) >> throwError e
 
 -- | Create an expression of type (Unexceptional m => Priority -> m a -> m a) that we can
 -- apply to an expression so that it catches, logs, and rethrows any
@@ -27,7 +26,7 @@ logException :: ExpQ
 logException =
     [| \priority action ->
          action `catchError` (\e -> do
-                                unsafeFromIO (logM (loc_module $__LOC__)
+                                liftIO (logM (loc_module $__LOC__)
                                               priority
                                               ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show e))
                                 throwError e) |]
@@ -36,7 +35,7 @@ logExceptionV :: ExpQ
 logExceptionV =
     [| \priority action ->
          action `catchError` (\e -> do
-                                unsafeFromIO (logM (loc_module $__LOC__)
+                                liftIO (logM (loc_module $__LOC__)
                                               priority
                                               ("Logging exception: " <> (pprint $__LOC__) <> " -> " ++ show (V e)))
                                 throwError e) |]

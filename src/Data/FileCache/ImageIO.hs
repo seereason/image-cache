@@ -14,7 +14,7 @@ import Codec.Picture.Metadata (Keys(Exif), lookup)
 import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
 import Control.Exception ( IOException )
 import Control.Lens (preview, _Right, _2, to, _Just)
-import Control.Monad.Trans (liftIO)
+import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
 import Control.Monad.Trans.Except ( runExceptT )
 import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFile, toStrict )
@@ -70,23 +70,23 @@ import Text.Parsec
       many1,
       optionMaybe )
 import SeeReason.Errors as Err ( throwMember, Member, OneOf)
-import SeeReason.UIO (liftUIO, NonIOException, Unexceptional, unsafeFromIO)
+import SeeReason.UIO (NonIOException)
 
 class MakeByteString a where
-  makeByteString :: (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString
+  makeByteString :: (MonadIO m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString
 
 instance MakeByteString BS.ByteString where
   makeByteString = return
 
 instance MakeByteString FilePath where
-  makeByteString path = liftUIO (BS.readFile path)
+  makeByteString path = liftIO (BS.readFile path)
 
 instance MakeByteString CreateProcess where
   makeByteString cmd = makeByteString (cmd, BS.empty)
 
 instance MakeByteString (CreateProcess, BS.ByteString) where
   makeByteString (cmd, input) = do
-    (code, bytes, _err) <- liftUIO (readCreateProcessWithExitCode' cmd input)
+    (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd input)
     case code of
       ExitSuccess -> return bytes
       ExitFailure _ ->
@@ -98,7 +98,7 @@ instance MakeByteString URI where
   makeByteString uri = do
     let cmd = proc "curl" ["-s", uriToString id uri ""]
     (code, bytes, _err) <-
-      liftUIO $ readCreateProcessWithExitCode' cmd BS.empty
+      liftIO $ readCreateProcessWithExitCode' cmd BS.empty
     case code of
       ExitSuccess -> return bytes
       _ -> throwMember $
@@ -115,15 +115,11 @@ instance MakeByteString URI where
 -- Note that the compiler reports "Redundant constraint: MonadError
 -- (OneOf e) m", but in fact its not redundant.
 uprightImage' ::
-  forall e m. (Unexceptional m, MonadError (OneOf e) m, Member IOException e, Member NonIOException e)
+  forall m. (MonadIO m)
   => BS.ByteString
   -> m (Maybe BS.ByteString)
 uprightImage' bs =
-  -- Use liftUIO to turn the IOException into ExceptT FileError m,
-  -- then flatten the two layers of ExceptT FileError into one, then
-  -- turn the remaining one into a Maybe.
-  liftUIO $ either (\(_ :: FileError) -> Nothing) Just <$> runExceptT (normalizeOrientationCode bs)
-    -- runExceptT (runExceptT (liftUIO (normalizeOrientationCode (fromStrict bs))) >>= liftEither)
+  liftIO $ either (\(_ :: FileError) -> Nothing) Just <$> runExceptT (normalizeOrientationCode bs)
 
 deriving instance Generic ExifData
 
@@ -279,7 +275,7 @@ deriving instance Show Hires
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
 scaleImage' ::
-  (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
+  (MonadIO m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
   => Double
   -> BS.ByteString
   -> FileType
@@ -314,13 +310,13 @@ scaleImage' sc bytes typ = do
         cmd = intercalate " | " [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
 
-logIOError' :: (Unexceptional m, MonadError e m) => m a -> m a
+logIOError' :: (MonadIO m, MonadError e m) => m a -> m a
 logIOError' io =
-  tryError io >>= either (\e -> unsafeFromIO ($logException ERROR (pure e)) >> throwError e) return
+  tryError io >>= either (\e -> liftIO ($logException ERROR (pure e)) >> throwError e) return
 -- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
 
 editImage' ::
-    forall e m. (Unexceptional m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
+    forall e m. (MonadIO m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
     => ImageCrop -> BS.ByteString -> FileType -> ImageShape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' crop bs typ ImageShape{_imageShapeRect = Right rect} =

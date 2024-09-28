@@ -10,13 +10,13 @@ module Data.FileCache.Upload
   ) where
 
 import Control.Monad ( unless )
-import Control.Monad.RWS ( MonadState, modify )
+import Control.Monad.RWS ( liftIO, MonadState, modify )
 import qualified Data.ByteString.Lazy as BS (ByteString, empty)
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File
-import Data.FileCache.FileCache ( fileCachePath, fileCachePathUIO, cachePut_ )
-import Data.FileCache.FileCacheTop ( MonadFileCacheUIO )
+import Data.FileCache.FileCache ( fileCachePath, fileCachePathIO, cachePut_ )
+import Data.FileCache.FileCacheTop ( MonadFileCacheNew )
 import Data.FileCache.FileError
 import Data.FileCache.FileInfo ({-instances-} fileInfoFromPath)
 import Data.FileCache.ImageFile
@@ -33,12 +33,11 @@ import System.Directory ( doesFileExist )
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import SeeReason.Errors (tryMember)
-import SeeReason.UIO (liftUIO, unsafeFromIO )
 
-instance (MonadFileCacheUIO r e m) => HasImageShapeM m (Checksum, FileType) where
+instance (MonadFileCacheNew r e m) => HasImageShapeM m (Checksum, FileType) where
   imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath (Just typ) . (, BS.empty)
 
-instance (MonadFileCacheUIO r e m) => HasImageShapeM m (Maybe FileSource, BS.ByteString) where
+instance (MonadFileCacheNew r e m) => HasImageShapeM m (Maybe FileSource, BS.ByteString) where
   imageShapeM (Just (TheUpload (path, typ)), bytes) = fileInfoFromPath (Just (imageType typ)) (path, bytes)
   imageShapeM (Just (ThePath path), bytes) = fileInfoFromPath Nothing (path, bytes)
   imageShapeM (Just (TheURI uri), bytes) = fileInfoFromPath Nothing (uri, bytes)
@@ -49,7 +48,7 @@ instance (MonadFileCacheUIO r e m) => HasImageShapeM m (Maybe FileSource, BS.Byt
 -- FileCacheTop and its checksum.
 cacheOriginalFiles ::
   forall x e r m. (MakeByteString x, Ord x,
-                   MonadFileCacheUIO r e m,
+                   MonadFileCacheNew r e m,
                    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
   => [(FileSource, x)] -> m ()
 cacheOriginalFiles pairs =
@@ -61,7 +60,7 @@ cacheOriginalFiles pairs =
 -- | 'cacheOriginalFile' with the 'FileError' captured.
 cacheOriginalFile' ::
   forall x e r m.
-  (MakeByteString x, MonadFileCacheUIO r e m)
+  (MakeByteString x, MonadFileCacheNew r e m)
   => Maybe FileSource
   -> x
   -> m (Either FileError (ImageKey, ImageFile))
@@ -72,7 +71,7 @@ cacheOriginalFile' source x =
 -- ByteString, insert it into the cache, and return it.
 cacheOriginalFile ::
   forall x e r m.
-  (MakeByteString x, MonadFileCacheUIO r e m, HasCallStack)
+  (MakeByteString x, MonadFileCacheNew r e m, HasCallStack)
   => Maybe FileSource
   -> x
   -> m (ImageKey, ImageFile)
@@ -80,13 +79,13 @@ cacheOriginalFile source x = do
   img <- buildOriginalImage source x
   let key = originalKey img
       val = ImageFileReady img
-  unsafeFromIO (alog DEBUG ("cachePut " ++ show key))
+  liftIO (alog DEBUG ("cachePut " ++ show key))
   cachePut_ key (Right val)
   return (key, val)
 
 buildOriginalImage ::
   forall x r e m.
-  (MakeByteString x, MonadFileCacheUIO r e m)
+  (MakeByteString x, MonadFileCacheNew r e m)
   => Maybe FileSource
   -> x
   -> m ImageReady
@@ -94,7 +93,7 @@ buildOriginalImage source x = do
   bs <- makeByteString x
   let csum = T.pack $ show $ md5 bs
   shape@ImageShape {..} <- imageShapeM (source, bs)
-  liftUIO $ alog DEBUG ("shape=" <> show shape)
+  alog DEBUG ("shape=" <> show shape)
   -- FIXME: The image-replace command in appraisalscope will pass
   -- Nothing to the source parameter.  Could the correct source
   -- possibly be found in by looking in the image database?
@@ -103,7 +102,7 @@ buildOriginalImage source x = do
                   , _fileMessages = []
                   , _fileExt = fileExtension (imageType shape) }
   let img = ImageReady { _imageFile = file, _imageShape = shape }
-  path <- fileCachePathUIO (ImageCached (ImageOriginal csum _imageShapeType) (ImageFileReady img))
-  exists <- liftUIO $ doesFileExist path
-  unless exists $ liftUIO $ writeFileReadable path bs
+  path <- fileCachePathIO (ImageCached (ImageOriginal csum _imageShapeType) (ImageFileReady img))
+  exists <- liftIO $ doesFileExist path
+  unless exists $ liftIO $ writeFileReadable path bs
   return img

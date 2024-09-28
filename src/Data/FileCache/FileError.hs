@@ -13,9 +13,8 @@ module Data.FileCache.FileError
   , CommandError
   , HasFileError(fileError)
 --  , logErrorCall
-  , MyIO, myRunIO
-  , MyMonadUIO, MyMonadIONew, MyIOErrors, myLiftIO, myUnsafeIO
-  , MonadFileUIO, MonadFileIONew
+  , MyMonadIONew, MyIOErrors
+  , MonadFileIONew
   , E, fromE
   , runFileIOT
   ) where
@@ -35,10 +34,9 @@ import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
 import SeeReason.Errors as Errors ( Member, OneOf(..), oneOf, set)
-import SeeReason.UIO as Errors (liftUIO, NonIOException)
+import SeeReason.UIO as Errors (NonIOException)
 import Extra.Except ( ExceptT, MonadError, HasErrorCall(..), runExceptT )
 import GHC.Generics ( Generic )
-import UnexceptionalIO.Trans (run, UIO, Unexceptional, unsafeFromIO)
 
 -- * FileError, CommandInfo
 
@@ -143,29 +141,11 @@ instance HasFileError FileError where fileError = id
 
 instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
 
-type MyIO = UIO
-
-myRunIO :: MonadIO m => MyIO a -> m a
-myRunIO = run
-
 -- | This will be used to choose whether we are using MonadIO or
 -- Unexceptional.
-class (Unexceptional m, MonadError (OneOf e) m, MyIOErrors e) => MyMonadUIO e m
 class (MonadIO m, MonadError (OneOf e) m, MyIOErrors e) => MyMonadIONew e m
 
 type MyIOErrors e = (Member IOException e, Member NonIOException e)
-
--- unsafeFromIO :: Unexceptional m => IO a -> m a
-myUnsafeIO :: MyMonadUIO e m => IO a -> m a
-myUnsafeIO = unsafeFromIO
-
-myLiftIO :: (MyMonadUIO e m) => IO a -> m a
-myLiftIO = liftUIO
-
-instance (Unexceptional m, MyIOErrors e) => MyMonadUIO e (ExceptT (OneOf e) m)
-instance MyMonadUIO e m => MyMonadUIO e (ReaderT r m)
-instance MyMonadUIO e m => MyMonadUIO e (StateT s m)
-instance (MyMonadUIO e m, Monoid w) => MyMonadUIO e (RWST r w s m)
 
 instance (MonadIO m, MyIOErrors e) => MyMonadIONew e (ExceptT (OneOf e) m)
 instance MyMonadIONew e m => MyMonadIONew e (ReaderT r m)
@@ -177,12 +157,6 @@ instance (MyMonadIONew e m, Monoid w) => MyMonadIONew e (RWST r w s m)
 -- which splits the resulting 'SomeNonPseudoException' into @IO@ and
 -- @NonIO@ parts.  It also has FileException, an error type defined in
 -- this package.
-class (MyMonadUIO e m, Member FileError e, MyIOErrors e) => MonadFileUIO e m
-
-instance (MyMonadUIO e (ExceptT (OneOf e) m), Member FileError e, MyIOErrors e) => MonadFileUIO e (ExceptT (OneOf e) m)
-instance MonadFileUIO e m => MonadFileUIO e (ReaderT r m)
-instance (MonadFileUIO e m, Monoid w) => MonadFileUIO e (RWST r w s m)
-
 class (MyMonadIONew e m, Member FileError e, MyIOErrors e) => MonadFileIONew e m
 
 instance (MyMonadIONew e (ExceptT (OneOf e) m), Member FileError e, MyIOErrors e) => MonadFileIONew e (ExceptT (OneOf e) m)

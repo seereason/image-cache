@@ -7,7 +7,6 @@ module Data.FileCache.FileCacheTop
   , HasFileCacheTop(fileCacheTop)
   , HasCacheAcid(cacheAcid)
   , CacheAcid
-  , MonadFileCacheUIO
   , MonadFileCacheNew
   , FileCacheT
   , runFileCacheT
@@ -19,7 +18,7 @@ import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Control.Monad.RWS (RWST)
 import Data.Acid ( AcidState )
 import Data.FileCache.CacheMap ( CacheMap )
-import Data.FileCache.FileError (E, MonadFileUIO, MyMonadUIO, MonadFileIONew, MyMonadIONew, runFileIOT)
+import Data.FileCache.FileError (E, MonadFileIONew, runFileIOT)
 import SeeReason.Errors (OneOf)
 
 newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
@@ -36,21 +35,6 @@ class HasCacheAcid a where cacheAcid :: a -> AcidState CacheMap
 instance  HasCacheAcid CacheAcid where cacheAcid = id
 instance  HasCacheAcid (CacheAcid, top) where cacheAcid = fst
 instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
-
-class (MonadFileUIO e m,
-       MonadReader r m,
-       HasCacheAcid r,
-       HasFileCacheTop r
-      ) => MonadFileCacheUIO r e m
-
-instance (MonadFileUIO e (ExceptT (OneOf e) m),
-          HasCacheAcid r,
-          HasFileCacheTop r
-         ) => MonadFileCacheUIO r e (ReaderT r (ExceptT (OneOf e) m))
-
-instance (MonadFileUIO e (ExceptT (OneOf e) m),
-          HasCacheAcid r, HasFileCacheTop r
-         ) => MonadFileCacheUIO r e (RWST r () s (ExceptT (OneOf e) m))
 
 class (MonadFileIONew e m,
        MonadReader r m,

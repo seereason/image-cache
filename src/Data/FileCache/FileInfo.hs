@@ -8,8 +8,9 @@ module Data.FileCache.FileInfo
   ) where
 
 import Control.Lens ( view, Field2(_2) )
+import Control.Monad.Reader (liftIO)
 import Data.ByteString.Lazy as BS ( ByteString, toStrict )
-import Data.FileCache.FileError (MonadFileUIO, FileError(NoShapeFromPath))
+import Data.FileCache.FileError (MonadFileIONew, FileError(NoShapeFromPath))
 import Data.FileCache.ImageCrop (Rotation(..))
 import Data.FileCache.ImageKey (HasImageShapeM(..), ImageShape(..), FileType(..))
 import Data.FileCache.ImageRect (makeImageRect)
@@ -19,7 +20,6 @@ import Data.Text ( Text )
 import Data.Text.Encoding (decodeUtf8)
 import GHC.Stack (HasCallStack)
 import SeeReason.Errors (throwMember)
-import SeeReason.UIO (liftUIO, unsafeFromIO)
 import Prelude hiding (show)
 import SeeReason.LogServer (alog, Priority(DEBUG, ERROR))
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
@@ -27,31 +27,31 @@ import Text.Parsec as Parsec
     ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )
 import Text.Parsec.Text ( Parser )
 
-instance MonadFileUIO e m => HasImageShapeM m BS.ByteString where
+instance MonadFileIONew e m => HasImageShapeM m BS.ByteString where
   imageShapeM bytes = fileInfoFromPath Nothing ("-", bytes)
-instance MonadFileUIO e m => HasImageShapeM m (FilePath, BS.ByteString) where
+instance MonadFileIONew e m => HasImageShapeM m (FilePath, BS.ByteString) where
   imageShapeM (path, input) = fileInfoFromPath Nothing (path, input)
 
 -- | Helper function to learn the 'FileType' of a file by running
 -- @file -b@.
-fileInfoFromBytes :: forall e m. (MonadFileUIO e m, HasCallStack) => BS.ByteString -> m ImageShape
+fileInfoFromBytes :: forall e m. (MonadFileIONew e m, HasCallStack) => BS.ByteString -> m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath Nothing ("-", bytes)
 
-fileInfoFromPath :: forall e m. (MonadFileUIO e m, HasCallStack) => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
+fileInfoFromPath :: forall e m. (MonadFileIONew e m, HasCallStack) => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
 fileInfoFromPath mtyp (path, input) =
-  liftUIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
+  liftIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
   where
     cmd = "file"
     args = ["-b", "-"]
 
 -- Parse the output of file -b.   Note - no IO here
 fileInfoFromOutput ::
-  forall e m. (MonadFileUIO e m, HasCallStack) => Maybe FileType -> FilePath -> Text -> m ImageShape
+  forall e m. (MonadFileIONew e m, HasCallStack) => Maybe FileType -> FilePath -> Text -> m ImageShape
 fileInfoFromOutput mtyp path output = do
-  unsafeFromIO $ alog DEBUG ("fileInfoFromOutput " <> show mtyp <> " " <> show path <> " " <> show output)
+  alog DEBUG ("fileInfoFromOutput " <> show mtyp <> " " <> show path <> " " <> show output)
   case parse pFileOutput path output of
     Left e -> do
-      unsafeFromIO $ alog ERROR ("pFileOutput -> " <> show e)
+      alog ERROR ("pFileOutput -> " <> show e)
       return $ ImageShape {_imageShapeType = fromMaybe Unknown mtyp, _imageShapeRect = Left ("parse pFileOutput " <> show path <> " " <> show output <> " -> " <> show e)}
       -- throwError $ fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (PDF, []) -> return $ ImageShape (fromMaybe PDF mtyp) (Left "PDF")
