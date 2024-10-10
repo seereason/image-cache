@@ -36,12 +36,13 @@ instance  HasCacheAcid CacheAcid where cacheAcid = id
 instance  HasCacheAcid (CacheAcid, top) where cacheAcid = fst
 instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
 
-class (MonadFileIONew e m,
-       MonadReader r m,
-       HasCacheAcid r,
-       HasFileCacheTop r
-      ) => MonadFileCacheNew r e m
+type MonadFileCacheNew r e m =
+  (MonadFileIONew e m,
+   MonadReader r m,
+   HasCacheAcid r,
+   HasFileCacheTop r)
 
+{-
 instance (MonadFileIONew e (ExceptT (OneOf e) m),
           HasCacheAcid r,
           HasFileCacheTop r
@@ -50,6 +51,7 @@ instance (MonadFileIONew e (ExceptT (OneOf e) m),
 instance (MonadFileIONew e (ExceptT (OneOf e) m),
           HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCacheNew r e (RWST r () s (ExceptT (OneOf e) m))
+-}
 
 -- | A simple type that is an instance of 'MonadFileCacheUIO'.
 type FileCacheT r m = ReaderT r (ExceptT (OneOf E) m)
