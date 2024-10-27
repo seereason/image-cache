@@ -61,7 +61,7 @@ Library
     process,
     pureMD5,
     safecopy >= 0.9.4.4,
-    sr-errors >= 1.9,
+    sr-errors >= 1.13,
     sr-utils >= 1.79,
     sr-log >= 1.16,
     syb,

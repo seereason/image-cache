@@ -33,7 +33,7 @@ import Data.SafeCopy ( base, extension, Migrate(..), safeGet, safePut, SafeCopy(
 import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
-import SeeReason.Errors as Errors ( Member, OneOf(..), oneOf, set)
+import SeeReason.Errors as Errors ( Member, OneOf(..), oneOf, put1)
 import SeeReason.UIO as Errors (NonIOException)
 import Extra.Except ( ExceptT, MonadError, HasErrorCall(..), runExceptT )
 import GHC.Generics ( Generic )
@@ -175,7 +175,7 @@ type E = '[FileError, IOException, NonIOException]
 
 -- | Convert an 'E' into some e
 fromE :: forall e. (Member FileError e, MyIOErrors e) => OneOf E -> OneOf e
-fromE (Val e) = Errors.set (e :: FileError)
-fromE (NoVal (Val e)) = Errors.set (e :: IOException)
-fromE (NoVal (NoVal (Val e))) = Errors.set (e :: NonIOException)
+fromE (Val e) = Errors.put1 (e :: FileError)
+fromE (NoVal (Val e)) = Errors.put1 (e :: IOException)
+fromE (NoVal (NoVal (Val e))) = Errors.put1 (e :: NonIOException)
 fromE _ = error "Impossible"
