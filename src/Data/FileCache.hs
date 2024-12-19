@@ -40,7 +40,8 @@ module Data.FileCache
     HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
     ImageShape(ImageShape, _imageShapeType, _imageShapeRect),
     shapeFromKey,
-    HasImageShapeM(imageShapeM), HasImageShape, imageShape, HasOriginalShape(originalShape),
+    HasImageShapeM(imageShapeM), HasImageShape, imageShape,
+    HasOriginalShape(originalShape),
     ImageStats(..),
 
     -- * import Data.FileCache.ImageFile
@@ -52,23 +53,29 @@ module Data.FileCache
     ImageCached(..), CacheMap(..),
 
 #ifndef __GHCJS__
-    -- * import Data.FileCache.FileCacheTop
-    FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCacheNew, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT,
+    -- * Image cache acid state repository
+    FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid,
+    MonadFileCacheNew, HasCacheAcid(cacheAcid),
+    HasFileCacheTop(fileCacheTop), runFileCacheT,
 
-    -- * import Data.FileCache.Acid
-    initCacheMap, PutValues(PutValues),
+    -- * Image cache acid-state operations
+    initCacheMap, openCache, PutValue(..), PutValues(..),
+    LookValue(..), LookValues(..), LookMap(..), DeleteValue(..),
+    DeleteValues(..), Replace(..), Request(..), Requested(..),
+    Dequeue(..), Complete(..), cacheLook, cachePut,
 
-    -- * import Data.FileCache.FileCache
-    cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath),
+    -- * Image directory structure
+    fileCachePath, HasFilePath(toFilePath),
 
-    -- * import Data.FileCache.Upload
+    -- * Upload a new image
     cacheOriginalFile,
 
     -- * Turn an ImageKey into an ImageFile
     buildImageFile, getImageFile, getImageFiles,
 
     -- * Background image building process
-    HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys,
+    HasImageBuilder(imageBuilder), ImageChan, startImageBuilder,
+    testImageKeys,
 #endif
 
 ---------------------
