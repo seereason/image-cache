@@ -65,7 +65,7 @@ module Data.FileCache
     cacheOriginalFile,
 
     -- * Turn an ImageKey into an ImageFile
-    buildImageFile, getImageFile, getImageFiles
+    buildImageFile, getImageFile, getImageFiles,
 
     -- * Background image building process
     HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys,
