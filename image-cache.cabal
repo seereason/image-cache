@@ -26,6 +26,7 @@ Library
   Default-Extensions: ScopedTypeVariables, StandaloneDeriving, TypeApplications, TypeFamilies
   Exposed-Modules:
     Data.FileCache
+    Data.FileCache.Internal
   Other-Modules:
     Data.FileCache.CacheMap
     Data.FileCache.CommandError
