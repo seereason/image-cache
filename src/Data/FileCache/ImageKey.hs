@@ -98,6 +98,8 @@ instance Serialize ImageKey where get = safeGet; put = safePut
 -- created by the migration of ImageCache.
 instance SafeCopy ImageKey where version = 4
 
+instance Value ImageKey where hops _ = [RecType, CtorType]
+
 instance Pretty ImageKey where
     pPrint (ImageOriginal csum typ) = text (take 7 (unpack csum)) <> text (unpack (fileExtension typ))
     pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> ")"
@@ -219,12 +221,11 @@ newtype ImagePath =
   ImagePath { _imagePathKey :: ImageKey
             -- , _imagePathType :: FileType
             } deriving (Generic, Eq, Ord)
+{-# DEPRECATED ImagePath "Seems to be a pointless wrapper" #-}
 
 class HasImagePath a where imagePath :: a -> ImagePath
 instance HasImagePath ImagePath where imagePath = id
 instance HasImageKey ImagePath where imageKey (ImagePath x) = imageKey x
-
-instance Value ImageKey where hops _ = [RecType, CtorType]
 
 -- * FileType and Checksum
 
@@ -461,6 +462,7 @@ data ImageStats
     } deriving (Generic, Eq, Ord, Show, Serialize)
 
 instance SafeCopy ImageStats
+instance Value ImageStats where hops _ = []
 
 #if MIN_VERSION_template_haskell(2,17,0)
 instance PathInfo ImagePath where

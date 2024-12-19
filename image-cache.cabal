@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.37
+Version:        0.38
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -26,6 +26,7 @@ Library
   Default-Extensions: ScopedTypeVariables, StandaloneDeriving, TypeApplications, TypeFamilies
   Exposed-Modules:
     Data.FileCache
+  Other-Modules:
     Data.FileCache.CacheMap
     Data.FileCache.CommandError
     Data.FileCache.File

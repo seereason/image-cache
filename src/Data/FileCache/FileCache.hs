@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
-{-# OPTIONS -ddump-minimal-imports #-}
 
 module Data.FileCache.FileCache
   ( HasFilePath(toFilePath)

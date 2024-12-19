@@ -17,22 +17,24 @@ module Data.FileCache.Rational
   , readRationalMaybe
   , showRational
   , rsqrt
+  , micro
   ) where
 
 import Control.Lens (Iso', iso, preview, Prism', prism',  review)
 import Control.Monad.Fail (MonadFail)
+import Data.Fixed (E6, Fixed, showFixed)
 import Data.ListLike (fromString, toString)
-import Data.Monoid ( (<>) )
+import Data.Monoid ((<>))
 import Data.Ratio (approxRational, denominator, numerator, Ratio)
 import qualified Data.Ratio ((%))
-import Data.Text ( Text, strip )
+import Data.Text (pack, Text, strip)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Language.Haskell.TH.Lift as TH ()
 import Numeric (readSigned, readFloat, showSigned, showFFloat)
 import qualified Numeric (fromRat)
 import SeeReason.SrcLoc (compactStack, getStack)
-import Web.Routes ( PathInfo(..) )
+import Web.Routes (PathInfo(..))
 
 -- * Rational
 
@@ -99,3 +101,6 @@ instance PathInfo Rational where
 -- mapRatio :: (Integral a, Integral b) => (a -> b) -> Ratio a -> Ratio b
 -- mapRatio f r = f (numerator r) % f (denominator r)
 
+-- | Convert a real to 'Micro' and render as 'Text'
+micro :: (Real a, Fractional a) => a -> Text
+micro x = pack (showFixed True (realToFrac (x + 0.5e-6) :: Fixed E6))

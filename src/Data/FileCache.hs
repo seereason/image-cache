@@ -4,23 +4,94 @@
 -- using acid-state.
 
 module Data.FileCache
-  ( module Data.FileCache.CacheMap
-  , module Data.FileCache.CommandError
-  , module Data.FileCache.File
-  , module Data.FileCache.FileError
-  , module Data.FileCache.Happstack
-  , module Data.FileCache.ImageCrop
-  , module Data.FileCache.ImageFile
-  , module Data.FileCache.ImageKey
-  , module Data.FileCache.ImageRect
-  , module Data.FileCache.ImageSize
-  , module Data.FileCache.Rational
+  (
+    -- * Happstack re-exports
+    ContentType(..),
+
+    -- * IO and error types
+    FileError(..), CommandError, HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, fromE, runFileIOT,
+
+    -- * Running shell commands
+    CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError),
+
+    -- * File and image file types
+    File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension),
+
+    -- * import Data.FileCache.ImageCrop
+    ImageCrop(..), Rotation(..),
+
+    -- * import Data.FileCache.ImageSize
+    ImageSize(..), HasImageSize(imageSize), Dimension(..), Units(..),
+    saneSize, SaneSize(..), defaultSize, inches,
+
+    -- * import Data.FileCache.ImageRect
+    ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation), makeImageRect,
+    imageAspect, HasImageRect(imageRect), widthInInches, widthInInches', heightInInches,
+    scaleImageRect, scaleFromDPI, cropImageRect, uprightImageRect,
+
+    -- * ImageKey - describes the function from original to derived image
+    ImageKey(..), HasImageKey(imageKey),
+    OriginalKey(originalKey), UprightKey(uprightKey),
+    EditedKey(editedKey), ScaledKey(scaledKey),
+
+    -- ImagePath(ImagePath, _imagePathKey), HasImagePath(imagePath),
+
+    FileType(..), -- GIF, HEIC, JPEG, PDF, PNG, PPM, TIFF, CSV, Unknown
+    HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
+    ImageShape(ImageShape, _imageShapeType, _imageShapeRect),
+    shapeFromKey,
+    HasImageShapeM(imageShapeM), HasImageShape, imageShape, HasOriginalShape(originalShape),
+    scaleFromDPI, ImageStats(..),
+
+    -- * import Data.FileCache.ImageFile
+    ImageFile(ImageFileShape, ImageFileReady),
+    ImageReady(ImageReady, _imageFile, _imageShape),
+    printerDPI,
+
+    -- * import Data.FileCache.CacheMap
+    ImageCached(..), CacheMap(..),
+
+    -- * import Data.FileCache.FileCacheTop
+    FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCacheNew, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT,
+
+    -- * import Data.FileCache.Acid
+    initCacheMap, PutValues(PutValues),
+
+    -- * import Data.FileCache.FileCache
+    cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath),
+
+    -- * import Data.FileCache.Upload
+    cacheOriginalFile,
+
+    -- * Turn an ImageKey into an ImageFile
+    getImageFile,
+
+    -- * Background image building process
+    HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys,
+
+---------------------
+
+  -- * module Data.FileCache.Rational
+    (%),     -- re-export with improved error message
+    fromRat, -- re-export with improved error message
+    approx,
+    micro,
+    rationalIso,
+    rationalPrism,
+    readRationalMaybe,
+    showRational,
+    rsqrt
   ) where
 
+import Data.FileCache.Acid (initCacheMap, PutValues(PutValues))
+import Data.FileCache.Background (HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys)
 import Data.FileCache.CacheMap (ImageCached(..), CacheMap(..))
 import Data.FileCache.CommandError (CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError))
+import Data.FileCache.Derive (getImageFile)
 import Data.FileCache.File (File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension))
-import Data.FileCache.FileError (FileError(..), CommandError, HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, runFileIOT)
+import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
+import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCacheNew, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
+import Data.FileCache.FileError (FileError(..), CommandError, HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, fromE, runFileIOT)
 import Data.FileCache.Happstack (ContentType(..))
 import Data.FileCache.ImageCrop (ImageCrop(..), Rotation(..))
 import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)
@@ -37,6 +108,7 @@ import Data.FileCache.ImageRect
 import Data.FileCache.ImageSize
   (ImageSize(..), HasImageSize(imageSize), Dimension(..), Units(..),
    saneSize, SaneSize(..), defaultSize, inches)
+import Data.FileCache.Upload (cacheOriginalFile)
 import Data.FileCache.Rational
   ((%), fromRat, -- re-exports
-   approx, rationalIso, rationalPrism, readRationalMaybe, showRational, rsqrt)
+   approx, micro, rationalIso, rationalPrism, readRationalMaybe, showRational, rsqrt)
