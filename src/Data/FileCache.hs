@@ -65,7 +65,7 @@ module Data.FileCache
     cacheOriginalFile,
 
     -- * Turn an ImageKey into an ImageFile
-    getImageFile,
+    buildImageFile, getImageFile, getImageFiles
 
     -- * Background image building process
     HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys,
@@ -110,7 +110,11 @@ import Data.FileCache.Rational
    approx, micro, rationalIso, rationalPrism, readRationalMaybe, showRational, rsqrt)
 
 #ifndef __GHCJS__
-import Data.FileCache.Acid (initCacheMap, PutValues(PutValues))
+import Data.FileCache.Acid
+  (initCacheMap, openCache, PutValue(..), PutValues(..),
+   LookValue(..), LookValues(..), LookMap(..), DeleteValue(..),
+   DeleteValues(..), Replace(..), Request(..), Requested(..),
+   Dequeue(..), Complete(..))
 import Data.FileCache.Background (HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys)
 import Data.FileCache.Derive (getImageFile)
 import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
