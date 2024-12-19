@@ -116,7 +116,7 @@ import Data.FileCache.Acid
    DeleteValues(..), Replace(..), Request(..), Requested(..),
    Dequeue(..), Complete(..))
 import Data.FileCache.Background (HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys)
-import Data.FileCache.Derive (getImageFile)
+import Data.FileCache.Derive (buildImageFile, getImageFile, getImageFiles)
 import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
 import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCacheNew, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
 import Data.FileCache.Upload (cacheOriginalFile)
