@@ -30,9 +30,9 @@ import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFi
 import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
 import Data.FileCache.ImageKey
   ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey,
-    HasFileType(imageType), FileType, imageShape, scaleFromDPI, HasImageShapeM(imageShapeM),
+    HasFileType(imageType), FileType, imageShape, HasImageShapeM(imageShapeM),
     ImageShape(_imageShapeType) )
-import Data.FileCache.ImageRect (HasImageRect(imageRect))
+import Data.FileCache.ImageRect (HasImageRect(imageRect), scaleFromDPI)
 import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalFile )
 import Data.ListLike ( ListLike(length) )

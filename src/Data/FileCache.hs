@@ -9,7 +9,7 @@ module Data.FileCache
     ContentType(..),
 
     -- * IO and error types
-    FileError(..), CommandError, HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, fromE, runFileIOT,
+    FileError(..), HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, fromE, runFileIOT,
 
     -- * Running shell commands
     CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError),
@@ -41,7 +41,7 @@ module Data.FileCache
     ImageShape(ImageShape, _imageShapeType, _imageShapeRect),
     shapeFromKey,
     HasImageShapeM(imageShapeM), HasImageShape, imageShape, HasOriginalShape(originalShape),
-    scaleFromDPI, ImageStats(..),
+    ImageStats(..),
 
     -- * import Data.FileCache.ImageFile
     ImageFile(ImageFileShape, ImageFileReady),
@@ -51,6 +51,7 @@ module Data.FileCache
     -- * import Data.FileCache.CacheMap
     ImageCached(..), CacheMap(..),
 
+#ifndef __GHCJS__
     -- * import Data.FileCache.FileCacheTop
     FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCacheNew, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT,
 
@@ -68,6 +69,7 @@ module Data.FileCache
 
     -- * Background image building process
     HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys,
+#endif
 
 ---------------------
 
@@ -83,24 +85,19 @@ module Data.FileCache
     rsqrt
   ) where
 
-import Data.FileCache.Acid (initCacheMap, PutValues(PutValues))
-import Data.FileCache.Background (HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys)
 import Data.FileCache.CacheMap (ImageCached(..), CacheMap(..))
 import Data.FileCache.CommandError (CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError))
-import Data.FileCache.Derive (getImageFile)
 import Data.FileCache.File (File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension))
-import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
-import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCacheNew, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
-import Data.FileCache.FileError (FileError(..), CommandError, HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, fromE, runFileIOT)
+import Data.FileCache.FileError (FileError(..), HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, fromE, runFileIOT)
 import Data.FileCache.Happstack (ContentType(..))
 import Data.FileCache.ImageCrop (ImageCrop(..), Rotation(..))
 import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)
 import Data.FileCache.ImageKey
   (ImageKey(..), HasImageKey(imageKey), OriginalKey(originalKey), UprightKey(uprightKey), EditedKey(editedKey), ScaledKey(scaledKey),
-   ImagePath(ImagePath, _imagePathKey), HasImagePath(imagePath), shapeFromKey,
+   {-ImagePath(ImagePath, _imagePathKey), HasImagePath(imagePath),-} shapeFromKey,
    FileType(..), HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
    ImageShape(..), HasImageShapeM(imageShapeM), HasImageShape, imageShape, HasOriginalShape(originalShape),
-   scaleFromDPI, ImageStats(..))
+   ImageStats(..))
 import Data.FileCache.ImageRect
   (ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation), makeImageRect,
    imageAspect, HasImageRect(imageRect), widthInInches, widthInInches', heightInInches,
@@ -108,7 +105,15 @@ import Data.FileCache.ImageRect
 import Data.FileCache.ImageSize
   (ImageSize(..), HasImageSize(imageSize), Dimension(..), Units(..),
    saneSize, SaneSize(..), defaultSize, inches)
-import Data.FileCache.Upload (cacheOriginalFile)
 import Data.FileCache.Rational
   ((%), fromRat, -- re-exports
    approx, micro, rationalIso, rationalPrism, readRationalMaybe, showRational, rsqrt)
+
+#ifndef __GHCJS__
+import Data.FileCache.Acid (initCacheMap, PutValues(PutValues))
+import Data.FileCache.Background (HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys)
+import Data.FileCache.Derive (getImageFile)
+import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
+import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCacheNew, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
+import Data.FileCache.Upload (cacheOriginalFile)
+#endif

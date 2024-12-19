@@ -18,7 +18,7 @@ flag pretty-112
   Default: True
 
 Library
-  Hs-Source-Dirs: src
+  Default-Language: Haskell2010
   GHC-Options: -Wall -Wredundant-constraints -Werror=incomplete-patterns -fno-warn-name-shadowing -O
   -- CPP-Options: -DLAZYIMAGES
   Default-Extensions: ConstraintKinds, CPP, DataKinds, DeriveDataTypeable, DeriveFunctor, DeriveGeneric
@@ -37,6 +37,7 @@ Library
     Data.FileCache.ImageKey
     Data.FileCache.ImageRect
     Data.FileCache.ImageSize
+    Data.FileCache.Orphans
     Data.FileCache.Rational
   Build-Depends:
     base >= 4,
@@ -76,7 +77,8 @@ Library
     web-routes,
     web-routes-th
   if !impl(ghcjs)
-    Exposed-Modules:
+    Hs-Source-Dirs: src src-ghc
+    Other-Modules:
       Data.FileCache.Acid
       Data.FileCache.Background
       Data.FileCache.Derive
@@ -108,9 +110,11 @@ Library
     build-tools:
       fbida
   else
+    Hs-Source-Dirs: src
     Build-Depends: Cabal
 
 test-suite image-cache-tests
+  Default-Language: Haskell2010
   if !impl(ghcjs)
     Buildable: False
   else

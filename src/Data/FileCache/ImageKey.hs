@@ -36,13 +36,6 @@ module Data.FileCache.ImageKey
   , HasImageShapeM(imageShapeM)
   , HasImageShape, imageShape
   , HasOriginalShape(originalShape)
-  , scaleFromDPI
-{-
-  , scaleImageShape
-  , cropImageShape
-  , rotateImageShape
-  , uprightImageShape
--}
   , ImageStats(..)
   ) where
 
