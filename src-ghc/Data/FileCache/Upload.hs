@@ -32,7 +32,7 @@ import SeeReason.LogServer(alog)
 import System.Directory ( doesFileExist )
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
-import SeeReason.Errors (tryMember)
+import SeeReason.Errors (throwMember, tryMember)
 
 instance (MonadFileCacheNew r e m) => HasImageShapeM m (Checksum, FileType) where
   imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath (Just typ) . (, BS.empty)
@@ -47,9 +47,11 @@ instance (MonadFileCacheNew r e m) => HasImageShapeM m (Maybe FileSource, BS.Byt
 -- state image map and copies the file to a location determined by the
 -- FileCacheTop and its checksum.
 cacheOriginalFiles ::
-  forall x e r m. (MakeByteString x, Ord x,
-                   MonadFileCacheNew r e m,
-                   MonadState (Map x (Either FileError (ImageKey, ImageFile))) m)
+  forall x e r m.
+  (MakeByteString x, Ord x,
+   MonadFileCacheNew r e m,
+   MonadState (Map x (Either FileError (ImageKey, ImageFile))) m,
+   HasCallStack)
   => [(FileSource, x)] -> m ()
 cacheOriginalFiles pairs =
   mapM_ doPair pairs
@@ -60,7 +62,7 @@ cacheOriginalFiles pairs =
 -- | 'cacheOriginalFile' with the 'FileError' captured.
 cacheOriginalFile' ::
   forall x e r m.
-  (MakeByteString x, MonadFileCacheNew r e m)
+  (MakeByteString x, MonadFileCacheNew r e m, HasCallStack)
   => Maybe FileSource
   -> x
   -> m (Either FileError (ImageKey, ImageFile))
@@ -85,24 +87,35 @@ cacheOriginalFile source x = do
 
 buildOriginalImage ::
   forall x r e m.
-  (MakeByteString x, MonadFileCacheNew r e m)
+  (MakeByteString x, MonadFileCacheNew r e m, HasCallStack)
   => Maybe FileSource
   -> x
   -> m ImageReady
 buildOriginalImage source x = do
   bs <- makeByteString x
   let csum = T.pack $ show $ md5 bs
-  shape@ImageShape {..} <- imageShapeM (source, bs)
-  alog DEBUG ("shape=" <> show shape)
-  -- FIXME: The image-replace command in appraisalscope will pass
-  -- Nothing to the source parameter.  Could the correct source
-  -- possibly be found in by looking in the image database?
-  let file = File { _fileSource = fromMaybe Missing source
-                  , _fileChksum = csum
-                  , _fileMessages = []
-                  , _fileExt = fileExtension (imageType shape) }
-  let img = ImageReady { _imageFile = file, _imageShape = shape }
-  path <- fileCachePathIO (ImageCached (ImageOriginal csum _imageShapeType) (ImageFileReady img))
-  exists <- liftIO $ doesFileExist path
-  unless exists $ liftIO $ writeFileReadable path bs
-  return img
+  imageShapeM (source, bs) >>= \case
+#if 0
+    -- Even if the rect is an error message the image is returned,
+    -- the client can display the message
+    ImageShape{_imageShapeRect = Left msg} -> do
+      alog DEBUG ("msg=" <> show msg)
+      throwMember (FromString msg)
+#endif
+    shape@ImageShape{..} -> do
+      -- FIXME: The image-replace command in appraisalscope will pass
+      -- Nothing to the source parameter.  Could the correct source
+      -- possibly be found in by looking in the image database?
+      let file = File { _fileSource = fromMaybe Missing source
+                      , _fileChksum = csum
+                      , _fileMessages = []
+                      , _fileExt = fileExtension (imageType shape) }
+      let img = ImageReady { _imageFile = file, _imageShape = shape }
+      alog DEBUG ("img=" <> show img)
+      path <- fileCachePathIO (ImageCached
+                                (ImageOriginal csum _imageShapeType)
+                                (ImageFileReady img))
+      alog DEBUG ("path=" <> show path)
+      exists <- liftIO $ doesFileExist path
+      unless exists $ liftIO $ writeFileReadable path bs
+      return img

@@ -21,7 +21,7 @@ import Data.Text.Encoding (decodeUtf8)
 import GHC.Stack (HasCallStack)
 import SeeReason.Errors (throwMember)
 import Prelude hiding (show)
-import SeeReason.LogServer (alog, Priority(DEBUG, ERROR))
+import SeeReason.LogServer (alog, alogDrop, Priority(DEBUG, ERROR))
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
 import Text.Parsec as Parsec
     ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )
@@ -34,12 +34,17 @@ instance MonadFileIONew e m => HasImageShapeM m (FilePath, BS.ByteString) where
 
 -- | Helper function to learn the 'FileType' of a file by running
 -- @file -b@.
-fileInfoFromBytes :: forall e m. (MonadFileIONew e m, HasCallStack) => BS.ByteString -> m ImageShape
+fileInfoFromBytes ::
+  forall e m. (MonadFileIONew e m, HasCallStack)
+  => BS.ByteString -> m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath Nothing ("-", bytes)
 
-fileInfoFromPath :: forall e m. (MonadFileIONew e m, HasCallStack) => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
+fileInfoFromPath ::
+  forall e m. (MonadFileIONew e m, HasCallStack)
+  => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
 fileInfoFromPath mtyp (path, input) =
-  liftIO (LL.readProcessWithExitCode cmd args input) >>= (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
+  liftIO (LL.readProcessWithExitCode cmd args input) >>=
+  (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
   where
     cmd = "file"
     args = ["-b", "-"]
@@ -48,7 +53,9 @@ fileInfoFromPath mtyp (path, input) =
 fileInfoFromOutput ::
   forall e m. (MonadFileIONew e m, HasCallStack) => Maybe FileType -> FilePath -> Text -> m ImageShape
 fileInfoFromOutput mtyp path output = do
-  alog DEBUG ("fileInfoFromOutput " <> show mtyp <> " " <> show path <> " " <> show output)
+  alogDrop id DEBUG ("fileInfoFromOutput mtyp=" <> show mtyp)
+  alog DEBUG ("fileInfoFromOutput path=" <> show path)
+  alog DEBUG ("fileInfoFromOutput output=" <> show output)
   case parse pFileOutput path output of
     Left e -> do
       alog ERROR ("pFileOutput -> " <> show e)

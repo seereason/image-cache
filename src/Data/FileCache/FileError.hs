@@ -141,24 +141,16 @@ instance HasFileError FileError where fileError = id
 
 instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
 
--- | This will be used to choose whether we are using MonadIO or
--- Unexceptional.
 type MyMonadIONew e m = (MonadIO m, MonadError (OneOf e) m, MyIOErrors e)
--- class (MonadIO m, MonadError (OneOf e) m, MyIOErrors e) => MyMonadIONew e m
 
 type MyIOErrors e = (Member IOException e, Member NonIOException e)
-
--- instance (MonadIO m, MyIOErrors e) => MyMonadIONew e (ExceptT (OneOf e) m)
--- instance MyMonadIONew e m => MyMonadIONew e (ReaderT r m)
--- instance MyMonadIONew e m => MyMonadIONew e (StateT s m)
--- instance (MyMonadIONew e m, Monoid w) => MyMonadIONew e (RWST r w s m)
 
 -- | Constraints typical of the functions in this package.  They occur
 -- when an IO operation is lifted into 'Unexceptional' by 'liftUIO',
 -- which splits the resulting 'SomeNonPseudoException' into @IO@ and
 -- @NonIO@ parts.  It also has FileException, an error type defined in
 -- this package.
-type MonadFileIONew e m = (MyMonadIONew e m, Member FileError e, MyIOErrors e)
+type MonadFileIONew e m = (MyMonadIONew e m, Member FileError e)
 -- class (MyMonadIONew e m, Member FileError e, MyIOErrors e) => MonadFileIONew e m
 
 -- instance (MyMonadIONew e (ExceptT (OneOf e) m), Member FileError e, MyIOErrors e) => MonadFileIONew e (ExceptT (OneOf e) m)
