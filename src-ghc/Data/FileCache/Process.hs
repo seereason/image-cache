@@ -6,7 +6,8 @@ module Data.FileCache.Process
   ) where
 
 import Control.Exception (IOException)
-import Control.Monad.Except (MonadError, MonadIO(liftIO))
+import Control.Monad.Except (MonadError)
+import Control.Monad.Trans (MonadIO(liftIO))
 import qualified Data.ByteString.Lazy as BS ( ByteString )
 import Data.FileCache.FileError ( FileError )
 import Data.FileCache.LogException ( logException )

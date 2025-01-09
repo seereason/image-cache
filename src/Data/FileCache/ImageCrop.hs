@@ -13,7 +13,9 @@ module Data.FileCache.ImageCrop
   , Rotation(..)
   ) where
 
+import Control.Applicative ((<$>), (<|>))
 import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..) )
+import Control.Monad (ap)
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
@@ -23,7 +25,9 @@ import Data.Serialize ( Serialize(..) )
 import Data.Typeable (Typeable, typeRep)
 import GHC.Generics ( Generic )
 -- import Prelude ( (++), ($), Eq, Ord, Read, Show(show), Int )
+import Data.Text (pack)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+import Web.Routes
 import Web.Routes.TH ( derivePathInfo )
 
 -- * ImageCrop

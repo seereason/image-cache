@@ -15,7 +15,8 @@ module Data.FileCache.Derive
   ) where
 
 import Control.Lens ( _Right, over )
-import Control.Monad.Reader (liftIO, unless, when)
+import Control.Monad (unless, when)
+import Control.Monad.Trans (liftIO )
 import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
