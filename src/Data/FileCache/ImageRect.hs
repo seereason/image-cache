@@ -43,8 +43,7 @@ data ImageRect
 
 instance Serialize ImageRect where get = safeGet; put = safePut
 instance SafeCopy ImageRect where version = 1; kind = base
-instance Value ImageRect where hops _ = [RecType, CtorType]
-
+instance Value ImageRect where hops _ = [] -- [RecType, CtorType]
 instance Pretty ImageRect where
   pPrint (ImageRect w h rot) =
     text "ImageRect (" <>

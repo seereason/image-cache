@@ -91,7 +91,7 @@ instance Serialize ImageKey where get = safeGet; put = safePut
 -- created by the migration of ImageCache.
 instance SafeCopy ImageKey where version = 4
 
-instance Value ImageKey where hops _ = [RecType, CtorType]
+instance Value ImageKey where hops _ = [] -- [RecType, CtorType]
 
 instance Pretty ImageKey where
     pPrint (ImageOriginal csum typ) = text (take 7 (unpack csum)) <> text (unpack (fileExtension typ))
@@ -365,7 +365,7 @@ data ImageShape
 
 instance Serialize ImageShape where get = safeGet; put = safePut
 instance SafeCopy ImageShape where version = 3; kind = extension
-instance Value ImageShape where hops _ = [RecType, CtorType]
+instance Value ImageShape where hops _ = [] -- [RecType, CtorType]
 
 instance Pretty ImageShape where
   pPrint (ImageShape typ mrect) =
@@ -457,7 +457,7 @@ data ImageStats
 instance SafeCopy ImageStats
 instance Value ImageStats where hops _ = []
 
-#if MIN_VERSION_template_haskell(2,17,0)
+#if MIN_VERSION_template_haskell(2,23,0)
 instance PathInfo ImagePath where
       toPathSegments inp_aAxt
         = case inp_aAxt of {

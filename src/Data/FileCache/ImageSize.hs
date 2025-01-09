@@ -47,7 +47,7 @@ data ImageSize
 
 instance SafeCopy ImageSize where version = 2
 instance Serialize ImageSize where get = safeGet; put = safePut
-instance Value ImageSize where hops _ = [RecType, CtorType]
+instance Value ImageSize where hops _ = [] -- [RecType, CtorType]
 
 -- > pPrint (ImageSize TheWidth 9 Inches)
 -- 9.0in wide
@@ -138,7 +138,7 @@ saneSize sz = SaneSize $
 
 instance Value (SaneSize ImageSize) where hops _ = [ViewType]
 
-#if MIN_VERSION_template_haskell(2,17,0)
+#if MIN_VERSION_template_haskell(2,23,0)
 instance PathInfo ImageSize where
       toPathSegments inp_aAxV
         = case inp_aAxV of {

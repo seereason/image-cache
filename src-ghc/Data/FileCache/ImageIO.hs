@@ -121,7 +121,7 @@ uprightImage' ::
 uprightImage' bs =
   liftIO $ either (\(_ :: FileError) -> Nothing) Just <$> runExceptT (normalizeOrientationCode bs)
 
-deriving instance Generic ExifData
+-- deriving instance Generic ExifData
 
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the

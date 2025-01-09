@@ -45,7 +45,7 @@ data ImageCrop
 instance Default ImageCrop where def = ImageCrop 0 0 0 0 ZeroHr
 instance Serialize ImageCrop where get = safeGet; put = safePut
 instance SafeCopy ImageCrop where kind = base; version = 1
-instance Value ImageCrop where hops _ = [RecType, CtorType]
+instance Value ImageCrop where hops _ = [] -- [RecType, CtorType]
 instance Pretty ImageCrop where
     pPrint (ImageCrop 0 0 0 0 ZeroHr) = text "(no crop)"
     pPrint (ImageCrop t b l r ZeroHr) = text $ "(crop " <> show (b, l) <> " -> " <> show (t, r) <> ")"
@@ -61,7 +61,9 @@ instance SafeCopy Rotation where version = 0
 instance Serialize Rotation where get = safeGet; put = safePut
 instance Value Rotation where hops _ = []
 
-#if MIN_VERSION_template_haskell(2,17,0)
+-- #if MIN_VERSION_template_haskell(2,23,0)
+#if 0
+
 instance PathInfo ImageCrop where
       toPathSegments inp_aAxw
         = case inp_aAxw of {
