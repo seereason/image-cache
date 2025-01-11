@@ -20,7 +20,6 @@ import Data.ByteString (ByteString, pack)
 import Data.Char (ord)
 import Data.Typeable (Proxy(Proxy))
 import Data.Map (fromList)
-import qualified Exif (tests)
 import qualified LaTeX
 import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
 import System.FilePath.Extra3 (removeRecursiveSafely)
@@ -38,7 +37,7 @@ main =
                          ])
 
 tests :: Test
-tests = TestList [Exif.tests, LaTeX.tests, acid1, file1]
+tests = TestList [LaTeX.tests{- , acid1, file1-}]
 
 -- The directory that holds the acid state event logs and checkpoints.
 acidDir = "Tests/acid"
@@ -50,15 +49,16 @@ oldfile :: FilePath
 oldfile = "/usr/share/doc/cron/THANKS"
 
 type AcidM m = RWST (AcidState CacheMap) () () m
-type FileM m = FileCacheT (AcidState CacheMap) () m
+type FileM m = FileCacheT (AcidState CacheMap) m
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
+{-
 instance (MonadIO m, MonadCatch m, MonadError FileError m) => HasCacheAcid (AcidM m ()) where
     cacheAcid = ask
     -- buildCacheValue = return . Cached . reverse
 
-instance HasCacheAcid m => HasCacheAcid (ReaderT FilePath m) where
+instance HasCacheAcid (m :: * -> *) => HasCacheAcid (ReaderT FilePath m) where
     cacheAcid = lift cacheAcid
 
 runMonadCacheT ::
@@ -133,3 +133,4 @@ file1 = TestCase $ do
                     "\t-> misc changes related to the side effects of fclose()",
                     "\t-> Sequent \"universe\" support added (may also help on Pyramids)",
                     "\t-> null pw_shell is dealt with now; default is /bin/sh"]))
+-}

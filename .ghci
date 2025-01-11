@@ -19,7 +19,7 @@
 :set -DGHCI
 :set -DLENS_PATH_TOP="../lens-path"
 :set -DUSE_FAKE_CLCKWRKS_TYPES=1
-:set -isrc:src-ghc:tools
+:set -isrc:src-ghc:Tests:tools
 :set -Wall -Wredundant-constraints
 :m +Language.Haskell.TH
 :set prompt "λ> "
