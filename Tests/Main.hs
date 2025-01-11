@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -10,17 +11,27 @@ module Main where
 
 import Data.FileCache
 import Data.FileCache.Server
+import Control.Exception (IOException, SomeException, throwIO)
+import Control.Lens (over, _Left)
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (ExceptT, MonadError, runExceptT)
+import Control.Monad.Except (ExceptT, MonadError, runExceptT, throwError)
+import Control.Monad.Identity (Identity)
 import Control.Monad.Reader (ask, ReaderT)
 import Control.Monad.RWS
 import Control.Monad.Trans (lift)
 import Data.Acid (AcidState)
 import Data.ByteString (ByteString, pack)
+import qualified Data.ByteString.Lazy as Lazy (ByteString, pack)
 import Data.Char (ord)
+import Data.FileCache.FileInfo (fileInfoFromBytes)
+import Data.FileCache.ImageRect (makeImageRect)
+import Data.FileCache.ImageKey (ImageShape)
 import Data.Typeable (Proxy(Proxy))
 import Data.Map (fromList)
+import Extra.Exceptionless (Exceptionless, liftExceptionless, tryExceptionless, runExceptionless)
 import qualified LaTeX
+import SeeReason.Errors as Err (catchMember, findError, throwMember, Member, OneOf)
+import SeeReason.UIO (NonIOException)
 import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
 import System.FilePath.Extra3 (removeRecursiveSafely)
 import Test.HUnit (assertEqual, Test(TestList, TestCase), runTestTT, Counts(errors, failures))
@@ -37,7 +48,7 @@ main =
                          ])
 
 tests :: Test
-tests = TestList [LaTeX.tests{- , acid1, file1-}]
+tests = TestList [LaTeX.tests, imageTests{- , acid1, file1-}]
 
 -- The directory that holds the acid state event logs and checkpoints.
 acidDir = "Tests/acid"
@@ -134,3 +145,22 @@ file1 = TestCase $ do
                     "\t-> Sequent \"universe\" support added (may also help on Pyramids)",
                     "\t-> null pw_shell is dealt with now; default is /bin/sh"]))
 -}
+
+imageTests :: Test
+imageTests =
+  TestList [test1]
+  where
+    pdf :: FilePath
+    pdf = "/home/dsf/git/happstack-ghcjs.alpha/happstack-ghcjs-server/test-top/images/fb/fbddca395b0912cdfa710f84ab09f317.pdf"
+    action :: Exceptionless (ExceptT (OneOf '[IOException, NonIOException, FileError, SomeException]) IO) ImageShape
+    action = catchMember (makeByteString pdf) (\(e :: IOException) -> throwMember e) >>= fileInfoFromBytes
+    action2 :: forall es. (es ~ OneOf '[IOException, NonIOException, FileError, SomeException])
+            => ExceptT es IO ImageShape
+    action2 = runExceptionless throwMember action
+    -- foo :: Either SomeException (Either SomeException ImageShape) -> Either SomeException ImageShape
+    -- foo = either Left (either Left Right)
+    test1 = TestCase $ do
+      (shape :: Either String ImageShape) <- over _Left show <$> runExceptT action2
+      assertEqual "fileInfoFromBytes" (Right (ImageShape PDF (Right (makeImageRect 0 0 ZeroHr)))) shape
+    handle :: SomeException -> IO (Either SomeException ImageShape)
+    handle e = undefined

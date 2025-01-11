@@ -116,10 +116,10 @@ Library
 
 test-suite image-cache-tests
   Default-Language: Haskell2010
-  if !impl(ghcjs)
+  if impl(ghcjs)
     Buildable: False
   else
-    Buildable: False
+    Buildable: True
   type: exitcode-stdio-1.0
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs
