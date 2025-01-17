@@ -291,7 +291,7 @@ scaleImage' sc bytes typ = do
                     JPEG -> showCommandForUser "jpegtopnm" ["-"]
                     PDF -> error "scaleImage' - Unexpected file type"
                     CSV -> error "scaleImage' - Unexpected file type"
-                    PNG -> showCommandForUser "pngtopnm" ["-"]
+                    PNG -> showCommandForUser "pngtopnm" ["-mix", "-background", "#FFFFFF", "-"]
                     PPM -> showCommandForUser "cat" ["-"]
                     TIFF -> showCommandForUser "tifftopnm" ["-"]
                     Unknown -> error "scaleImage' - Unexpected file type"
