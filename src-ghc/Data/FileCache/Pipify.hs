@@ -11,10 +11,6 @@ heifConvert :: String
 heifConvert = pipify ".heic" ".jpg" hc
   where hc i o = showCommandForUser "heif-convert"  [i, o]
 
-test :: String
-test = heifConvert
-
-
 -- | pipify wraps a shell command that only accepts filenames as input/output arguments and constructs
 -- a shell pipeline that reads from stdin, writes to stdout, using tempfiles to construct arguments
 -- for the original command.

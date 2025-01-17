@@ -40,6 +40,7 @@ import Data.Map.Strict as Map ( Map, fromSet, mapWithKey )
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
+import Debug.Trace
 import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
 import SeeReason.Errors ( throwMember, tryMember )
@@ -163,6 +164,8 @@ buildImage ::
 buildImage key (ImageFileShape shape) = cacheImageFile key shape
 buildImage _ i@(ImageFileReady _) = pure (Right i)
 
+-- | Look up the key in the cache, if a miss call 'buildImageFile' and
+-- cache the result.
 cacheImageFile ::
   (MonadFileCache r e m, HasCallStack)
   => ImageKey
@@ -173,11 +176,31 @@ cacheImageFile key _shape = do
   cacheLook key >>=
     maybe (pure (Left (UnexpectedException "Impossible cache miss")))
           (either (pure . Left)
-            (\case file@(ImageFileReady _img) ->
-                     pure (Right file) -- It appears it was already built.  But is it actually there?
-                   (ImageFileShape shape') ->
+            (\case file@(ImageFileReady (ImageReady {..})) -> do
+                     let path = toFilePath key
+                     -- It appears it was already built and cached.
+                     -- But is it actually there?
+                     liftIO (doesFileExist (traceWith ("path=" <>) path)) >>= \case
+                       True -> pure (Right file) -- smooth sailing
+                       False -> do
+                         -- Cache file is missing, rebuild it
+                         tryMember @FileError (buildImageFile key _imageShape) >>= cachePut key
+                         -- did that work?
+                         liftIO (doesFileExist path) >>= \case
+                           True -> alog NOTICE ("Missing image cache file re-created: " <> show path)
+                           -- It did not - very bad situation, this will happen every time.
+                           False -> alog EMERGENCY ("Unable to re-create missing image cache file: " <> show path)
+                         pure (Right file)
+                   (ImageFileShape shape') -> do
                      -- Proceed with the build
                      tryMember @FileError (buildImageFile key shape') >>= cachePut key))
+
+traceWith :: (a -> String) -> a -> a
+traceWith f a = trace (f a) a
+
+-- | Like `traceWith`, but skip the trace if @f@ returns `Nothing`.
+-- traceIf :: (a -> Maybe String) -> a -> a
+-- traceIf f a = maybe a (\s -> trace s a) (f a)
 
 -- | Given an 'ImageKey' and 'ImageShape', build the corresponding
 -- 'ImageFile' and write the image file.  This can be used to repair
@@ -315,6 +338,7 @@ buildImageBytesFromFile source key csum _typ = do
           _cached <- cacheOriginalFile source bs
           return bs
 
+#if 0
 -- | See if images are already in the cache
 cacheLookImages ::
   (MonadFileCache r e m, HasCallStack)
@@ -331,3 +355,4 @@ foregroundBuilds pairs =
     doImage key (Right (ImageFileShape shape)) =
       cacheImageFile key shape
     doImage _ x = return x
+#endif

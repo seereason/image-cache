@@ -32,7 +32,7 @@ import SeeReason.LogServer(alog)
 import System.Directory ( doesFileExist )
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
-import SeeReason.Errors (throwMember, tryMember)
+import SeeReason.Errors ({-throwMember,-} tryMember)
 
 instance (MonadFileCache r e m) => HasImageShapeM m (Checksum, FileType) where
   imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath (Just typ) . (, BS.empty)

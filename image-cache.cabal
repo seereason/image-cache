@@ -28,10 +28,10 @@ Library
     Data.FileCache
     Data.FileCache.Internal
   Exposed-Modules:
-   Data.FileCache.ImageRect
-   Data.FileCache.ImageKey
-  Other-Modules:
     Data.FileCache.CacheMap
+    Data.FileCache.ImageRect
+    Data.FileCache.ImageKey
+  Other-Modules:
     Data.FileCache.CommandError
     Data.FileCache.File
     Data.FileCache.FileError
@@ -81,10 +81,10 @@ Library
   if !impl(ghcjs)
     Hs-Source-Dirs: src src-ghc
     Exposed-Modules:
+      Data.FileCache.Acid
       Data.FileCache.FileInfo
       Data.FileCache.Server
     Other-Modules:
-      Data.FileCache.Acid
       Data.FileCache.Background
       Data.FileCache.Derive
       Data.FileCache.FileCache

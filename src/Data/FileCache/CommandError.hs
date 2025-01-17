@@ -42,6 +42,7 @@ instance Serialize CommandInfo where get = safeGet; put = safePut
 data StdStream' = Inherit' | UseHandle' | CreatePipe' | NoStream'
   deriving (Eq, Ord, Generic, Serialize)
 
+#if 0
 stdStream :: StdStream -> StdStream'
 stdStream Inherit = Inherit'
 stdStream (UseHandle _) = UseHandle'
@@ -53,6 +54,7 @@ stdStream' Inherit' = Inherit
 stdStream' UseHandle' = NoStream
 stdStream' CreatePipe' = CreatePipe
 stdStream' NoStream' = NoStream
+#endif
 
 class HasCommandError e where fromCommandError :: CommandError -> e
 instance HasCommandError CommandError where fromCommandError = id

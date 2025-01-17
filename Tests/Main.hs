@@ -5,65 +5,64 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
-module Main where
+module Main (main) where
 
 import Data.FileCache
--- import Data.FileCache.Server
-import Control.Exception (IOException, SomeException, throwIO)
+import Control.Exception (bracket, IOException, SomeException)
 import Control.Lens (over, _Left)
-import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (ExceptT, MonadError, runExceptT, throwError)
-import Control.Monad.Identity (Identity)
-import Control.Monad.Reader (ask, ReaderT)
-import Control.Monad.RWS
-import Control.Monad.Trans (lift)
-import Data.Acid (AcidState)
-import Data.ByteString (ByteString, pack)
-import qualified Data.ByteString.Lazy as Lazy (ByteString, pack)
-import Data.Char (ord)
+import Control.Monad.Except (ExceptT, runExceptT)
+import Data.Acid (AcidState, openLocalStateFrom, closeAcidState)
+import Data.Acid.Abstract (query')
+import Data.FileCache.Acid (LookMap(LookMap))
+import Data.FileCache.CacheMap (CacheMap(CacheMap, _unCacheMap, _requested))
 import Data.FileCache.FileInfo (fileInfoFromBytes)
-import Data.FileCache.ImageRect (makeImageRect)
 import Data.FileCache.ImageKey (ImageShape)
-import Data.Typeable (Proxy(Proxy))
-import Data.Map (fromList)
-import Extra.Exceptionless (Exceptionless, liftExceptionless, tryExceptionless, runExceptionless)
+import Data.FileCache.Test (tests)
+import Data.Map (size)
+import Extra.Exceptionless (Exceptionless, runExceptionless)
 import qualified LaTeX
-import SeeReason.Errors as Err (catchMember, findError, throwMember, Member, OneOf)
-import SeeReason.UIO (NonIOException)
-import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
-import System.FilePath.Extra3 (removeRecursiveSafely)
+import SeeReason.Errors as Err (catchMember, throwMember, OneOf)
+import System.Exit (exitSuccess, exitFailure)
+import System.FilePath ((</>))
 import Test.HUnit (assertEqual, Test(TestList, TestCase), runTestTT, Counts(errors, failures))
 import Data.FileCache.Server (makeByteString)
 
 main =
-    do counts <- runTestTT Main.tests
-       putStrLn ("Test results: " ++ show counts)
-       case (errors counts + failures counts) of
-         0 -> exitWith ExitSuccess
-         _ -> exitWith (ExitFailure 1)
-       putStrLn (unlines ["Other Things that should be tested:",
-                          "FileCache: fileFromPath, fileFromCmd, fileFromCmdViaTemp, fileFromURI, fileURI, fileCacheURI",
-                          "ImageCache: getFileType, uprightImage, scaleImage, editImage"
-                         ])
+  bracket
+    (openLocalStateFrom
+      (top </> "imageCache")
+      (error $ "Could not open " <> top </> "imageCache"))
+    closeAcidState
+    (\acid -> runTestTTAndExit $
+      TestList [LaTeX.tests,
+                Data.FileCache.Test.tests,
+                imageTests acid])
+  where
+    top = "/home/dsf/appraisalscribe3-development/_state"
 
-tests :: Test
-tests = TestList [LaTeX.tests, imageTests{- , acid1, file1-}]
+runTestTTAndExit :: Test -> IO ()
+runTestTTAndExit test = do
+  c <- runTestTT test
+  if (errors c == 0) && (failures c == 0)
+    then exitSuccess
+    else exitFailure
 
 -- The directory that holds the acid state event logs and checkpoints.
-acidDir = "Tests/acid"
-fileAcidDir = "Tests/fileacid"
-fileCacheDir' = FileCacheTop "Tests/filecache"
+-- acidDir = "Tests/acid"
+-- fileAcidDir = "Tests/fileacid"
+-- fileCacheDir' = FileCacheTop "Tests/filecache"
 
 -- The oldest file in /usr/share/doc
-oldfile :: FilePath
-oldfile = "/usr/share/doc/cron/THANKS"
+-- oldfile :: FilePath
+-- oldfile = "/usr/share/doc/cron/THANKS"
 
-type AcidM m = RWST (AcidState CacheMap) () () m
-type FileM m = {-FileCacheT (AcidState CacheMap)-} Monad m
+-- type AcidM m = RWST (AcidState CacheMap) () () m
+-- type FileM m = {-FileCacheT (AcidState CacheMap)-} Monad m
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
@@ -149,21 +148,30 @@ file1 = TestCase $ do
                     "\t-> null pw_shell is dealt with now; default is /bin/sh"]))
 -}
 
-imageTests :: Test
-imageTests =
-  TestList [test1]
+imageTests :: AcidState CacheMap -> Test
+imageTests acid =
+  TestList
+    [ test1
+    , TestCase $ do
+        CacheMap{..} <- query' acid LookMap
+        assertEqual "map size" 81877 (size _unCacheMap)
+    ]
   where
-    pdf :: FilePath
-    pdf = "/home/dsf/git/happstack-ghcjs.alpha/happstack-ghcjs-server/test-top/images/fb/fbddca395b0912cdfa710f84ab09f317.pdf"
-    action :: Exceptionless (ExceptT (OneOf '[IOException, NonIOException, FileError, SomeException]) IO) ImageShape
-    action = catchMember (makeByteString pdf) (\(e :: IOException) -> throwMember e) >>= fileInfoFromBytes
-    action2 :: forall es. (es ~ OneOf '[IOException, NonIOException, FileError, SomeException])
-            => ExceptT es IO ImageShape
-    action2 = runExceptionless throwMember action
     -- foo :: Either SomeException (Either SomeException ImageShape) -> Either SomeException ImageShape
     -- foo = either Left (either Left Right)
-    test1 = TestCase $ do
-      (shape :: Either String ImageShape) <- over _Left show <$> runExceptT action2
-      assertEqual "fileInfoFromBytes" (Right (ImageShape PDF (Left "PDF"))) shape
-    handle :: SomeException -> IO (Either SomeException ImageShape)
-    handle e = undefined
+    -- handle :: SomeException -> IO (Either SomeException ImageShape)
+    -- handle e = undefined
+
+type ES = OneOf '[IOException, FileError, SomeException]
+
+test1 :: Test
+test1 = TestCase $ do
+  (shape :: Either String ImageShape) <- over _Left show <$> runExceptT action2
+  assertEqual "fileInfoFromBytes" (Right (ImageShape PDF (Left "PDF"))) shape
+  where
+    action2 :: ExceptT ES IO ImageShape
+    action2 = runExceptionless throwMember action
+    action :: Exceptionless (ExceptT ES IO) ImageShape
+    action = catchMember (makeByteString pdf) (\(e :: IOException) -> throwMember e) >>= fileInfoFromBytes
+    pdf :: FilePath
+    pdf = "/home/dsf/git/happstack-ghcjs.alpha/happstack-ghcjs-server/test-top/images/fb/fbddca395b0912cdfa710f84ab09f317.pdf"

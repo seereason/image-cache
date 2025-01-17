@@ -6,6 +6,9 @@ module Data.FileCache.Test
   , validateImageFile
   , test1
   , tests
+  , testKey
+  , quickTests
+  , approx_prop
   ) where
 
 import Control.Monad ( when )
@@ -206,6 +209,7 @@ testKey key = do
 approx_prop :: Rational -> Bool
 approx_prop r = approx r == approx (approx r)
 
+quickTests :: IO ()
 quickTests = do
   quickCheck (withMaxSuccess 1000 (pathInfoInverse_prop :: ImageKey -> Bool))
   -- quickCheck (approx_prop :: Rational -> Bool)
