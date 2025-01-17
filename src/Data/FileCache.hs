@@ -9,7 +9,7 @@ module Data.FileCache
     ContentType(..),
 
     -- * IO and error types
-    FileError(..), HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, fromE, runFileIOT,
+    FileError(..), HasFileError(fileError), MyMonadIO, MyIOErrors, MonadFileIO, E, fromE, runFileIOT,
 
     -- * Running shell commands
     CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError),
@@ -54,8 +54,8 @@ module Data.FileCache
 
 #ifndef __GHCJS__
     -- * Image cache acid state repository
-    FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid,
-    MonadFileCacheNew, HasCacheAcid(cacheAcid),
+    FileCacheTop(FileCacheTop, _unFileCacheTop),
+    MonadFileCache, HasCacheAcid(cacheAcid),
     HasFileCacheTop(fileCacheTop), runFileCacheT,
 
     -- * Image cache acid-state operations
@@ -95,7 +95,7 @@ module Data.FileCache
 import Data.FileCache.CacheMap (ImageCached(..), CacheMap(..))
 import Data.FileCache.CommandError (CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError))
 import Data.FileCache.File (File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension))
-import Data.FileCache.FileError (FileError(..), HasFileError(fileError), MyMonadIONew, MyIOErrors, MonadFileIONew, E, fromE, runFileIOT)
+import Data.FileCache.FileError (FileError(..), HasFileError(fileError), MyMonadIO, MyIOErrors, MonadFileIO, E, fromE, runFileIOT)
 import Data.FileCache.Happstack (ContentType(..))
 import Data.FileCache.ImageCrop (ImageCrop(..), Rotation(..))
 import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)
@@ -125,6 +125,6 @@ import Data.FileCache.Acid
 import Data.FileCache.Background (HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys)
 import Data.FileCache.Derive (buildImageFile, getImageFile, getImageFiles)
 import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
-import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCacheNew, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
+import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCache, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
 import Data.FileCache.Upload (cacheOriginalFile)
 #endif

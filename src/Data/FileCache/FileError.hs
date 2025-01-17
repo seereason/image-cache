@@ -12,9 +12,8 @@ module Data.FileCache.FileError
     FileError(..)
   , CommandError
   , HasFileError(fileError)
---  , logErrorCall
-  , MyMonadIONew, MyIOErrors
-  , MonadFileIONew
+  , MyMonadIO, MyIOErrors
+  , MonadFileIO
   , E, fromE
   , runFileIOT
   ) where
@@ -23,9 +22,6 @@ import Control.Exception as E ( Exception, ErrorCall, IOException )
 import Control.Lens ( Prism' )
 import Control.Lens.Path ( Value(..) )
 import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Reader (ReaderT)
-import Control.Monad.RWS (RWST)
-import Control.Monad.State (StateT)
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.ImageFile (ImageReady)
 import Data.FileCache.ImageKey (FileType, ImageKey)
@@ -34,7 +30,6 @@ import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
 import SeeReason.Errors as Errors ( Member, OneOf(..), oneOf, put1)
-import SeeReason.UIO as Errors (NonIOException)
 import Extra.Except ( ExceptT, MonadError, HasErrorCall(..), runExceptT )
 import GHC.Generics ( Generic )
 
@@ -141,21 +136,12 @@ instance HasFileError FileError where fileError = id
 
 instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
 
-type MyMonadIONew e m = (MonadIO m, MonadError (OneOf e) m, MyIOErrors e)
+type MyMonadIO e m = (MonadIO m, MonadError (OneOf e) m, MyIOErrors e)
 
-type MyIOErrors e = (Member IOException e, Member NonIOException e)
+type MyIOErrors e = (Member IOException e)
 
--- | Constraints typical of the functions in this package.  They occur
--- when an IO operation is lifted into 'Unexceptional' by 'liftUIO',
--- which splits the resulting 'SomeNonPseudoException' into @IO@ and
--- @NonIO@ parts.  It also has FileException, an error type defined in
--- this package.
-type MonadFileIONew e m = (MyMonadIONew e m, Member FileError e)
--- class (MyMonadIONew e m, Member FileError e, MyIOErrors e) => MonadFileIONew e m
-
--- instance (MyMonadIONew e (ExceptT (OneOf e) m), Member FileError e, MyIOErrors e) => MonadFileIONew e (ExceptT (OneOf e) m)
--- instance MonadFileIONew e m => MonadFileIONew e (ReaderT r m)
--- instance (MonadFileIONew e m, Monoid w) => MonadFileIONew e (RWST r w s m)
+-- | Constraints typical of the functions in this package.
+type MonadFileIO e m = (MyMonadIO e m, Member FileError e)
 
 type FileIOT e m = ExceptT (OneOf e) m
 
@@ -163,11 +149,10 @@ runFileIOT :: FileIOT e m a -> m (Either (OneOf e) a)
 runFileIOT action = runExceptT action
 
 -- | A minimal set of errors to run FileIOT
-type E = '[FileError, IOException, NonIOException]
+type E = '[FileError, IOException]
 
 -- | Convert an 'E' into some e
 fromE :: forall e. (Member FileError e, MyIOErrors e) => OneOf E -> OneOf e
 fromE (Val e) = Errors.put1 (e :: FileError)
 fromE (NoVal (Val e)) = Errors.put1 (e :: IOException)
-fromE (NoVal (NoVal (Val e))) = Errors.put1 (e :: NonIOException)
 fromE _ = error "Impossible"

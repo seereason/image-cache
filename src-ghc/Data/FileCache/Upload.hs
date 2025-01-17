@@ -16,7 +16,7 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File
 import Data.FileCache.FileCache ( fileCachePath, fileCachePathIO, cachePut_ )
-import Data.FileCache.FileCacheTop ( MonadFileCacheNew )
+import Data.FileCache.FileCacheTop ( MonadFileCache )
 import Data.FileCache.FileError
 import Data.FileCache.FileInfo ({-instances-} fileInfoFromPath)
 import Data.FileCache.ImageFile
@@ -34,10 +34,10 @@ import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import SeeReason.Errors (throwMember, tryMember)
 
-instance (MonadFileCacheNew r e m) => HasImageShapeM m (Checksum, FileType) where
+instance (MonadFileCache r e m) => HasImageShapeM m (Checksum, FileType) where
   imageShapeM (csum, typ) = fileCachePath (csum, typ) >>= fileInfoFromPath (Just typ) . (, BS.empty)
 
-instance (MonadFileCacheNew r e m) => HasImageShapeM m (Maybe FileSource, BS.ByteString) where
+instance (MonadFileCache r e m) => HasImageShapeM m (Maybe FileSource, BS.ByteString) where
   imageShapeM (Just (TheUpload (path, typ)), bytes) = fileInfoFromPath (Just (imageType typ)) (path, bytes)
   imageShapeM (Just (ThePath path), bytes) = fileInfoFromPath Nothing (path, bytes)
   imageShapeM (Just (TheURI uri), bytes) = fileInfoFromPath Nothing (uri, bytes)
@@ -49,7 +49,7 @@ instance (MonadFileCacheNew r e m) => HasImageShapeM m (Maybe FileSource, BS.Byt
 cacheOriginalFiles ::
   forall x e r m.
   (MakeByteString x, Ord x,
-   MonadFileCacheNew r e m,
+   MonadFileCache r e m,
    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m,
    HasCallStack)
   => [(FileSource, x)] -> m ()
@@ -62,7 +62,7 @@ cacheOriginalFiles pairs =
 -- | 'cacheOriginalFile' with the 'FileError' captured.
 cacheOriginalFile' ::
   forall x e r m.
-  (MakeByteString x, MonadFileCacheNew r e m, HasCallStack)
+  (MakeByteString x, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource
   -> x
   -> m (Either FileError (ImageKey, ImageFile))
@@ -73,7 +73,7 @@ cacheOriginalFile' source x =
 -- ByteString, insert it into the cache, and return it.
 cacheOriginalFile ::
   forall x e r m.
-  (MakeByteString x, MonadFileCacheNew r e m, HasCallStack)
+  (MakeByteString x, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource
   -> x
   -> m (ImageKey, ImageFile)
@@ -87,7 +87,7 @@ cacheOriginalFile source x = do
 
 buildOriginalImage ::
   forall x r e m.
-  (MakeByteString x, MonadFileCacheNew r e m, HasCallStack)
+  (MakeByteString x, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource
   -> x
   -> m ImageReady

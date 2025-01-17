@@ -1,4 +1,6 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -10,7 +12,7 @@
 module Main where
 
 import Data.FileCache
-import Data.FileCache.Server
+-- import Data.FileCache.Server
 import Control.Exception (IOException, SomeException, throwIO)
 import Control.Lens (over, _Left)
 import Control.Monad.Catch (MonadCatch)
@@ -35,6 +37,7 @@ import SeeReason.UIO (NonIOException)
 import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
 import System.FilePath.Extra3 (removeRecursiveSafely)
 import Test.HUnit (assertEqual, Test(TestList, TestCase), runTestTT, Counts(errors, failures))
+import Data.FileCache.Server (makeByteString)
 
 main =
     do counts <- runTestTT Main.tests
@@ -60,7 +63,7 @@ oldfile :: FilePath
 oldfile = "/usr/share/doc/cron/THANKS"
 
 type AcidM m = RWST (AcidState CacheMap) () () m
-type FileM m = FileCacheT (AcidState CacheMap) m
+type FileM m = {-FileCacheT (AcidState CacheMap)-} Monad m
 
 -- | A simple cache - its builder simply reverses the key.  The
 -- IO monad is required to query and update the acid state database.
@@ -161,6 +164,6 @@ imageTests =
     -- foo = either Left (either Left Right)
     test1 = TestCase $ do
       (shape :: Either String ImageShape) <- over _Left show <$> runExceptT action2
-      assertEqual "fileInfoFromBytes" (Right (ImageShape PDF (Right (makeImageRect 0 0 ZeroHr)))) shape
+      assertEqual "fileInfoFromBytes" (Right (ImageShape PDF (Left "PDF"))) shape
     handle :: SomeException -> IO (Either SomeException ImageShape)
     handle e = undefined

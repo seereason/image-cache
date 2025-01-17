@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.39.1
+Version:        0.40
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -27,6 +27,9 @@ Library
   Exposed-Modules:
     Data.FileCache
     Data.FileCache.Internal
+  Exposed-Modules:
+   Data.FileCache.ImageRect
+   Data.FileCache.ImageKey
   Other-Modules:
     Data.FileCache.CacheMap
     Data.FileCache.CommandError
@@ -35,8 +38,6 @@ Library
     Data.FileCache.Happstack
     Data.FileCache.ImageCrop
     Data.FileCache.ImageFile
-    Data.FileCache.ImageKey
-    Data.FileCache.ImageRect
     Data.FileCache.ImageSize
     Data.FileCache.Orphans
     Data.FileCache.Rational
@@ -79,18 +80,19 @@ Library
     web-routes-th
   if !impl(ghcjs)
     Hs-Source-Dirs: src src-ghc
+    Exposed-Modules:
+      Data.FileCache.FileInfo
+      Data.FileCache.Server
     Other-Modules:
       Data.FileCache.Acid
       Data.FileCache.Background
       Data.FileCache.Derive
       Data.FileCache.FileCache
       Data.FileCache.FileCacheTop
-      Data.FileCache.FileInfo
       Data.FileCache.ImageIO
       Data.FileCache.LogException
       Data.FileCache.Pipify
       Data.FileCache.Process
-      Data.FileCache.Server
       Data.FileCache.Test
       Data.FileCache.Upload
     Build-Depends:
@@ -123,7 +125,7 @@ test-suite image-cache-tests
   type: exitcode-stdio-1.0
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs
-  Other-Modules: Cache Exif LaTeX
+  Other-Modules: Cache LaTeX
   Build-Depends:
     acid-state,
     base >= 4,
@@ -138,7 +140,10 @@ test-suite image-cache-tests
     HaTeX,
     HUnit,
     image-cache >= 0.19,
+    lens,
     mtl,
+    sr-errors,
+    sr-utils,
     text
   build-tools:
     fbida

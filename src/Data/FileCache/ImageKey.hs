@@ -63,7 +63,7 @@ import GHC.Stack ( HasCallStack )
 import Language.Haskell.TH.Lift as TH ()
 import Prelude hiding (span)
 import Text.Parsec ( (<|>) )
-import Text.PrettyPrint.HughesPJClass ( Doc, comma, empty, hsep, punctuate, Pretty(pPrint), text )
+import Text.PrettyPrint.HughesPJClass ( Doc, comma, hsep, punctuate, Pretty(pPrint), text )
 import Web.Routes ( PathInfo(..), segment )
 import Web.Routes.TH ( derivePathInfo )
 
@@ -79,7 +79,6 @@ import Data.Proxy (Proxy(Proxy))
 import Web.Routes (PathInfo(..), segment)
 #else
 import Extra.THIO (spliceModule)
-import Control.Lens.Path.TH (HOP(FIELDS, CTOR), pathInstances)
 #endif
 
 -- * ImageKey
@@ -229,7 +228,6 @@ newtype ImagePath =
   ImagePath { _imagePathKey :: ImageKey
             -- , _imagePathType :: FileType
             } deriving (Generic, Eq, Ord)
-{-# DEPRECATED ImagePath "Seems to be a pointless wrapper" #-}
 
 class HasImagePath a where imagePath :: a -> ImagePath
 instance HasImagePath ImagePath where imagePath = id

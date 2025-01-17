@@ -72,7 +72,7 @@ fileCachePath file = do
 
 -- | Create any missing directories and evaluate 'fileCachePath'
 fileCachePathIO ::
-  (MonadFileCacheNew r e m, HasFilePath a, HasCallStack)
+  (MonadFileCache r e m, HasFilePath a, HasCallStack)
   => a -> m FilePath
 fileCachePathIO file = do
   path <- fileCachePath file
@@ -100,7 +100,7 @@ askCacheAcid = cacheAcid <$> ask
 
 -- | insert a (key, value) pair into the cache
 cachePut ::
-  forall r e m. (MonadFileCacheNew r e m, HasCallStack)
+  forall r e m. (MonadFileCache r e m, HasCallStack)
   => ImageKey -> Either FileError ImageFile -> m (Either FileError ImageFile)
 cachePut key val = do
   st <- askCacheAcid
@@ -109,7 +109,7 @@ cachePut key val = do
 
 -- | insert a (key, value) pair into the cache, discard result.
 cachePut_ ::
-  (MonadFileCacheNew r e m, HasCallStack)
+  (MonadFileCache r e m, HasCallStack)
   => ImageKey -> Either FileError ImageFile -> m ()
 cachePut_ key val = do
   st <- askCacheAcid
@@ -117,20 +117,20 @@ cachePut_ key val = do
 
 -- | Query the cache, but do nothing on cache miss.
 cacheLook ::
-  forall e r m. (MonadFileCacheNew r e m, HasCallStack)
+  forall e r m. (MonadFileCache r e m, HasCallStack)
   => ImageKey -> m (Maybe (Either FileError ImageFile))
 cacheLook key = do
   st <- askCacheAcid
   {-either (Just . Left) (fmap id) <$>-}
   query' st (LookValue key)
 
-cacheMap :: (MonadFileCacheNew r e m, HasCallStack) => m CacheMap
+cacheMap :: (MonadFileCache r e m, HasCallStack) => m CacheMap
 cacheMap = do
   st <- askCacheAcid
   query' st LookMap
 
 cacheDelete ::
-  forall e r m. (MonadFileCacheNew r e m, HasCallStack)
+  forall e r m. (MonadFileCache r e m, HasCallStack)
   => Proxy ImageFile -> Set ImageKey -> m ()
 cacheDelete _ keys = do
   (st :: AcidState CacheMap) <- cacheAcid <$> ask

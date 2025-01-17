@@ -70,10 +70,9 @@ import Text.Parsec
       many1,
       optionMaybe )
 import SeeReason.Errors as Err ( throwMember, Member, OneOf)
-import SeeReason.UIO (NonIOException)
 
 class MakeByteString a where
-  makeByteString :: (MonadIO m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString
+  makeByteString :: (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString
 
 instance MakeByteString BS.ByteString where
   makeByteString = return
@@ -275,7 +274,7 @@ deriving instance Show Hires
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
 scaleImage' ::
-  (MonadIO m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
+  (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
   => Double
   -> BS.ByteString
   -> FileType
@@ -316,7 +315,7 @@ logIOError' io =
 -- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
 
 editImage' ::
-    forall e m. (MonadIO m, Member FileError e, Member NonIOException e, Member IOException e, MonadError (OneOf e) m)
+    forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
     => ImageCrop -> BS.ByteString -> FileType -> ImageShape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' crop bs typ ImageShape{_imageShapeRect = Right rect} =

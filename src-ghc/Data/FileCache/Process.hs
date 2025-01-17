@@ -16,7 +16,6 @@ import GHC.Stack ( HasCallStack )
 import Prelude ( (++), Monad((>>=), (>>), return), IO )
 import SeeReason.LogServer (alog)
 import SeeReason.Errors ( throwMember, Member, OneOf )
-import SeeReason.UIO (NonIOException)
 import System.Exit ( ExitCode(..) )
 import System.Log.Logger ( Priority(..) )
 import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
@@ -41,7 +40,7 @@ readCreateProcessWithExitCode' p s =
     $logException ERROR (LL.readCreateProcessWithExitCode p s)
 
 pipeline ::
-  forall e m. (MonadIO m, Member FileError e, Member IOException e, Member NonIOException e, MonadError (OneOf e) m, HasCallStack)
+  forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
   => [CreateProcess]
   -> BS.ByteString
   -> m BS.ByteString

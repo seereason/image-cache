@@ -10,7 +10,7 @@ module Data.FileCache.FileInfo
 import Control.Lens ( view, Field2(_2) )
 import Control.Monad.Reader (liftIO)
 import Data.ByteString.Lazy as BS ( ByteString, toStrict )
-import Data.FileCache.FileError (MonadFileIONew, FileError(NoShapeFromPath))
+import Data.FileCache.FileError (MonadFileIO, FileError(NoShapeFromPath))
 import Data.FileCache.ImageCrop (Rotation(..))
 import Data.FileCache.ImageKey (HasImageShapeM(..), ImageShape(..), FileType(..))
 import Data.FileCache.ImageRect (makeImageRect)
@@ -27,20 +27,20 @@ import Text.Parsec as Parsec
     ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )
 import Text.Parsec.Text ( Parser )
 
-instance MonadFileIONew e m => HasImageShapeM m BS.ByteString where
+instance MonadFileIO e m => HasImageShapeM m BS.ByteString where
   imageShapeM bytes = fileInfoFromPath Nothing ("-", bytes)
-instance MonadFileIONew e m => HasImageShapeM m (FilePath, BS.ByteString) where
+instance MonadFileIO e m => HasImageShapeM m (FilePath, BS.ByteString) where
   imageShapeM (path, input) = fileInfoFromPath Nothing (path, input)
 
 -- | Helper function to learn the 'FileType' of a file by running
 -- @file -b@.
 fileInfoFromBytes ::
-  forall e m. (MonadFileIONew e m, HasCallStack)
+  forall e m. (MonadFileIO e m, HasCallStack)
   => BS.ByteString -> m ImageShape
 fileInfoFromBytes bytes = fileInfoFromPath Nothing ("-", bytes)
 
 fileInfoFromPath ::
-  forall e m. (MonadFileIONew e m, HasCallStack)
+  forall e m. (MonadFileIO e m, HasCallStack)
   => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
 fileInfoFromPath mtyp (path, input) =
   liftIO (LL.readProcessWithExitCode cmd args input) >>=
@@ -51,7 +51,7 @@ fileInfoFromPath mtyp (path, input) =
 
 -- Parse the output of file -b.   Note - no IO here
 fileInfoFromOutput ::
-  forall e m. (MonadFileIONew e m, HasCallStack) => Maybe FileType -> FilePath -> Text -> m ImageShape
+  forall e m. (MonadFileIO e m, HasCallStack) => Maybe FileType -> FilePath -> Text -> m ImageShape
 fileInfoFromOutput mtyp path output = do
   alogDrop id DEBUG ("fileInfoFromOutput mtyp=" <> show mtyp)
   alog DEBUG ("fileInfoFromOutput path=" <> show path)

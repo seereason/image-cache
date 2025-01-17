@@ -35,7 +35,6 @@ import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
 import SeeReason.LogServer (alog)
 import SeeReason.Errors (Member, OneOf, throwMember)
-import SeeReason.UIO (NonIOException)
 import System.Log.Logger (Priority(..))
 
 {-
@@ -54,7 +53,7 @@ instance HasImageBuilder (a, b, (ImageChan, (ThreadId, IO (Result ())))) where i
 instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
 cacheDerivedImagesBackground ::
-  forall r e m. (MonadFileCacheNew r e m, HasImageBuilder r, HasCallStack)
+  forall r e m. (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
   => Set CacheFlag
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
@@ -63,7 +62,7 @@ cacheDerivedImagesBackground flags keys =
   backgroundBuilds >>= pure . Map.fromList
 
 backgroundBuilds ::
-  (MonadFileCacheNew r e m, HasImageBuilder r, HasCallStack)
+  (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
   => [(ImageKey, Either FileError ImageFile)]
   -> m [(ImageKey, Either FileError ImageFile)]
 backgroundBuilds pairs =
@@ -74,7 +73,7 @@ backgroundBuilds pairs =
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
-  (MonadFileCacheNew r e m, HasImageBuilder r, HasCallStack)
+  (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
   => [(ImageKey, ImageShape)]
   -> m ()
 queueImageBuild pairs = do
@@ -84,7 +83,7 @@ queueImageBuild pairs = do
   liftIO (writeChan chan pairs)
   alog DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
-type E = '[FileError, IOException, NonIOException]
+type E = '[FileError, IOException]
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
@@ -131,7 +130,7 @@ doImages r pairs = do
 -- "come back later" message.
 testImageKeys ::
   forall r e m.
-  (MonadFileCacheNew r e m,
+  (MonadFileCache r e m,
    HasImageBuilder r,
    Member ImageStats e,
    HasCallStack)
