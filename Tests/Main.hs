@@ -38,12 +38,19 @@ import Data.FileCache.Server (makeByteString)
 
 main :: IO ()
 main =
+#if 0
   withImageCache (\acid -> runTestTTAndExit $
                    TestList [ LaTeX.tests
                             , Data.FileCache.Test.tests
                             -- Need to include test data for this
                             -- , imageTests acid
                             ])
+#else
+  runTestTTAndExit $
+    TestList [ LaTeX.tests
+             , Data.FileCache.Test.tests
+             ]
+#endif
 
 dump :: IO ()
 dump =
