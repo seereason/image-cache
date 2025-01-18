@@ -81,159 +81,39 @@ import Web.Routes (PathInfo(..), segment)
 import Extra.THIO (spliceModule)
 #endif
 
--- * ImageKey
+-- * MimeType
 
--- | Describes an ImageFile and, if it was derived from other image
--- files, how.
-data ImageKey
-    = ImageOriginal Checksum FileType
-    -- ^ An unmodified upload, the info lets us construct an URL
-    | ImageCropped ImageCrop ImageKey
-    -- ^ A cropped version of another image
-    | ImageScaled ImageSize Rational ImageKey
-    -- ^ A resized version of another image
-    | ImageUpright ImageKey
-    -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
-    deriving (Generic, Eq, Ord)
+type MimeType = String
 
-deriving instance Data ImageKey
-deriving instance Read ImageKey
-deriving instance Show ImageKey
-deriving instance Typeable ImageKey
-instance Serialize ImageKey where get = safeGet; put = safePut
--- This is not an extension of ImageKey_2, it is a new type
--- created by the migration of ImageCache.
-instance SafeCopy ImageKey where version = 4
+class HasMimeType a where
+  mimeType :: a -> MimeType
 
-instance Value ImageKey where hops _ = [RecType, CtorType]
+instance HasMimeType FileType where
+  mimeType GIF = "image/gif"
+  mimeType HEIC = "image/heif"
+  mimeType JPEG = "image/jpeg"
+  mimeType PPM = "image/ppm"
+  mimeType PNG = "image/png"
+  mimeType PDF = "application/pdf"
+  mimeType TIFF = "image/tiff"
+  mimeType CSV = "application/csv"
+  mimeType Unknown = "application/unknown"
 
-instance Pretty ImageKey where
-    pPrint (ImageOriginal csum typ) = text (take 7 (unpack csum)) <> text (unpack (fileExtension typ))
-    pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> ")"
-    pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
-    pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
+instance HasFileType ContentType where
+  imageType (ContentType{..}) | ctSubtype == "csv" = CSV
+  imageType (ContentType{..}) | ctSubtype == "gif" = GIF
+  imageType (ContentType{..}) | ctSubtype == "heif" = HEIC
+  imageType (ContentType{..}) | elem ctSubtype ["jpeg", "jpg"] = JPEG
+  imageType (ContentType{..}) | ctSubtype == "pdf" = PDF
+  imageType (ContentType{..}) | ctSubtype == "png" = PNG
+  imageType (ContentType{..}) | ctSubtype == "ppm" = PPM
+  imageType (ContentType{..}) | ctSubtype == "tiff" = TIFF
+  imageType (ContentType{..}) = Unknown
 
-class HasImageKey a where
-  imageKey :: a -> ImageKey
-instance HasImageKey ImageKey where
-  imageKey = id
-
--- | We can infer the file type from the key using insider info on how
--- the various IO operations work.  E.g. all the cropping operations
--- other than the identity crop result in a JPEG.
-instance HasImageShape a => HasFileType (ImageKey, a) where
-  imageType (ImageOriginal _ typ, _) = typ
-  imageType (ImageUpright key, shape) = imageType (key, shape)
-  imageType (ImageCropped crop key, shape) =
-    if crop == def then imageType (key, shape) else JPEG
-  imageType (ImageScaled sz dpi key, shape) =
-    case _imageShapeRect (imageShape shape) of
-      Left _ -> imageType (key, shape)
-      Right rect ->
-        let sc' = scaleFromDPI sz dpi rect
-            sc :: Double
-            sc = fromRat (fromMaybe 1 sc') in
-          if approx (toRational sc) == 1 then imageType (key, shape) else JPEG
-
--- | Compute a derived image shape from the original image shape and the key.
-shapeFromKey :: ImageShape -> ImageKey -> ImageShape
-shapeFromKey original (ImageOriginal _csum _typ) =
-  original
-shapeFromKey original (ImageUpright key) =
-  uprightImageShape $ shapeFromKey original key
-shapeFromKey original (ImageCropped crop key) =
-  cropImageShape crop $ shapeFromKey original key
-shapeFromKey original (ImageScaled sz dpi key) =
-  scaleImageShape sz dpi $ shapeFromKey original key
-
--- | Various ways to build an OriginalKey.
-class OriginalKey a where
-  originalKey :: a -> ImageKey
-
-instance OriginalKey (Checksum, FileType) where -- danger - Checksum is just String
-  originalKey = uncurry ImageOriginal
-
---instance OriginalKey ImageFile where
---  originalKey (ImageFileReady i) = originalKey i
---  originalKey (ImageFileShape i) = originalKey i
-
-instance OriginalKey (File, FileType) where
-  originalKey (f, typ) = ImageOriginal (_fileChksum f) typ
-
-instance OriginalKey (File, ImageShape) where
-  originalKey (f, shape) = originalKey (f, _imageShapeType shape)
-
-instance OriginalKey ImageKey where
-  originalKey key@(ImageOriginal _ _) = key
-  originalKey (ImageUpright key) = originalKey key
-  originalKey (ImageScaled _ _ key) = originalKey key
-  originalKey (ImageCropped _ key) = originalKey key
-
-class UprightKey a where
-  uprightKey :: a -> ImageKey
-instance UprightKey ImageKey where
-  uprightKey (ImageScaled _ _ key) = uprightKey key
-  uprightKey (ImageCropped _ key) = uprightKey key
-  uprightKey (ImageUpright key) = uprightKey key
-  uprightKey key@(ImageOriginal _ _) = ImageUpright key
-
-class EditedKey a where
-  editedKey :: a -> ImageKey
-instance EditedKey ImageKey where
-  editedKey (ImageScaled _ _ key) = editedKey key
-  editedKey key@(ImageCropped _ _) = key
-  editedKey key@(ImageUpright _) = key
-  editedKey key@(ImageOriginal _ _) = ImageUpright key
-
--- | Compute an image key that has a certain size at the given dpi
-class HasImageSize size => ScaledKey size a where
-  scaledKey :: size -> Rational -> a -> ImageKey
-instance ScaledKey ImageSize ImageKey where
-  scaledKey size dpi x = ImageScaled size dpi (editedKey x)
-
--- | Modified PathInfo instance that omits the "image-original" tag,
--- if none of the other tags appear it is assumed.  This matches the
--- structure of the image cache.
-instance PathInfo ImageKey where
-  toPathSegments inp =
-    case inp of
-      ImageCropped arg_a9peM arg_a9peN -> [pack "image-cropped"] <> toPathSegments arg_a9peM <> toPathSegments arg_a9peN
-      ImageScaled arg_a9peO arg_a9peP arg_a9peQ -> [pack "image-scaled"] <> toPathSegments arg_a9peO <> toPathSegments arg_a9peP <> toPathSegments arg_a9peQ
-      ImageUpright arg_a9peR -> [pack "image-upright"] <> toPathSegments arg_a9peR
-      ImageOriginal csum ityp -> {-[pack "image-original"] <>-} [csum <> fileExtension ityp]
-  fromPathSegments =
-    ap (ap (segment (pack "image-cropped") >> return ImageCropped) fromPathSegments) fromPathSegments <|>
-    ap (ap (ap (segment (pack "image-scaled") >> return ImageScaled) fromPathSegments) fromPathSegments) fromPathSegments <|>
-    ap (segment (pack "image-upright") >> return ImageUpright) fromPathSegments <|>
-    (parseOriginal <$> fromPathSegments)
-    -- ap (ap ({-segment (pack "image-original") >>-} return ImageOriginal) fromPathSegments) fromPathSegments
-    where
-      parseOriginal :: Text -> ImageKey
-      parseOriginal t = let (name, ext) = span (/= '.') t in
-                          ImageOriginal name (case ext of
-                                                 ".jpg" -> JPEG
-                                                 ".ppm" -> PPM
-                                                 ".png" -> PNG
-                                                 ".gif" -> GIF
-                                                 ".pdf" -> PDF
-                                                 ".csv" -> CSV
-                                                 _ -> Unknown)
+supportedMimeTypes :: [MimeType]
+supportedMimeTypes = map mimeType allSupported
 
--- | In order to build an image's path or url we need the ImageKey,
--- which tells us how the image is transformed, and we need the
--- Imagetype so we can append the correct file extension.  We could
--- also get it from the File record in ImageReady, but that isn't
--- available until the image has been fully generated by the server.
-newtype ImagePath =
-  ImagePath { _imagePathKey :: ImageKey
-            -- , _imagePathType :: FileType
-            } deriving (Generic, Eq, Ord)
-
-class HasImagePath a where imagePath :: a -> ImagePath
-instance HasImagePath ImagePath where imagePath = id
-instance HasImageKey ImagePath where imageKey (ImagePath x) = imageKey x
-
--- * FileType and Checksum
+-- * FileType
 
 -- HEIC, should also have HEIF?
 
@@ -283,6 +163,8 @@ deriving instance Typeable FileType
 
 noQuotes :: String -> String
 noQuotes = filter (/= '"')
+
+-- * HasFileType
 
 class HasFileType a where imageType :: HasCallStack => a -> FileType
 
@@ -320,53 +202,7 @@ instance PathInfo FileType where
     (segment ("i" <> fileExtension PDF) >> return PDF) <|>
     (segment ("i" <> fileExtension Unknown) >> return Unknown)
 
--- * MimeType
-type MimeType = String
-
-class HasMimeType a where
-  mimeType :: a -> MimeType
-
-instance HasMimeType FileType where
-  mimeType GIF = "image/gif"
-  mimeType HEIC = "image/heif"
-  mimeType JPEG = "image/jpeg"
-  mimeType PPM = "image/ppm"
-  mimeType PNG = "image/png"
-  mimeType PDF = "application/pdf"
-  mimeType TIFF = "image/tiff"
-  mimeType CSV = "application/csv"
-  mimeType Unknown = "application/unknown"
-
-instance HasFileType ContentType where
-  imageType (ContentType{..}) | ctSubtype == "csv" = CSV
-  imageType (ContentType{..}) | ctSubtype == "gif" = GIF
-  imageType (ContentType{..}) | ctSubtype == "heif" = HEIC
-  imageType (ContentType{..}) | elem ctSubtype ["jpeg", "jpg"] = JPEG
-  imageType (ContentType{..}) | ctSubtype == "pdf" = PDF
-  imageType (ContentType{..}) | ctSubtype == "png" = PNG
-  imageType (ContentType{..}) | ctSubtype == "ppm" = PPM
-  imageType (ContentType{..}) | ctSubtype == "tiff" = TIFF
-  imageType (ContentType{..}) = Unknown
-
-supportedMimeTypes :: [MimeType]
-supportedMimeTypes = map mimeType allSupported
-
 -- * ImageShape
-
-data ImageShape_2
-  = ImageShape_2
-    { _imageShapeType_2 :: FileType
-    , _imageShapeRect_2 :: Maybe ImageRect
-      -- ^ this could be safer, there should be different constructors
-      -- for image types that have or do not have an ImageRect.
-    } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
-
-instance Serialize ImageShape_2 where get = safeGet; put = safePut
-instance SafeCopy ImageShape_2 where version = 2; kind = extension
-instance Migrate ImageShape where
-  type MigrateFrom ImageShape = ImageShape_2
-  migrate (ImageShape_2 a b) =
-    ImageShape a (maybe (Left "") Right b)
 
 data ImageShape
   = ImageShape
@@ -390,24 +226,6 @@ instance HasFileType ImageShape where imageType = _imageShapeType
 
 instance HasFileExtension ImageShape where
   fileExtension = fileExtension . _imageShapeType
-
-class HasOriginalShape a where
-  originalShape :: a -> ImageShape
-
--- * HasImageShape
-
--- | A class whose primary (only?) instance is ImageFile.  Access to
--- the original dimensions of the image, so we can compute the aspect
--- ratio.
-class HasImageShapeM m a where
-  imageShapeM :: HasCallStack => a -> m ImageShape
-
-type HasImageShape a = HasImageShapeM Identity a
-imageShape :: (HasImageShape a, HasCallStack) => a -> ImageShape
-imageShape = runIdentity . imageShapeM
-
-instance HasImageShapeM Identity ImageShape where
-  imageShapeM s = pure s
 
 instance HasImageRect ImageShape where imageRect = _imageShapeRect
 
@@ -445,6 +263,21 @@ instance Migrate ImageShape_2 where
                        PDF -> Nothing
                        _ -> Just (makeImageRect w h rot) }
 
+data ImageShape_2
+  = ImageShape_2
+    { _imageShapeType_2 :: FileType
+    , _imageShapeRect_2 :: Maybe ImageRect
+      -- ^ this could be safer, there should be different constructors
+      -- for image types that have or do not have an ImageRect.
+    } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+
+instance Serialize ImageShape_2 where get = safeGet; put = safePut
+instance SafeCopy ImageShape_2 where version = 2; kind = extension
+instance Migrate ImageShape where
+  type MigrateFrom ImageShape = ImageShape_2
+  migrate (ImageShape_2 a b) =
+    ImageShape a (maybe (Left "") Right b)
+
 data ImageShape_1
   = ImageShape_1
       { _imageShapeType_1 :: FileType
@@ -455,6 +288,189 @@ data ImageShape_1
 
 instance Serialize ImageShape_1 where get = safeGet; put = safePut
 instance SafeCopy ImageShape_1 where version = 1; kind = base
+
+-- * ImageKey - Describes an ImageFile and, if it was derived from
+-- other image files, how.
+
+data ImageKey
+    = ImageOriginal Checksum FileType
+    -- ^ An unmodified upload, the info lets us construct an URL
+    | ImageCropped ImageCrop ImageKey
+    -- ^ A cropped version of another image
+    | ImageScaled ImageSize Rational ImageKey
+    -- ^ A resized version of another image
+    | ImageUpright ImageKey
+    -- ^ Image uprighted using the EXIF orientation code, see  "Appraisal.Exif"
+    deriving (Generic, Eq, Ord)
+
+deriving instance Data ImageKey
+deriving instance Read ImageKey
+deriving instance Show ImageKey
+deriving instance Typeable ImageKey
+instance Serialize ImageKey where get = safeGet; put = safePut
+-- This is not an extension of ImageKey_2, it is a new type
+-- created by the migration of ImageCache.
+instance SafeCopy ImageKey where version = 4
+
+instance Value ImageKey where hops _ = [RecType, CtorType]
+
+instance Pretty ImageKey where
+    pPrint (ImageOriginal csum typ) = text (take 7 (unpack csum)) <> text (unpack (fileExtension typ))
+    pPrint (ImageUpright x) = text "Upright (" <> pPrint x <> ")"
+    pPrint (ImageCropped crop x) = text "Crop (" <> pPrint crop <> text ") (" <> pPrint x <> text ")"
+    pPrint (ImageScaled sz dpi x) = text "Scale (" <> pPrint sz <> text " @" <> text (showRational dpi) <> text " dpi) (" <> pPrint x <> text ")"
+
+-- | Modified PathInfo instance that omits the "image-original" tag,
+-- if none of the other tags appear it is assumed.  This matches the
+-- structure of the image cache.
+instance PathInfo ImageKey where
+  toPathSegments inp =
+    case inp of
+      ImageCropped arg_a9peM arg_a9peN -> [pack "image-cropped"] <> toPathSegments arg_a9peM <> toPathSegments arg_a9peN
+      ImageScaled arg_a9peO arg_a9peP arg_a9peQ -> [pack "image-scaled"] <> toPathSegments arg_a9peO <> toPathSegments arg_a9peP <> toPathSegments arg_a9peQ
+      ImageUpright arg_a9peR -> [pack "image-upright"] <> toPathSegments arg_a9peR
+      ImageOriginal csum ityp -> {-[pack "image-original"] <>-} [csum <> fileExtension ityp]
+  fromPathSegments =
+    ap (ap (segment (pack "image-cropped") >> return ImageCropped) fromPathSegments) fromPathSegments <|>
+    ap (ap (ap (segment (pack "image-scaled") >> return ImageScaled) fromPathSegments) fromPathSegments) fromPathSegments <|>
+    ap (segment (pack "image-upright") >> return ImageUpright) fromPathSegments <|>
+    (parseOriginal <$> fromPathSegments)
+    -- ap (ap ({-segment (pack "image-original") >>-} return ImageOriginal) fromPathSegments) fromPathSegments
+    where
+      parseOriginal :: Text -> ImageKey
+      parseOriginal t = let (name, ext) = span (/= '.') t in
+                          ImageOriginal name (case ext of
+                                                 ".jpg" -> JPEG
+                                                 ".ppm" -> PPM
+                                                 ".png" -> PNG
+                                                 ".gif" -> GIF
+                                                 ".pdf" -> PDF
+                                                 ".csv" -> CSV
+                                                 _ -> Unknown)
+
+-- | Compute a derived image shape from the original image shape and the key.
+shapeFromKey :: ImageShape -> ImageKey -> ImageShape
+shapeFromKey original (ImageOriginal _csum _typ) =
+  original
+shapeFromKey original (ImageUpright key) =
+  uprightImageShape $ shapeFromKey original key
+shapeFromKey original (ImageCropped crop key) =
+  cropImageShape crop $ shapeFromKey original key
+shapeFromKey original (ImageScaled sz dpi key) =
+  scaleImageShape sz dpi $ shapeFromKey original key
+
+-- * HasImageKey
+
+class HasImageKey a where
+  imageKey :: a -> ImageKey
+instance HasImageKey ImageKey where
+  imageKey = id
+
+-- * ImagePath - In order to build an image's path or url we need the
+-- ImageKey, which tells us how the image is transformed, and we need
+-- the Imagetype so we can append the correct file extension.  We could
+-- also get it from the File record in ImageReady, but that isn't
+-- available until the image has been fully generated by the server.
+
+newtype ImagePath =
+  ImagePath { _imagePathKey :: ImageKey
+            -- , _imagePathType :: FileType
+            } deriving (Generic, Eq, Ord)
+
+class HasImagePath a where imagePath :: a -> ImagePath
+instance HasImagePath ImagePath where imagePath = id
+instance HasImageKey ImagePath where imageKey (ImagePath x) = imageKey x
+
+-- * OriginalKey
+
+-- | Various ways to build an OriginalKey.
+class OriginalKey a where
+  originalKey :: a -> ImageKey
+
+instance OriginalKey (Checksum, FileType) where -- danger - Checksum is just String
+  originalKey = uncurry ImageOriginal
+
+--instance OriginalKey ImageFile where
+--  originalKey (ImageFileReady i) = originalKey i
+--  originalKey (ImageFileShape i) = originalKey i
+
+instance OriginalKey (File, FileType) where
+  originalKey (f, typ) = ImageOriginal (_fileChksum f) typ
+
+instance OriginalKey (File, ImageShape) where
+  originalKey (f, shape) = originalKey (f, _imageShapeType shape)
+
+instance OriginalKey ImageKey where
+  originalKey key@(ImageOriginal _ _) = key
+  originalKey (ImageUpright key) = originalKey key
+  originalKey (ImageScaled _ _ key) = originalKey key
+  originalKey (ImageCropped _ key) = originalKey key
+
+-- * UprightKey
+
+class UprightKey a where
+  uprightKey :: a -> ImageKey
+instance UprightKey ImageKey where
+  uprightKey (ImageScaled _ _ key) = uprightKey key
+  uprightKey (ImageCropped _ key) = uprightKey key
+  uprightKey (ImageUpright key) = uprightKey key
+  uprightKey key@(ImageOriginal _ _) = ImageUpright key
+
+-- * EditedKey
+
+class EditedKey a where
+  editedKey :: a -> ImageKey
+instance EditedKey ImageKey where
+  editedKey (ImageScaled _ _ key) = editedKey key
+  editedKey key@(ImageCropped _ _) = key
+  editedKey key@(ImageUpright _) = key
+  editedKey key@(ImageOriginal _ _) = ImageUpright key
+
+-- * ScaledKey
+
+-- | Compute an image key that has a certain size at the given dpi
+class HasImageSize size => ScaledKey size a where
+  scaledKey :: size -> Rational -> a -> ImageKey
+instance ScaledKey ImageSize ImageKey where
+  scaledKey size dpi x = ImageScaled size dpi (editedKey x)
+
+-- * HasOriginalShape
+
+class HasOriginalShape a where
+  originalShape :: a -> ImageShape
+
+-- * HasImageShapeM, HasImageShape
+
+-- | A class whose primary (only?) instance is ImageFile.  Access to
+-- the original dimensions of the image, so we can compute the aspect
+-- ratio.
+class HasImageShapeM m a where
+  imageShapeM :: HasCallStack => a -> m ImageShape
+
+type HasImageShape a = HasImageShapeM Identity a
+
+imageShape :: (HasImageShape a, HasCallStack) => a -> ImageShape
+imageShape = runIdentity . imageShapeM
+
+instance HasImageShapeM Identity ImageShape where
+  imageShapeM s = pure s
+
+-- | We can infer the file type from the key using insider info on how
+-- the various IO operations work.  E.g. all the cropping operations
+-- other than the identity crop result in a JPEG.
+instance HasImageShape a => HasFileType (ImageKey, a) where
+  imageType (ImageOriginal _ typ, _) = typ
+  imageType (ImageUpright key, shape) = imageType (key, shape)
+  imageType (ImageCropped crop key, shape) =
+    if crop == def then imageType (key, shape) else JPEG
+  imageType (ImageScaled sz dpi key, shape) =
+    case _imageShapeRect (imageShape shape) of
+      Left _ -> imageType (key, shape)
+      Right rect ->
+        let sc' = scaleFromDPI sz dpi rect
+            sc :: Double
+            sc = fromRat (fromMaybe 1 sc') in
+          if approx (toRational sc) == 1 then imageType (key, shape) else JPEG
 
 -- * ImageStats
 

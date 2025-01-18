@@ -51,18 +51,6 @@ instance HasImagePath ImageCached where
 
 -- * CacheMap
 
-
--- Later we could make FileError a type parameter, but right now its
--- tangled with the MonadError type.
-newtype CacheMap_3 =
-    CacheMap_3 {_unCacheMap_3 :: Map ImageKey (Either FileError ImageFile)}
-    deriving (Generic, Eq, Ord, Serialize)
-
-instance SafeCopy CacheMap_3 where
-  version = 3
-  kind = base
-  errorTypeName _ = "Data.FileCache.Types.CacheMap"
-
 data CacheMap =
   CacheMap
   { _unCacheMap :: Map ImageKey (Either FileError ImageFile)
@@ -71,13 +59,22 @@ data CacheMap =
   -- background image builder.
   } deriving (Generic, Eq, Ord, Serialize, Show)
 
+instance SafeCopy CacheMap where
+  version = 4
+  kind = extension
+  errorTypeName _ = "Data.FileCache.Types.CacheMap"
+
 instance Migrate CacheMap where
   type MigrateFrom CacheMap = CacheMap_3
   migrate (CacheMap_3 mp) = CacheMap mp mempty
 
-instance SafeCopy CacheMap where
-  version = 4
-  kind = extension
+newtype CacheMap_3 =
+    CacheMap_3 {_unCacheMap_3 :: Map ImageKey (Either FileError ImageFile)}
+    deriving (Generic, Eq, Ord, Serialize)
+
+instance SafeCopy CacheMap_3 where
+  version = 3
+  kind = base
   errorTypeName _ = "Data.FileCache.Types.CacheMap"
 
 $(concat <$>
