@@ -97,6 +97,7 @@ Library
       Data.FileCache.Upload
     Build-Depends:
       acid-state >= 0.16,
+      filemanip,
       filemanip-extra,
       happstack-server,
       JuicyPixels,
@@ -135,6 +136,7 @@ test-suite image-cache-tests
     directory,
     either,
     exceptions,
+    filemanip,
     filemanip-extra,
     filepath,
     HaTeX,
