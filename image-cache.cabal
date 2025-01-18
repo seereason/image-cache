@@ -126,7 +126,7 @@ test-suite image-cache-tests
   type: exitcode-stdio-1.0
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs
-  Other-Modules: Cache LaTeX
+  Other-Modules: LaTeX
   Build-Depends:
     acid-state,
     base >= 4,
