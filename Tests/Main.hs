@@ -14,16 +14,20 @@ module Main (main) where
 
 import Data.FileCache
 import Control.Exception (bracket, IOException, SomeException)
-import Control.Lens (over, _Left)
+import Control.Lens (itraverse, over, _Left)
 import Control.Monad.Except (ExceptT, runExceptT)
+import Control.Monad.Reader (runReaderT)
 import Data.Acid (AcidState, openLocalStateFrom, closeAcidState)
 import Data.Acid.Abstract (query')
 import Data.FileCache.Acid (LookMap(LookMap))
 import Data.FileCache.CacheMap (CacheMap(CacheMap, _unCacheMap, _requested))
+import Data.FileCache.FileCache as FileCache (collectGarbage, Classified(..))
 import Data.FileCache.FileInfo (fileInfoFromBytes)
 import Data.FileCache.ImageKey (ImageShape)
 import Data.FileCache.Test (tests)
-import Data.Map (size)
+import Data.Map as Map (size)
+import Data.Set as Set (filter, size)
+import Debug.Trace
 import Extra.Exceptionless (Exceptionless, runExceptionless)
 import qualified LaTeX
 import SeeReason.Errors as Err (catchMember, throwMember, OneOf)
@@ -32,23 +36,40 @@ import System.FilePath ((</>))
 import Test.HUnit (assertEqual, Test(TestList, TestCase), runTestTT, Counts(errors, failures))
 import Data.FileCache.Server (makeByteString)
 
+main :: IO ()
 main =
+  withImageCache (\acid -> runTestTTAndExit $
+                   TestList [LaTeX.tests,
+                             Data.FileCache.Test.tests,
+                             imageTests acid])
+
+dump :: IO ()
+dump =
+  withImageCache $ \acid -> do
+    CacheMap{..} <- query' acid LookMap
+    itraverse (\key file ->
+                  case key of
+                    ImageOriginal _ _ -> pure file
+                    _ -> case originalKey key of
+                           ImageOriginal _ PNG -> trace ("key=" <> show key <> " file=" <> show file) (pure file)
+                           _ -> pure file) _unCacheMap
+    pure ()
+
+withImageCache :: (AcidState CacheMap -> IO r) -> IO r
+withImageCache f =
   bracket
     (openLocalStateFrom
       (top </> "imageCache")
       (error $ "Could not open " <> top </> "imageCache"))
     closeAcidState
-    (\acid -> runTestTTAndExit $
-      TestList [LaTeX.tests,
-                Data.FileCache.Test.tests,
-                imageTests acid])
+    f
   where
     top = "/home/dsf/appraisalscribe3-development/_state"
 
 runTestTTAndExit :: Test -> IO ()
 runTestTTAndExit test = do
   c <- runTestTT test
-  if (errors c == 0) && (failures c == 0)
+  if (Test.HUnit.errors c == 0) && (failures c == 0)
     then exitSuccess
     else exitFailure
 
@@ -154,7 +175,21 @@ imageTests acid =
     [ test1
     , TestCase $ do
         CacheMap{..} <- query' acid LookMap
-        assertEqual "map size" 81877 (size _unCacheMap)
+        assertEqual "map size" 81877 (Map.size _unCacheMap)
+    , TestCase $ do
+        CacheMap{..} <- query' acid LookMap
+        r <- runReaderT (collectGarbage _unCacheMap) (FileCacheTop "/home/dsf/appraisalscribe3-development/images")
+        writeFile "/tmp/gc" (show r)
+        let originalIsPNG :: (FilePath, ImageKey) -> Bool
+            originalIsPNG (_, key) = case originalKey key of
+                               ImageOriginal _ PNG -> True
+                               _ -> False
+        assertEqual "gc" "" (show (Set.filter originalIsPNG (knownDerived r)))
+{-      assertEqual "gc" "" (show (Set.size (orphans r),
+                                   Set.size (orphansDerived r),
+                                   Set.size (known r),
+                                   Set.size (knownDerived r),
+                                   Set.size (FileCache.errors r))) -}
     ]
   where
     -- foo :: Either SomeException (Either SomeException ImageShape) -> Either SomeException ImageShape
