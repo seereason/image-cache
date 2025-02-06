@@ -3,7 +3,7 @@ instance WithFieldOptic ImageSize
     where withFieldOptic f (Field 1 1) = f (RLens (Lens (field @"_dim")))
           withFieldOptic f (Field 1 2) = f (RLens (Lens (field @"_size")))
           withFieldOptic f (Field 1 3) = f (RLens (Lens (field @"_units")))
-          withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageSize))))))
+          withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageSize))))) callStack)
 instance ConstructorPosTuple ImageSize
     where withConstructorTuple f (Ctor 1) = f (RPrism (Prism (_Ctor @"ImageSize")))
-          withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageSize))))))
+          withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageSize))))) callStack)

@@ -12,17 +12,17 @@ instance WithFieldOptic ImageKey
           withFieldOptic f (Field 3 2) = f (RTraversal (Traversal (_Ctor @"ImageScaled" . position @2)))
           withFieldOptic f (Field 3 3) = f (RTraversal (Traversal (_Ctor @"ImageScaled" . position @3)))
           withFieldOptic f (Field 4 1) = f (RPrism (Prism (_Ctor @"ImageUpright")))
-          withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageKey))))))
+          withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageKey))))) callStack)
 instance ConstructorPosTuple ImageKey
     where withConstructorTuple f (Ctor 1) = f (RPrism (Prism (_Ctor @"ImageOriginal")))
           withConstructorTuple f (Ctor 2) = f (RPrism (Prism (_Ctor @"ImageCropped")))
           withConstructorTuple f (Ctor 3) = f (RPrism (Prism (_Ctor @"ImageScaled")))
           withConstructorTuple f (Ctor 4) = f (RPrism (Prism (_Ctor @"ImageUpright")))
-          withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageKey))))))
+          withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageKey))))) callStack)
 instance WithFieldOptic ImageShape
     where withFieldOptic f (Field 1 1) = f (RLens (Lens (field @"_imageShapeType")))
           withFieldOptic f (Field 1 2) = f (RLens (Lens (field @"_imageShapeRect")))
-          withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageShape))))))
+          withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageShape))))) callStack)
 instance ConstructorPosTuple ImageShape
     where withConstructorTuple f (Ctor 1) = f (RPrism (Prism (_Ctor @"ImageShape")))
-          withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageShape))))))
+          withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageShape))))) callStack)

@@ -5,7 +5,7 @@ instance WithFieldOptic ImageCrop
           withFieldOptic f (Field 1 3) = f (RLens (Lens (field @"leftCrop")))
           withFieldOptic f (Field 1 4) = f (RLens (Lens (field @"rightCrop")))
           withFieldOptic f (Field 1 5) = f (RLens (Lens (field @"rotation")))
-          withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageCrop))))))
+          withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageCrop))))) callStack)
 instance ConstructorPosTuple ImageCrop
     where withConstructorTuple f (Ctor 1) = f (RPrism (Prism (_Ctor @"ImageCrop")))
-          withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageCrop))))))
+          withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageCrop))))) callStack)

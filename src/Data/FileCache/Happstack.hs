@@ -19,7 +19,7 @@ import Data.SafeCopy ( SafeCopy )
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable (typeRep)
 import GHC.Generics ( Generic )
--- import Language.Haskell.TH.Instances ()
+import GHC.Stack (callStack)
 import Language.Haskell.TH.Lift as TH ( Lift )
 
 #ifdef MIN_VERSION_happstack_server

@@ -25,6 +25,7 @@ import Data.SafeCopy ( base, extension, Migrate(..), SafeCopy(..), safeGet, safe
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable (typeRep)
 import GHC.Generics ( Generic )
+import GHC.Stack (callStack)
 
 -- * ImageCached
 

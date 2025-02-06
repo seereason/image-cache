@@ -22,7 +22,7 @@ import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable (Typeable, typeRep)
 import GHC.Generics ( Generic )
--- import Prelude ( (++), ($), Eq, Ord, Read, Show(show), Int )
+import GHC.Stack (callStack)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Web.Routes.TH ( derivePathInfo )
 
@@ -38,7 +38,6 @@ import Data.Proxy (Proxy(Proxy))
 import Web.Routes (PathInfo(..), segment)
 #else
 import Extra.THIO (spliceModule)
--- import Control.Lens.Path.TH (HOP(FIELDS, CTOR), pathInstances)
 #endif
 
 -- * ImageCrop
