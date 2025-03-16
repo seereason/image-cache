@@ -22,8 +22,8 @@ import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
 import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( show )
-import Data.Map.Strict as Map ( filter, keysSet, size )
-import Data.Maybe (mapMaybe)
+import Data.Map.Strict as Map ( filter, keysSet, Map, size )
+import Data.Maybe (catMaybes)
 import Data.Monoid ( (<>) )
 import Data.Set as Set (Set, toList)
 import GHC.Stack (HasCallStack)
@@ -42,6 +42,14 @@ data ImageTaskKey where
 instance (HasCacheAcid r, HasFileCacheTop r) => DoTask ImageTaskKey r where
   doTask = doImageTask
 
+-- | Turn a suitable 'ImageKey' into an 'ImageTaskKey'
+makeImageTask :: MonadFileCache r e m => Set CacheFlag -> ImageKey -> m (Maybe ImageTaskKey)
+makeImageTask flags key = do
+  fromShape <$> cacheImageShape flags key Nothing
+  where
+    fromShape (Right (ImageFileShape shape)) = Just (ImageTask key shape)
+    fromShape _ = Nothing
+
 -- | Enqueue a build for the 'ImageKey's that have an 'ImageShape'.
 -- These will be inserted into the channel that is being polled by the
 -- thread launched by startTaskQueue.
@@ -51,11 +59,7 @@ queueImageTasks ::
   -> [ImageKey]
   -> m ()
 queueImageTasks flags keys = do
-  files :: [Either FileError ImageFile]
-    <- mapM (\key -> cacheImageShape flags key Nothing) keys
-  queueTasks (mapMaybe isShape (zip keys files))
-  where isShape (key, Right (ImageFileShape shape)) = Just (ImageTask key shape)
-        isShape _ = Nothing
+  mapM (makeImageTask flags) keys >>= queueTasks . catMaybes
 
 type E = '[FileError, IOException]
 
@@ -83,7 +87,8 @@ testImageKeys ::
   => Set ImageKey
   -> m ()
 testImageKeys ks = do
-  shapes <- getImageShapes mempty ks
+  shapes :: Map ImageKey (Either FileError ImageFile)
+    <- getImageShapes mempty ks
   let ready = Map.filter (has (_Right . _Ctor @"ImageFileReady")) shapes
       -- Files that have been requested but not yet written out
       unready = Map.filter (has (_Right . _Ctor @"ImageFileShape")) shapes

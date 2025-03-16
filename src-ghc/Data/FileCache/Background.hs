@@ -5,6 +5,7 @@
 
 module Data.FileCache.Background
   ( TaskChan
+  , TaskQueue(TaskQueue)
   , HasTaskQueue(taskQueue)
   , startTaskQueue
   , DoTask(doTask)
@@ -27,12 +28,13 @@ import SeeReason.LogServer (alog)
 import System.Log.Logger (Priority(..))
 
 type TaskChan key = Chan [key]
+data TaskQueue key = TaskQueue (TaskChan key) (ThreadId, IO (Result ()))
 
 -- | Find the field containing the task queue
 class HasTaskQueue key a where
-  taskQueue :: a -> Maybe (TaskChan key, (ThreadId, IO (Result ())))
-instance HasTaskQueue key (TaskChan key, (ThreadId, IO (Result ()))) where taskQueue = Just
-instance HasTaskQueue key (a, b, (TaskChan key, (ThreadId, IO (Result ())))) where taskQueue = Just . view _3
+  taskQueue :: a -> Maybe (TaskQueue key)
+instance HasTaskQueue key (TaskQueue key) where taskQueue = Just
+instance HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
 -- instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
 -- | Class of types that represent tasks.
@@ -45,11 +47,11 @@ class DoTask key r where
 startTaskQueue ::
   forall key r. (DoTask key r, HasCallStack)
   => r
-  -> IO (TaskChan key, (ThreadId, IO (Result ())))
+  -> IO (TaskQueue key)
 startTaskQueue r = do
   (chan :: TaskChan key) <- newChan
   alog DEBUG "Starting background task queue"
-  (,) <$> pure chan <*> forkIO (task chan)
+  TaskQueue <$> pure chan <*> forkIO (task chan)
   where
     task :: TaskChan key -> IO ()
     task chan = forever $
@@ -75,6 +77,6 @@ queueTasks ::
   => [task]
   -> m ()
 queueTasks tasks = do
-  (chan, _) <- maybe (error "Chan Is Missing") pure =<< (taskQueue <$> ask)
+  TaskQueue chan _ <- maybe (error "Chan Is Missing") pure =<< (taskQueue <$> ask)
   liftIO (writeChan chan tasks)
   alog DEBUG ("enqueuing " ++ show (length tasks) ++ " tasks")
