@@ -9,6 +9,7 @@ module Data.FileCache.Background
   , HasTaskQueue(taskQueue)
   , startTaskQueue
   , DoTask(doTaskInternal, pollTask)
+  , TaskStatus(Incomplete, Complete)
   , doTask
   , queueTasks
   ) where
