@@ -8,6 +8,8 @@ module Data.FileCache.BackgroundImageTask
   , queueImageTasks
   , doImageTask
   , testImageKeys
+  , foregroundOrBackground
+  -- , enqueueRequired
   ) where
 
 import Control.Exception (IOException)
@@ -22,7 +24,7 @@ import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
 import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( show )
-import Data.Map.Strict as Map ( filter, keysSet, Map, size )
+import Data.Map.Strict as Map (filter, keysSet, Map, size, union)
 import Data.Maybe (catMaybes)
 import Data.Monoid ( (<>) )
 import Data.Set as Set (Set, toList)
@@ -40,15 +42,7 @@ data ImageTaskKey where
   -- DummyTask :: String -> TaskKey
 
 instance (HasCacheAcid r, HasFileCacheTop r) => DoTask ImageTaskKey r where
-  doTaskInternal = doImageTask
-
--- | Turn a suitable 'ImageKey' into an 'ImageTaskKey'
-makeImageTask :: MonadFileCache r e m => Set CacheFlag -> ImageKey -> m (Maybe (ImageKey, ImageShape))
-makeImageTask flags key = do
-  fromShape <$> cacheImageShape flags key Nothing
-  where
-    fromShape (Right (ImageFileShape shape)) = Just (key, shape)
-    fromShape _ = Nothing
+  doTaskInternal r (ImageTask key shape) = doImageTask r key shape
 
 -- | Enqueue a build for the 'ImageKey's that have an 'ImageShape'.
 -- These will be inserted into the channel that is being polled by the
@@ -59,8 +53,11 @@ queueImageTasks ::
   -> Set CacheFlag
   -> [ImageKey]
   -> m ()
-queueImageTasks mk flags keys = do
-  mapM (makeImageTask flags) keys >>= queueTasks . fmap (uncurry mk) . catMaybes
+queueImageTasks enq flags keys = do
+  mapM (\key -> fromShape key <$> cacheImageShape flags key Nothing) keys >>= queueTasks . fmap (uncurry enq) . catMaybes
+  where
+    fromShape key (Right (ImageFileShape shape)) = Just (key, shape)
+    fromShape _ _ = Nothing
 
 type E = '[FileError, IOException]
 
@@ -68,8 +65,8 @@ type E = '[FileError, IOException]
 -- whatever the ultimate 'DoTask' sum type is.
 doImageTask ::
   (HasCacheAcid r, HasFileCacheTop r, HasCallStack)
-  => r -> ImageTaskKey -> IO ()
-doImageTask r (ImageTask key shape) =
+  => r -> ImageKey -> ImageShape -> IO ()
+doImageTask r key shape =
   runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) r) >>= \case
     Left (e :: OneOf E) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
     Right (Left (e :: FileError)) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
@@ -82,13 +79,10 @@ doImageTask r (ImageTask key shape) =
 testImageKeys ::
   forall r e m.
   (MonadFileCache r e m,
-   HasTaskQueue ImageTaskKey r,
-   Member ImageStats e,
    HasCallStack)
-  => ([ImageKey] -> m ())
-  -> Set ImageKey
-  -> m ()
-testImageKeys enq ks = do
+  => Set ImageKey
+  -> m (Map ImageKey (Either FileError ImageFile), ImageStats)
+testImageKeys ks = do
   shapes :: Map ImageKey (Either FileError ImageFile)
     <- getImageShapes mempty ks
   let ready = Map.filter (has (_Right . _Ctor @"ImageFileReady")) shapes
@@ -98,7 +92,7 @@ testImageKeys enq ks = do
       -- recorded with the retired NoShapeOld error constructor.
       missing = Map.filter (\e -> has (_Left . _Ctor @"MissingDerivedEntry") e ||
                                   has (_Left . _Ctor @"NoShapeOld") e) shapes
-      needed = Map.keysSet unready <> Map.keysSet missing
+      -- needed = Map.keysSet unready <> Map.keysSet missing
   let stats = ImageStats {_keys = Map.size shapes,
                           _ready = Map.size ready,
                           _shapes = Map.size unready,
@@ -107,9 +101,25 @@ testImageKeys enq ks = do
   alog DEBUG ("#ready=" <> show (_ready stats))
   alog DEBUG ("#unready image shapes: " <> show (_shapes stats))
   alog DEBUG ("#errors=" <> show (_errors stats))
+  pure (Map.union unready missing, stats)
+
+-- | Decide whether there are enough images to be built that we
+-- need to do them in the background
+foregroundOrBackground ::
+  forall r e m.
+  (MonadFileCache r e m,
+   HasTaskQueue ImageTaskKey r,
+   Member ImageStats e,
+   HasCallStack)
+  => ([ImageKey] -> m ())
+  -> Set ImageKey
+  -> m ()
+foregroundOrBackground enq ks = do
+  (needed, stats) <- over _1 Map.keysSet <$> testImageKeys ks
+  -- let needed = Map.keysSet mp
   view (to (taskQueue @ImageTaskKey)) >>= \case
     Just _ | _shapes stats + _errors stats > 20 -> do
-      alog DEBUG ("cacheDerivedImagesBackground " <> show needed)
+      alog DEBUG ("needed=" <> show needed)
       enq (Set.toList needed)
       throwMember stats
     _ -> do
