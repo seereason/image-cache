@@ -4,7 +4,7 @@
 {-# OPTIONS -Werror=unused-imports #-}
 
 module Data.FileCache.BackgroundImageTask
-  ( ImageTaskKey
+  ( ImageTaskKey(ImageTask)
   , queueImageTasks
   , doImageTask
   , testImageKeys
@@ -43,23 +43,24 @@ instance (HasCacheAcid r, HasFileCacheTop r) => DoTask ImageTaskKey r where
   doTaskInternal = doImageTask
 
 -- | Turn a suitable 'ImageKey' into an 'ImageTaskKey'
-makeImageTask :: MonadFileCache r e m => Set CacheFlag -> ImageKey -> m (Maybe ImageTaskKey)
+makeImageTask :: MonadFileCache r e m => Set CacheFlag -> ImageKey -> m (Maybe (ImageKey, ImageShape))
 makeImageTask flags key = do
   fromShape <$> cacheImageShape flags key Nothing
   where
-    fromShape (Right (ImageFileShape shape)) = Just (ImageTask key shape)
+    fromShape (Right (ImageFileShape shape)) = Just (key, shape)
     fromShape _ = Nothing
 
 -- | Enqueue a build for the 'ImageKey's that have an 'ImageShape'.
 -- These will be inserted into the channel that is being polled by the
 -- thread launched by startTaskQueue.
 queueImageTasks ::
-  forall r e m. (MonadFileCache r e m, HasTaskQueue ImageTaskKey r, HasCallStack)
-  => Set CacheFlag
+  forall r e m key. (MonadFileCache r e m, HasTaskQueue key r, HasCallStack)
+  => (ImageKey -> ImageShape -> key)
+  -> Set CacheFlag
   -> [ImageKey]
   -> m ()
-queueImageTasks flags keys = do
-  mapM (makeImageTask flags) keys >>= queueTasks . catMaybes
+queueImageTasks mk flags keys = do
+  mapM (makeImageTask flags) keys >>= queueTasks . fmap (uncurry mk) . catMaybes
 
 type E = '[FileError, IOException]
 
@@ -84,9 +85,10 @@ testImageKeys ::
    HasTaskQueue ImageTaskKey r,
    Member ImageStats e,
    HasCallStack)
-  => Set ImageKey
+  => ([ImageKey] -> m ())
+  -> Set ImageKey
   -> m ()
-testImageKeys ks = do
+testImageKeys enq ks = do
   shapes :: Map ImageKey (Either FileError ImageFile)
     <- getImageShapes mempty ks
   let ready = Map.filter (has (_Right . _Ctor @"ImageFileReady")) shapes
@@ -108,7 +110,7 @@ testImageKeys ks = do
   view (to (taskQueue @ImageTaskKey)) >>= \case
     Just _ | _shapes stats + _errors stats > 20 -> do
       alog DEBUG ("cacheDerivedImagesBackground " <> show needed)
-      queueImageTasks mempty (Set.toList needed)
+      enq (Set.toList needed)
       throwMember stats
     _ -> do
       _ <- getImageFiles mempty needed
