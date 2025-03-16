@@ -82,13 +82,13 @@ Library
     Hs-Source-Dirs: src src-ghc
     Exposed-Modules:
       Data.FileCache.Acid
+      Data.FileCache.Background
+      Data.FileCache.BackgroundImageTask
       Data.FileCache.FileCache
       Data.FileCache.FileInfo
       Data.FileCache.Server
       Data.FileCache.Test
     Other-Modules:
-      Data.FileCache.Background
-      Data.FileCache.BackgroundImageTask
       Data.FileCache.Derive
       Data.FileCache.FileCacheTop
       Data.FileCache.ImageIO

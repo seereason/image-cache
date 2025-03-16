@@ -8,7 +8,8 @@ module Data.FileCache.Background
   , TaskQueue(TaskQueue)
   , HasTaskQueue(taskQueue)
   , startTaskQueue
-  , DoTask(doTask)
+  , DoTask(doTaskInternal, pollTask)
+  , doTask
   , queueTasks
   ) where
 
@@ -37,9 +38,20 @@ instance HasTaskQueue key (TaskQueue key) where taskQueue = Just
 instance HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
 -- instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
+-- | We need to be able to determine whether a task has successfully
+-- completed so we can abandon further effort to perform it.
+data TaskStatus = Incomplete | Complete
+
 -- | Class of types that represent tasks.
 class DoTask key r where
-  doTask :: HasCallStack => r -> key -> IO ()
+  doTaskInternal :: HasCallStack => r -> key -> IO ()
+  pollTask :: HasCallStack => r -> key -> IO TaskStatus
+  pollTask _ _ = pure Incomplete
+
+-- | Check whether the task still needs to be done and if so do it.
+doTask :: (DoTask key r, HasCallStack) => r -> key -> IO ()
+doTask r key =
+  pollTask r key >>= \case Incomplete -> doTaskInternal r key; _ -> pure ()
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding

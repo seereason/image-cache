@@ -40,7 +40,7 @@ data ImageTaskKey where
   -- DummyTask :: String -> TaskKey
 
 instance (HasCacheAcid r, HasFileCacheTop r) => DoTask ImageTaskKey r where
-  doTask = doImageTask
+  doTaskInternal = doImageTask
 
 -- | Turn a suitable 'ImageKey' into an 'ImageTaskKey'
 makeImageTask :: MonadFileCache r e m => Set CacheFlag -> ImageKey -> m (Maybe ImageTaskKey)
