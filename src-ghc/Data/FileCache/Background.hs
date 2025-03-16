@@ -36,16 +36,9 @@ import SeeReason.LogServer (alog)
 import SeeReason.Errors (Member, OneOf, throwMember)
 import System.Log.Logger (Priority(..))
 
-{-
-class HasSomeNonPseudoException e where
-  someNonPseudoException :: Prism e SomeNonPseudoException
-
-instance HasSomeNonPseudoException ReportError where
-  someNonPseudoException = _Ctor @"FileError" . someNonPseudoException
--}
-
 data TaskKey where
   ImageTask :: ImageKey -> ImageShape -> TaskKey
+  -- DummyTask :: String -> TaskKey
 
 type TaskChan = Chan [TaskKey]
 
@@ -97,7 +90,7 @@ startTaskQueue ::
   -> IO (TaskChan, (ThreadId, IO (Result ())))
 startTaskQueue r = do
   (chan :: TaskChan) <- newChan
-  alog DEBUG "Starting background image builder"
+  alog DEBUG "Starting background task queue"
   (,) <$> pure chan <*> forkIO (task chan)
   where
     task :: TaskChan -> IO ()
@@ -111,18 +104,21 @@ doTasks ::
   -> [TaskKey]
   -> IO ()
 doTasks r tasks = do
-  when (length tasks > 0) $ alog DEBUG ("doing " ++ show (length tasks) ++ " tasks")
-  files <- mapM doShape tasks
-  mapM_ doFile (zip tasks files)
-  where
-    -- the threadDelay is to test the behavior of the server for lengthy tasks
-    doShape :: TaskKey -> IO (Either (OneOf E) (Either FileError ImageFile))
-    doShape (ImageTask key shape) = runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) r)
+  when (length tasks > 0) $ alog DEBUG ("performing " ++ show (length tasks) ++ " tasks")
+  mapM_ (doTask r) tasks
 
-    doFile :: (TaskKey, Either (OneOf E) (Either FileError ImageFile)) -> IO ()
-    doFile (ImageTask key _shape, Left e) = alog ERROR ("doTasks - error building " <> show key <> ": " ++ show e)
-    doFile (ImageTask key _shape, Right (Left e)) = alog ERROR ("doTasks - error building " <> show key <> ": " ++ show e)
-    doFile (ImageTask key _shape, Right (Right _file)) = alog INFO ("doTasks - completed " <> show key)
+doTask ::
+  forall r. (HasCacheAcid r, HasFileCacheTop r, HasCallStack)
+  => r
+  -> TaskKey
+  -> IO ()
+doTask r task@(ImageTask key shape) =
+  runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) r) >>= \case
+    Left (e :: OneOf E) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
+    Right (Left (e :: FileError)) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
+    Right (Right _file) -> alog INFO ("completed " <> show key)
+-- doTask r task@(DummyTask message) =
+--   alog INFO ("performed dummy task: " <> message)
 
 -- | Throw an exception if there are more than 20 unavailable
 -- images.  This sends the images to the background image
