@@ -1,13 +1,12 @@
 -- Unused code that once did image builds in the background
 
-{-# LANGUAGE DeriveAnyClass, DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
+{-# LANGUAGE DeriveAnyClass, DeriveLift, GADTs, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
 
 module Data.FileCache.Background
-  ( ImageChan
-  , HasImageBuilder(imageBuilder)
-  , cacheDerivedImagesBackground
-  , startImageBuilder
-  -- , queueImageBuild
+  ( TaskChan
+  , HasTaskQueue(taskQueue)
+  , startTaskQueue
+  , queueImageTasks
   , testImageKeys
   ) where
 
@@ -45,41 +44,42 @@ instance HasSomeNonPseudoException ReportError where
   someNonPseudoException = _Ctor @"FileError" . someNonPseudoException
 -}
 
-type ImageChan = Chan [(ImageKey, ImageShape)]
-class HasImageBuilder a where
-  imageBuilder :: a -> Maybe (ImageChan, (ThreadId, IO (Result ())))
-instance HasImageBuilder (ImageChan, (ThreadId, IO (Result ()))) where imageBuilder = Just
-instance HasImageBuilder (a, b, (ImageChan, (ThreadId, IO (Result ())))) where imageBuilder = Just . view _3
+data TaskKey where
+  ImageTask :: ImageKey -> ImageShape -> TaskKey
+
+type TaskChan = Chan [TaskKey]
+
+class HasTaskQueue a where
+  taskQueue :: a -> Maybe (TaskChan, (ThreadId, IO (Result ())))
+instance HasTaskQueue (TaskChan, (ThreadId, IO (Result ()))) where taskQueue = Just
+instance HasTaskQueue (a, b, (TaskChan, (ThreadId, IO (Result ())))) where taskQueue = Just . view _3
 instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
-cacheDerivedImagesBackground ::
-  forall r e m. (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
+queueImageTasks ::
+  forall r e m. (MonadFileCache r e m, HasTaskQueue r, HasCallStack)
   => Set CacheFlag
   -> [ImageKey]
   -> m (Map ImageKey (Either FileError ImageFile))
-cacheDerivedImagesBackground flags keys =
-  mapM (\key -> (key,) <$> cacheImageShape flags key Nothing) keys >>=
-  backgroundBuilds >>= pure . Map.fromList
-
-backgroundBuilds ::
-  (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
-  => [(ImageKey, Either FileError ImageFile)]
-  -> m [(ImageKey, Either FileError ImageFile)]
-backgroundBuilds pairs =
-  queueImageBuild (mapMaybe isShape pairs) >> return pairs
-  where isShape (key, Right (ImageFileShape shape)) = Just (key, shape)
+queueImageTasks flags keys = do
+  files :: [Either FileError ImageFile]
+    <- mapM (\key -> cacheImageShape flags key Nothing) keys
+  let pairs = zip keys files
+  let tasks = mapMaybe isShape pairs
+  queueImageBuild tasks
+  pure $ Map.fromList pairs
+  where isShape (key, Right (ImageFileShape shape)) = Just (ImageTask key shape)
         isShape _ = Nothing
 
 -- | Insert an image build request into the channel that is being polled
 -- by the thread launched in startCacheImageFileQueue.
 queueImageBuild ::
-  (MonadFileCache r e m, HasImageBuilder r, HasCallStack)
-  => [(ImageKey, ImageShape)]
+  (MonadFileCache r e m, HasTaskQueue r, HasCallStack)
+  => [TaskKey]
   -> m ()
 queueImageBuild pairs = do
   -- Write empty files into cache
   alog DEBUG ("queueImageBuild - requesting " ++ show (length pairs) ++ " images")
-  (chan, _) <- maybe (error "Chan Is Missing") pure =<< (imageBuilder <$> ask)
+  (chan, _) <- maybe (error "Chan Is Missing") pure =<< (taskQueue <$> ask)
   liftIO (writeChan chan pairs)
   alog DEBUG ("queueImageBuild - requested " ++ show (length pairs) ++ " images")
 
@@ -88,41 +88,41 @@ type E = '[FileError, IOException]
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
-startImageBuilder ::
+startTaskQueue ::
   forall r.
   (HasCacheAcid r,
    HasFileCacheTop r,
    HasCallStack)
   => r
-  -> IO (ImageChan, (ThreadId, IO (Result ())))
-startImageBuilder r = do
-  (chan :: ImageChan) <- newChan
+  -> IO (TaskChan, (ThreadId, IO (Result ())))
+startTaskQueue r = do
+  (chan :: TaskChan) <- newChan
   alog DEBUG "Starting background image builder"
   (,) <$> pure chan <*> forkIO (task chan)
   where
-    task :: ImageChan -> IO ()
+    task :: TaskChan -> IO ()
     task chan = forever $
-      readChan chan >>= doImages r
+      readChan chan >>= doTasks r
 
 -- | This is the background task.
-doImages ::
+doTasks ::
   forall r. (HasCacheAcid r, HasFileCacheTop r, HasCallStack)
   => r
-  -> [(ImageKey, ImageShape)]
+  -> [TaskKey]
   -> IO ()
-doImages r pairs = do
-  when (length pairs > 0) $ alog DEBUG ("doImages - building " ++ show (length pairs) ++ " images")
-  -- the threadDelay is to test the behavior of the server for lengthy image builds
-  files <- mapM doShape pairs
-  mapM_ doFile (zip pairs files)
+doTasks r tasks = do
+  when (length tasks > 0) $ alog DEBUG ("doing " ++ show (length tasks) ++ " tasks")
+  files <- mapM doShape tasks
+  mapM_ doFile (zip tasks files)
   where
-    doShape :: (ImageKey, ImageShape) -> IO (Either (OneOf E) (Either FileError ImageFile))
-    doShape (key, shape) = runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) r)
+    -- the threadDelay is to test the behavior of the server for lengthy tasks
+    doShape :: TaskKey -> IO (Either (OneOf E) (Either FileError ImageFile))
+    doShape (ImageTask key shape) = runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) r)
 
-    doFile :: ((ImageKey, ImageShape), Either (OneOf E) (Either FileError ImageFile)) -> IO ()
-    doFile ((key, _shape), Left e) = alog ERROR ("doImages - error building " <> show key <> ": " ++ show e)
-    doFile ((key, _shape), Right (Left e)) = alog ERROR ("doImages - error building " <> show key <> ": " ++ show e)
-    doFile ((key, _shape), Right (Right _file)) = alog INFO ("doImages - completed " <> show key)
+    doFile :: (TaskKey, Either (OneOf E) (Either FileError ImageFile)) -> IO ()
+    doFile (ImageTask key _shape, Left e) = alog ERROR ("doTasks - error building " <> show key <> ": " ++ show e)
+    doFile (ImageTask key _shape, Right (Left e)) = alog ERROR ("doTasks - error building " <> show key <> ": " ++ show e)
+    doFile (ImageTask key _shape, Right (Right _file)) = alog INFO ("doTasks - completed " <> show key)
 
 -- | Throw an exception if there are more than 20 unavailable
 -- images.  This sends the images to the background image
@@ -131,7 +131,7 @@ doImages r pairs = do
 testImageKeys ::
   forall r e m.
   (MonadFileCache r e m,
-   HasImageBuilder r,
+   HasTaskQueue r,
    Member ImageStats e,
    HasCallStack)
   => Set ImageKey
@@ -154,10 +154,10 @@ testImageKeys ks = do
   alog DEBUG ("#ready=" <> show (_ready stats))
   alog DEBUG ("#unready image shapes: " <> show (_shapes stats))
   alog DEBUG ("#errors=" <> show (_errors stats))
-  view (to imageBuilder) >>= \case
+  view (to taskQueue) >>= \case
     Just _ | _shapes stats + _errors stats > 20 -> do
       alog DEBUG ("cacheDerivedImagesBackground " <> show needed)
-      cacheDerivedImagesBackground mempty (Set.toList needed)
+      queueImageTasks mempty (Set.toList needed)
       throwMember stats
     _ -> do
       _ <- getImageFiles mempty needed

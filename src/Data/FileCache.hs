@@ -74,7 +74,7 @@ module Data.FileCache
     buildImageFile, getImageFile, getImageFiles,
 
     -- * Background image building process
-    HasImageBuilder(imageBuilder), ImageChan, startImageBuilder,
+    HasTaskQueue(taskQueue), TaskChan, startTaskQueue,
     testImageKeys,
 #endif
 
@@ -122,7 +122,7 @@ import Data.FileCache.Acid
    LookValue(..), LookValues(..), LookMap(..), DeleteValue(..),
    DeleteValues(..), Replace(..), Request(..), Requested(..),
    Dequeue(..), Complete(..))
-import Data.FileCache.Background (HasImageBuilder(imageBuilder), ImageChan, startImageBuilder, testImageKeys)
+import Data.FileCache.Background (HasTaskQueue(taskQueue), TaskChan, startTaskQueue, testImageKeys)
 import Data.FileCache.Derive (buildImageFile, getImageFile, getImageFiles)
 import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
 import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCache, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
