@@ -1,15 +1,23 @@
 -- Unused code that once did image builds in the background
 
-{-# LANGUAGE DeriveAnyClass, DeriveLift, GADTs, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
-{-# OPTIONS -Werror=unused-imports #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveLift #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Data.FileCache.BackgroundImageTask
-  ( ImageTaskKey(ImageTask)
-  , queueImageTasks
+  ( queueImageTasks
   , doImageTask
   , testImageKeys
   , foregroundOrBackground
-  -- , enqueueRequired
+  , ImageTaskKey(ImageTask)
   ) where
 
 import Control.Exception (IOException)
@@ -36,13 +44,6 @@ import SeeReason.Errors (Member, OneOf, throwMember)
 import System.Log.Logger (Priority(..))
 
 instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
-
-data ImageTaskKey where
-  ImageTask :: ImageKey -> ImageShape -> ImageTaskKey
-  -- DummyTask :: String -> TaskKey
-
-instance (HasCacheAcid r, HasFileCacheTop r) => DoTask ImageTaskKey r where
-  doTaskInternal r (ImageTask key shape) = doImageTask r key shape
 
 -- | Enqueue a build for the 'ImageKey's that have an 'ImageShape'.
 -- These will be inserted into the channel that is being polled by the
@@ -106,9 +107,9 @@ testImageKeys ks = do
 -- | Decide whether there are enough images to be built that we
 -- need to do them in the background
 foregroundOrBackground ::
-  forall r e m.
+  forall key r e m.
   (MonadFileCache r e m,
-   HasTaskQueue ImageTaskKey r,
+   HasTaskQueue key r,
    Member ImageStats e,
    HasCallStack)
   => ([ImageKey] -> m ())
@@ -117,7 +118,7 @@ foregroundOrBackground ::
 foregroundOrBackground enq ks = do
   (needed, stats) <- over _1 Map.keysSet <$> testImageKeys ks
   -- let needed = Map.keysSet mp
-  view (to (taskQueue @ImageTaskKey)) >>= \case
+  view (to (taskQueue @key)) >>= \case
     Just _ | _shapes stats + _errors stats > 20 -> do
       alog DEBUG ("needed=" <> show needed)
       enq (Set.toList needed)
@@ -126,3 +127,12 @@ foregroundOrBackground enq ks = do
       _ <- getImageFiles mempty needed
       alog DEBUG ("getImageFiles " <> show needed)
       pure ()
+
+-- * Example of a task key type
+
+data ImageTaskKey where
+  ImageTask :: ImageKey -> ImageShape -> ImageTaskKey
+  -- DummyTask :: String -> TaskKey
+
+instance (HasCacheAcid r, HasFileCacheTop r) => DoTask ImageTaskKey r where
+  doTaskInternal r (ImageTask key shape) = doImageTask r key shape
