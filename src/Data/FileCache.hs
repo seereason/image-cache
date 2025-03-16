@@ -72,10 +72,6 @@ module Data.FileCache
 
     -- * Turn an ImageKey into an ImageFile
     buildImageFile, getImageFile, getImageFiles,
-
-    -- * Background image building process
-    HasTaskQueue(taskQueue), TaskChan, startTaskQueue,
-    testImageKeys,
 #endif
 
 ---------------------
@@ -122,7 +118,6 @@ import Data.FileCache.Acid
    LookValue(..), LookValues(..), LookMap(..), DeleteValue(..),
    DeleteValues(..), Replace(..), Request(..), Requested(..),
    Dequeue(..), Complete(..))
-import Data.FileCache.Background (HasTaskQueue(taskQueue), TaskChan, startTaskQueue, testImageKeys)
 import Data.FileCache.Derive (buildImageFile, getImageFile, getImageFiles)
 import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
 import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCache, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)

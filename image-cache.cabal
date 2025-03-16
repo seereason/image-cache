@@ -88,6 +88,7 @@ Library
       Data.FileCache.Test
     Other-Modules:
       Data.FileCache.Background
+      Data.FileCache.BackgroundImageTask
       Data.FileCache.Derive
       Data.FileCache.FileCacheTop
       Data.FileCache.ImageIO
