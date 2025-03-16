@@ -13,7 +13,6 @@ module Data.FileCache.Internal
   , module Data.FileCache.Rational
 #ifndef __GHCJS__
   , module Data.FileCache.Acid
-  , module Data.FileCache.Background
   , module Data.FileCache.Derive
   , module Data.FileCache.FileCache
   , module Data.FileCache.FileCacheTop
@@ -42,7 +41,6 @@ import Data.FileCache.Orphans
 import Data.FileCache.Rational
 #ifndef __GHCJS__
 import Data.FileCache.Acid
-import Data.FileCache.Background
 import Data.FileCache.Derive
 import Data.FileCache.FileCache
 import Data.FileCache.FileCacheTop
