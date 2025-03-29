@@ -25,7 +25,7 @@ import Data.ListLike ( length, show )
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
--- import SeeReason.Errors (OneOf)
+import SeeReason.Log (LoggerIO)
 import SeeReason.LogServer (alog)
 import System.Log.Logger (Priority(..))
 
@@ -84,6 +84,7 @@ queueTasks ::
   forall task r {-e-} m.
   (MonadIO m,
    MonadReader r m,
+   LoggerIO m,
    -- MonadError (OneOf e) m,
    HasTaskQueue task r,
    HasCallStack)
