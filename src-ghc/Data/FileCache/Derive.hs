@@ -21,7 +21,7 @@ import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
-import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath(..) )
+import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
 import Data.FileCache.FileCacheTop ( MonadFileCache )
 import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
@@ -177,7 +177,7 @@ cacheImageFile key _shape = do
     maybe (pure (Left (UnexpectedException "Impossible cache miss")))
           (either (pure . Left)
             (\case file@(ImageFileReady (ImageReady {..})) -> do
-                     let path = toFilePath key
+                     path <- fileCachePathIO key
                      -- It appears it was already built and cached.
                      -- But is it actually there?
                      liftIO (doesFileExist (traceWith ("path=" <>) path)) >>= \case
