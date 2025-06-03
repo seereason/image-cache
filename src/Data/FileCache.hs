@@ -39,7 +39,7 @@ module Data.FileCache
     FileType(..), -- GIF, HEIC, JPEG, PDF, PNG, PPM, TIFF, CSV, Unknown
     HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
     ImageShape(ImageShape, _imageShapeType, _imageShapeRect),
-    shapeFromKey,
+    shapeFromKey, omitTIFF, omitHEICAndTIFF,
     HasImageShapeM(imageShapeM), HasImageShape, imageShape,
     HasOriginalShape(originalShape),
     ImageStats(..),
@@ -98,7 +98,7 @@ import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)
 import Data.FileCache.ImageKey
   (ImageKey(..), HasImageKey(imageKey), OriginalKey(originalKey), UprightKey(uprightKey), EditedKey(editedKey), ScaledKey(scaledKey),
    {-ImagePath(ImagePath, _imagePathKey), HasImagePath(imagePath),-} shapeFromKey,
-   FileType(..), HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
+   FileType(..), HasFileType(imageType), supportedFileTypes, supportedMimeTypes, omitTIFF, omitHEICAndTIFF,
    ImageShape(..), HasImageShapeM(imageShapeM), HasImageShape, imageShape, HasOriginalShape(originalShape),
    ImageStats(..))
 import Data.FileCache.ImageRect

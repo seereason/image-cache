@@ -20,7 +20,7 @@ module Data.FileCache.Rational
   , micro
   ) where
 
-import Control.Lens (Iso', iso, preview, Prism', prism',  review)
+import Control.Lens (Iso', iso, preview, Prism', prism', review)
 import Control.Monad.Fail (MonadFail)
 import Data.Fixed (E6, Fixed, showFixed)
 import Data.ListLike (fromString, toString)
@@ -40,7 +40,7 @@ import Web.Routes (PathInfo(..))
 
 -- | Wrapper for (%) with the Debug attribute
 (%) :: (Integral a, HasCallStack) => a -> a -> Ratio a
-n % d | d == 0 = error (compactStack getStack)
+_ % d | d == 0 = error (compactStack getStack)
 n % d = n Data.Ratio.% d
 
 -- | Wrapper for (%) with the Debug attribute
@@ -70,7 +70,8 @@ rationalIso = iso (either id (review rationalPrism)) (\text -> maybe (Left text)
 -- rational numbers, because it only understands strings like "15 % 4",
 -- not "15" or "3.5".  Trims whitespace from strings.
 rationalPrism :: Prism' Text Rational
-rationalPrism = iso (toString . strip) fromString . prism' showRational readRationalMaybe
+-- rationalPrism = iso (toString . strip) fromString . prism' showRational readRationalMaybe
+rationalPrism = prism' (fromString . showRational) (readRationalMaybe . toString . strip)
 
 -- | Show a rational using decimal notation.  May lose precision.
 showRational :: Rational -> String

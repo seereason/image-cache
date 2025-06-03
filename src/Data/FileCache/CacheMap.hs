@@ -41,6 +41,7 @@ instance SafeCopy ImageCached
 instance HasImageShapeM Identity ImageCached where
   imageShapeM = imageShapeM . _imageCachedFile
 
+-- | An 'ImageKey' can be recovered from an entry in the image cache.
 instance HasImageKey ImageCached where
   imageKey (ImageCached x _) = imageKey x
 
