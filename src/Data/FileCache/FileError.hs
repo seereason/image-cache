@@ -31,7 +31,6 @@ import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
 import Extra.Except ( ExceptT, MonadError, HasErrorCall(..), runExceptT )
 import SeeReason.Errors as Errors ( Member, OneOf(..), oneOf, put1)
-import SeeReason.Log (LoggerIO)
 import GHC.Generics ( Generic )
 
 -- * FileError, CommandInfo
@@ -137,7 +136,7 @@ instance HasFileError FileError where fileError = id
 
 instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
 
-type MyMonadIO e m = (MonadIO m, LoggerIO m, MonadError (OneOf e) m, MyIOErrors e)
+type MyMonadIO e m = (MonadIO m, MonadError (OneOf e) m, MyIOErrors e)
 
 type MyIOErrors e = (Member IOException e)
 

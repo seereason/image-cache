@@ -46,7 +46,6 @@ import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
 import Prelude hiding (show)
 import SeeReason.Errors (tryError)
-import SeeReason.Log (LoggerIO)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
 import System.IO.Temp (withSystemTempFile)
@@ -316,7 +315,7 @@ logIOError' io =
 -- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
 
 editImage' ::
-    forall e m. (LoggerIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
+    forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
     => ImageCrop -> BS.ByteString -> FileType -> ImageShape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' crop bs typ ImageShape{_imageShapeRect = Right rect} =
