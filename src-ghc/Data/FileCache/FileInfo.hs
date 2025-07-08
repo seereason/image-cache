@@ -129,7 +129,12 @@ pPPM = Parsec.try (string "Netpbm P[BGPP]M \"rawbits\" image data$" >> pSep >> r
 pPDF :: Parser FileType
 pPDF = Parsec.try (string "PDF document" >> pSep >> return PDF)
 pCSV :: Parser FileType
-pCSV = Parsec.try (string "ASCII text" >> pSep >> return CSV)
+pCSV = Parsec.try (pCSV1 <|> pCSV2)
+pCSV1 :: Parser FileType
+pCSV1 = Parsec.try (string "ASCII text" >> pSep >> return CSV)
+pCSV2 :: Parser FileType
+pCSV2 = Parsec.try (string "UTF-8 Unicode text, with very long lines, with CRLF, LF line terminators" >> pSep >> return CSV)
+
 #if 0
 pICON = string "MS Windows icon resource" >> many anyChar >> return ???
 #endif
