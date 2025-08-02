@@ -25,7 +25,7 @@ import Data.ListLike ( length, show )
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
-import SeeReason.LogServer (alog)
+import SeeReason.Log (alog)
 import System.Log.Logger (Priority(..))
 
 type TaskChan key = Chan [key]

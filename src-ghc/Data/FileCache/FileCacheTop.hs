@@ -5,9 +5,11 @@
 module Data.FileCache.FileCacheTop
   ( FileCacheTop(..)
   , HasFileCacheTop(fileCacheTop)
+#if !__GHCJS__
   , HasCacheAcid(cacheAcid)
   , CacheAcid
   , MonadFileCache
+#endif
   , FileCacheT
   , runFileCacheT
   ) where
@@ -15,7 +17,9 @@ module Data.FileCache.FileCacheTop
 import Control.Lens ( _1, view )
 import Control.Monad.Except (ExceptT)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
+#if !__GHCJS__
 import Data.Acid ( AcidState )
+#endif
 import Data.FileCache.CacheMap ( CacheMap )
 import Data.FileCache.FileError (E, MonadFileIO, runFileIOT)
 import SeeReason.Errors (OneOf)
@@ -27,6 +31,7 @@ newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
 class HasFileCacheTop a where fileCacheTop :: a -> FileCacheTop
 instance HasFileCacheTop FileCacheTop where fileCacheTop = id
 
+#if !__GHCJS__
 type CacheAcid = AcidState CacheMap
 class HasCacheAcid a where cacheAcid :: a -> AcidState CacheMap
 instance  HasCacheAcid CacheAcid where cacheAcid = id
@@ -38,6 +43,7 @@ type MonadFileCache r e m =
    MonadReader r m,
    HasCacheAcid r,
    HasFileCacheTop r)
+#endif
 
 -- | A simple type that is an instance of 'MonadFileCacheUIO'.
 type FileCacheT r m = ReaderT r (ExceptT (OneOf E) m)

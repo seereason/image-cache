@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.43
+Version:        0.44
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -78,24 +78,28 @@ Library
     unix,
     web-routes,
     web-routes-th
-  if !impl(ghcjs)
-    Hs-Source-Dirs: src src-ghc
+  Hs-Source-Dirs: src src-ghc
+  Exposed-Modules:
+    Data.FileCache.Background
+    Data.FileCache.FileCache
+  Other-Modules:
+    Data.FileCache.FileCacheTop
+    Data.FileCache.LogException
+    Data.FileCache.Pipify
+  if impl(ghcjs)
+    Build-Depends: Cabal
+  else
     Exposed-Modules:
       Data.FileCache.Acid
-      Data.FileCache.Background
       Data.FileCache.BackgroundImageTask
-      Data.FileCache.FileCache
-      Data.FileCache.FileInfo
-      Data.FileCache.Server
-      Data.FileCache.Test
-    Other-Modules:
       Data.FileCache.Derive
-      Data.FileCache.FileCacheTop
-      Data.FileCache.ImageIO
-      Data.FileCache.LogException
-      Data.FileCache.Pipify
-      Data.FileCache.Process
+      Data.FileCache.Server
+      Data.FileCache.FileInfo
+      Data.FileCache.Test
       Data.FileCache.Upload
+    Other-Modules:
+      Data.FileCache.ImageIO
+      Data.FileCache.Process
     Build-Depends:
       acid-state >= 0.16,
       filemanip,
@@ -114,9 +118,6 @@ Library
       utf8-string
     build-tools:
       fbida
-  else
-    Hs-Source-Dirs: src
-    Build-Depends: Cabal
 
 test-suite image-cache-tests
   Default-Language: Haskell2010

@@ -4,14 +4,12 @@
 {-# OPTIONS -Wno-deprecations #-}
 
 module Data.FileCache.Derive
-  ( CacheFlag(RetryErrors)
-  , getImageFile
+  ( getImageFile
   , getImageFiles
   , getImageShapes
   , cacheImageFile
   , cacheImageShape
   , buildImageFile
-  , shapeFromKey
   ) where
 
 import Control.Lens ( _Right, over )
@@ -25,7 +23,7 @@ import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath,
 import Data.FileCache.FileCacheTop ( MonadFileCache )
 import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
-              CacheDamageMigrated, MissingOriginalEntry, UnexpectedException) )
+              CacheDamageMigrated, MissingOriginalEntry, UnexpectedException), CacheFlag(RetryErrors) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
 import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
 import Data.FileCache.ImageKey
@@ -44,18 +42,13 @@ import Debug.Trace
 import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
 import SeeReason.Errors ( throwMember, tryMember )
-import SeeReason.LogServer ( alog )
+import SeeReason.Log ( alog )
 import System.Directory ( doesFileExist )
 import System.FilePath ()
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import System.Posix.Files (createLink, removeLink)
 import Text.PrettyPrint.HughesPJClass ( prettyShow )
-
-data CacheFlag
-  = RetryErrors -- ^ If the cache contains a FileError try the operation again
-  | RetryShapes -- ^ Not used
-  deriving (Eq, Ord, Show)
 
 getImageFiles ::
   forall r e m. (MonadFileCache r e m, HasCallStack)

@@ -26,8 +26,8 @@ import Control.Monad.Reader (runReaderT)
 import Control.Monad.Except (runExceptT)
 import Data.FileCache.Background
 import Data.FileCache.FileCacheTop
-import Data.FileCache.Derive (CacheFlag, cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
-import Data.FileCache.FileError (FileError)
+import Data.FileCache.Derive (cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
+import Data.FileCache.FileError (CacheFlag, FileError)
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
 import Data.Generics.Sum (_Ctor)
@@ -39,7 +39,7 @@ import Data.Set as Set (Set, toList)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
-import SeeReason.LogServer (alog)
+import SeeReason.Log (alog)
 import SeeReason.Errors (Member, OneOf, throwMember)
 import System.Log.Logger (Priority(..))
 

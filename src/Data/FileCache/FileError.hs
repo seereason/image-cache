@@ -16,6 +16,7 @@ module Data.FileCache.FileError
   , MonadFileIO
   , E, fromE
   , runFileIOT
+  , CacheFlag(RetryErrors)
   ) where
 
 import Control.Exception as E ( Exception, ErrorCall, IOException )
@@ -156,3 +157,8 @@ fromE :: forall e. (Member FileError e, MyIOErrors e) => OneOf E -> OneOf e
 fromE (Val e) = Errors.put1 (e :: FileError)
 fromE (NoVal (Val e)) = Errors.put1 (e :: IOException)
 fromE _ = error "Impossible"
+
+data CacheFlag
+  = RetryErrors -- ^ If the cache contains a FileError try the operation again
+  | RetryShapes -- ^ Not used
+  deriving (Eq, Ord, Show)

@@ -7,27 +7,32 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
-{-# OPTIONS -Werror=unused-imports #-}
 
 module Data.FileCache.FileCache
   ( HasFilePath(toFilePath)
   , fileCachePath
+  , Classified(..)
+#if !__GHCJS__
   , fileCachePathIO
   -- , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
   , cacheLook, cacheDelete, cacheMap
   , cachePut, cachePut_
-  , Classified(..)
   , collectGarbage
+#endif
   ) where
 
 import Control.Lens (at, ifoldlM, Lens', set)
 -- import Control.Lens ( _1, _2, view )
 -- import Control.Monad.RWS ( RWST(runRWST) )
 import Control.Monad.Reader (liftIO, MonadIO, MonadReader(ask))
+#if !__GHCJS__
 import Data.Acid (AcidState)
 import Data.Acid.Advanced (query', update')
+#endif
 import Data.FileCache.FileCacheTop
+#if !__GHCJS__
 import Data.FileCache.Acid
+#endif
 import Data.FileCache.CacheMap
 import Data.FileCache.File
 import Data.FileCache.FileError
@@ -45,8 +50,10 @@ import GHC.Generics (Generic)
 import GHC.Stack (callStack, HasCallStack)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath ( (</>), makeRelative, takeDirectory )
+#if !__GHCJS__
 import System.FilePath.Find as Find ((==?), always, fileType, find)
 import qualified System.FilePath.Find as Find (FileType(RegularFile))
+#endif
 import Web.Routes ( toPathInfo )
 
 -- * FileCacheTop
@@ -89,6 +96,7 @@ fileCachePath file = do
   return $ top </> makeRelative "/" path
   where _ = callStack
 
+#if !__GHCJS__
 -- | Create any missing directories and evaluate 'fileCachePath'
 fileCachePathIO ::
   (MonadFileCache r e m, HasFilePath a, HasCallStack)
@@ -98,6 +106,7 @@ fileCachePathIO file = do
   let dir = takeDirectory path
   liftIO $ createDirectoryIfMissing True dir
   return path
+#endif
 
 -- * FileCacheT
 
@@ -113,6 +122,7 @@ execFileCacheT :: Functor m => r -> s -> FileCacheT r s m a-> m s
 execFileCacheT r s0 action = view _2 <$> runFileCacheT r s0 action
 #endif
 
+#if !__GHCJS__
 askCacheAcid :: (MonadReader r m, HasCacheAcid r, HasCallStack) => m CacheAcid
 askCacheAcid = cacheAcid <$> ask
   where _ = callStack
@@ -155,6 +165,7 @@ cacheDelete _ keys = do
   (st :: AcidState CacheMap) <- cacheAcid <$> ask
   update' st (DeleteValues keys)
   where _ = callStack
+#endif
 
 -- To do - files that are in the image database but not referenced in
 -- the appraisal database.
@@ -174,6 +185,7 @@ isDerived top path = do
   -- top="/home/dsf/appraisalscribe3-development/images"
   elem '/' $ drop 4 $ fromMaybe (error "Unexpected prefix: " <> show path) $ stripPrefix top path
 
+#if !__GHCJS__
 collectGarbage ::
   forall r m. (MonadIO m, MonadReader r m, HasFileCacheTop r)
   => Map ImageKey (Either FileError ImageFile)
@@ -214,3 +226,4 @@ collectGarbage mp = do
               set (#orphans . at path) Nothing $
               set (#known . at (path, key)) (Just ()) classified
             False -> pure classified
+#endif
