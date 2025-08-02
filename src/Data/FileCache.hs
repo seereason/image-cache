@@ -52,20 +52,19 @@ module Data.FileCache
     -- * import Data.FileCache.CacheMap
     ImageCached(..), CacheMap(..),
 
-#ifndef __GHCJS__
     -- * Image cache acid state repository
     FileCacheTop(FileCacheTop, _unFileCacheTop),
-    MonadFileCache, HasCacheAcid(cacheAcid),
     HasFileCacheTop(fileCacheTop), runFileCacheT,
+    -- * Image directory structure
+    fileCachePath, HasFilePath(toFilePath),
 
+#if !__GHCJS__
     -- * Image cache acid-state operations
+    MonadFileCache, HasCacheAcid(cacheAcid),
     initCacheMap, openCache, PutValue(..), PutValues(..),
     LookValue(..), LookValues(..), LookMap(..), DeleteValue(..),
     DeleteValues(..), Replace(..), Request(..), Requested(..),
     Dequeue(..), Complete(..), cacheLook, cachePut,
-
-    -- * Image directory structure
-    fileCachePath, HasFilePath(toFilePath),
 
     -- * Upload a new image
     cacheOriginalFile,
@@ -88,6 +87,28 @@ module Data.FileCache
     rsqrt
   ) where
 
+#if 1
+import Data.FileCache.CacheMap
+import Data.FileCache.CommandError
+import Data.FileCache.File
+import Data.FileCache.FileError
+import Data.FileCache.Happstack
+import Data.FileCache.ImageCrop
+import Data.FileCache.ImageFile
+import Data.FileCache.ImageKey
+import Data.FileCache.ImageRect
+import Data.FileCache.ImageSize
+import Data.FileCache.Rational
+import Data.FileCache.FileCache
+import Data.FileCache.FileCacheTop
+
+#if !__GHCJS__
+import Data.FileCache.Acid
+import Data.FileCache.Derive
+import Data.FileCache.Upload
+#endif
+
+#else
 import Data.FileCache.CacheMap (ImageCached(..), CacheMap(..))
 import Data.FileCache.CommandError (CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError))
 import Data.FileCache.File (File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension))
@@ -122,4 +143,5 @@ import Data.FileCache.Derive (buildImageFile, getImageFile, getImageFiles)
 import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
 import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCache, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
 import Data.FileCache.Upload (cacheOriginalFile)
+#endif
 #endif
