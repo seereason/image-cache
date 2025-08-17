@@ -43,48 +43,48 @@ instance HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
 data TaskStatus = Incomplete | Complete
 
 -- | Class of types that represent tasks.
-class DoTask key r where
-  doTaskInternal :: HasCallStack => r -> key -> IO ()
-  pollTask :: HasCallStack => r -> key -> IO TaskStatus
+class DoTask key a where
+  doTaskInternal :: HasCallStack => a -> key -> IO ()
+  pollTask :: HasCallStack => a -> key -> IO TaskStatus
   pollTask _ _ = pure Incomplete
 
 -- | Check whether the task still needs to be done and if so do it.
-doTask :: (DoTask key r, HasCallStack) => r -> key -> IO ()
-doTask r key =
-  pollTask r key >>= \case Incomplete -> doTaskInternal r key; _ -> pure ()
+doTask :: (DoTask key a, HasCallStack) => a -> key -> IO ()
+doTask a key =
+  pollTask a key >>= \case Incomplete -> doTaskInternal a key; _ -> pure ()
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startTaskQueue ::
-  forall key r. (DoTask key r, HasCallStack)
-  => r
+  forall key a. (DoTask key a, HasCallStack)
+  => a
   -> IO (TaskQueue key)
-startTaskQueue r = do
+startTaskQueue a = do
   (chan :: TaskChan key) <- newChan
   alog DEBUG "Starting background task queue"
   TaskQueue <$> pure chan <*> forkIO (task chan)
   where
     task :: TaskChan key -> IO ()
     task chan = forever $
-      readChan chan >>= doTasks @key r
+      readChan chan >>= doTasks @key a
 
 -- | This is the background task.
 doTasks ::
-  forall key r. (DoTask key r, HasCallStack)
-  => r
+  forall key a. (DoTask key a, HasCallStack)
+  => a
   -> [key]
   -> IO ()
-doTasks r tasks = do
+doTasks a tasks = do
   when (length tasks > 0) $ alog DEBUG ("performing " ++ show (length tasks) ++ " tasks")
-  mapM_ (doTask r) tasks
+  mapM_ (doTask a) tasks
 
 queueTasks ::
-  forall task r {-e-} m.
+  forall task a {-e-} m.
   (MonadIO m,
-   MonadReader r m,
+   MonadReader a m,
    -- MonadError (OneOf e) m,
-   HasTaskQueue task r,
+   HasTaskQueue task a,
    HasCallStack)
   => [task]
   -> m ()

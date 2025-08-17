@@ -49,7 +49,7 @@ instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCache
 -- These will be inserted into the channel that is being polled by the
 -- thread launched by startTaskQueue.
 queueImageTasks ::
-  forall r e m key. (MonadFileCache r e m, HasTaskQueue key r, HasCallStack)
+  forall a e m key. (MonadFileCache a e m, HasTaskQueue key a, HasCallStack)
   => (ImageKey -> ImageShape -> key)
   -> Set CacheFlag
   -> [ImageKey]
@@ -65,10 +65,10 @@ type E = '[FileError, IOException]
 -- | This is used to implement the image portion of doTask for
 -- whatever the ultimate 'DoTask' sum type is.
 doImageTask ::
-  (HasCacheAcid r, HasFileCacheTop r, HasCallStack)
-  => r -> ImageKey -> ImageShape -> IO ()
-doImageTask r key shape =
-  runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) r) >>= \case
+  (HasCacheAcid a, HasFileCacheTop a, HasCallStack)
+  => a -> ImageKey -> ImageShape -> IO ()
+doImageTask a key shape =
+  runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) a) >>= \case
     Left (e :: OneOf E) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
     Right (Left (e :: FileError)) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
     Right (Right _file) -> alog INFO ("completed " <> show key)
@@ -78,8 +78,8 @@ doImageTask r key shape =
 -- generator thread, aborts whatever we are doing, and puts up a
 -- "come back later" message.
 testImageKeys ::
-  forall r e m.
-  (MonadFileCache r e m,
+  forall a e m.
+  (MonadFileCache a e m,
    HasCallStack)
   => Set ImageKey
   -> m (Map ImageKey (Either FileError ImageFile), ImageStats)
@@ -107,9 +107,9 @@ testImageKeys ks = do
 -- | Decide whether there are enough images to be built that we
 -- need to do them in the background
 foregroundOrBackground ::
-  forall key r e m.
-  (MonadFileCache r e m,
-   HasTaskQueue key r,
+  forall key a e m.
+  (MonadFileCache a e m,
+   HasTaskQueue key a,
    Member ImageStats e,
    HasCallStack)
   => ([ImageKey] -> m ())
@@ -134,5 +134,5 @@ data ImageTaskKey where
   ImageTask :: ImageKey -> ImageShape -> ImageTaskKey
   -- DummyTask :: String -> TaskKey
 
-instance (HasCacheAcid r, HasFileCacheTop r) => DoTask ImageTaskKey r where
-  doTaskInternal r (ImageTask key shape) = doImageTask r key shape
+instance (HasCacheAcid a, HasFileCacheTop a) => DoTask ImageTaskKey a where
+  doTaskInternal a (ImageTask key shape) = doImageTask a key shape
