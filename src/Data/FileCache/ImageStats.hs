@@ -5,7 +5,7 @@ module Data.FileCache.ImageStats
   ( ImageStats(_keys, _ready, _shapes, _errors)
   , imageStatsTimeout
   , imageStatsDefault
-#if SERVER
+#if !__GHCJS__
   , testImageKeys
   , foregroundOrBackground
 #endif
@@ -16,7 +16,7 @@ import Data.SafeCopy ( SafeCopy )
 import Data.Serialize ( Serialize(..) )
 import GHC.Generics ( Generic )
 
-#if SERVER
+#if !__GHCJS__
 import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
 import Data.FileCache.Background ( HasTaskQueue(taskQueue) )
 import Data.FileCache.Derive ( getImageFiles, getImageShapes )
