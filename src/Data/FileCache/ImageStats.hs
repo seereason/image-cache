@@ -55,7 +55,7 @@ imageStatsDefault = ImageStats 0 0 0 0
 imageStatsTimeout = ImageStats 0 0 0 1
 
 
-#if SERVER
+#if !__GHCJS__
 -- | Throw an exception if there are more than 20 unavailable
 -- images.  This sends the images to the background image
 -- generator thread, aborts whatever we are doing, and puts up a
