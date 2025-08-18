@@ -1,6 +1,6 @@
 -- Unused code that once did image builds in the background
 
-{-# LANGUAGE DeriveAnyClass, DeriveLift, GADTs, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
+{-# LANGUAGE DeriveAnyClass, DeriveLift, FunctionalDependencies, GADTs, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
 {-# OPTIONS -Werror=unused-imports #-}
 
 module Data.FileCache.Background
@@ -40,24 +40,26 @@ instance HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
 
 -- | We need to be able to determine whether a task has successfully
 -- completed so we can abandon further effort to perform it.
-data TaskStatus = Incomplete | Complete
+data TaskStatus result = Incomplete | Complete result
 
 -- | Class of types that represent tasks.
-class DoTask key a where
-  doTaskInternal :: HasCallStack => a -> key -> IO ()
-  pollTask :: HasCallStack => a -> key -> IO TaskStatus
+class DoTask key a result | key -> result where
+  doTaskInternal :: HasCallStack => a -> key -> IO result
+  pollTask :: HasCallStack => a -> key -> IO (TaskStatus result)
   pollTask _ _ = pure Incomplete
 
 -- | Check whether the task still needs to be done and if so do it.
-doTask :: (DoTask key a, HasCallStack) => a -> key -> IO ()
+doTask :: (DoTask key a result, HasCallStack) => a -> key -> IO result
 doTask a key =
-  pollTask a key >>= \case Incomplete -> doTaskInternal a key; _ -> pure ()
+  pollTask a key >>= \case
+    Incomplete -> doTaskInternal a key
+    Complete result -> pure result
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startTaskQueue ::
-  forall key a. (DoTask key a, HasCallStack)
+  forall key a result. (DoTask key a result, HasCallStack)
   => a
   -> IO (TaskQueue key)
 startTaskQueue a = do
@@ -71,7 +73,7 @@ startTaskQueue a = do
 
 -- | This is the background task.
 doTasks ::
-  forall key a. (DoTask key a, HasCallStack)
+  forall key a result. (DoTask key a result, HasCallStack)
   => a
   -> [key]
   -> IO ()

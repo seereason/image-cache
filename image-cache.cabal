@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.44
+Version:        0.45
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -31,6 +31,7 @@ Library
     Data.FileCache.CacheMap
     Data.FileCache.ImageRect
     Data.FileCache.ImageKey
+    Data.FileCache.ImageStats
   Other-Modules:
     Data.FileCache.CommandError
     Data.FileCache.File

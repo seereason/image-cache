@@ -37,7 +37,6 @@ module Data.FileCache.ImageKey
   , HasImageShapeM(imageShapeM)
   , HasImageShape, imageShape
   , HasOriginalShape(originalShape)
-  , ImageStats(..)
   ) where
 
 import Control.Lens ( Identity(runIdentity) )
@@ -482,20 +481,6 @@ instance HasImageShape a => HasFileType (ImageKey, a) where
             sc :: Double
             sc = fromRat (fromMaybe 1 sc') in
           if approx (toRational sc) == 1 then imageType (key, shape) else JPEG
-
--- * ImageStats
-
--- Statistics about the server status of the images in this reports.
-data ImageStats
-  = ImageStats
-    { _keys :: Int
-    , _ready :: Int
-    , _shapes :: Int
-    , _errors :: Int
-    } deriving (Generic, Eq, Ord, Show, Serialize)
-
-instance SafeCopy ImageStats
-instance Value ImageStats where hops _ = []
 
 #if __GHCJS__
 #include "SplicesForImageKey.hs"

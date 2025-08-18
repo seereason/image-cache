@@ -15,8 +15,6 @@
 module Data.FileCache.BackgroundImageTask
   ( queueImageTasks
   , doImageTask
-  , testImageKeys
-  , foregroundOrBackground
   , ImageTaskKey(ImageTask)
   ) where
 
@@ -29,7 +27,7 @@ import Data.FileCache.FileCacheTop
 import Data.FileCache.Derive (cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
 import Data.FileCache.FileError (CacheFlag, FileError)
 import Data.FileCache.ImageFile
-import Data.FileCache.ImageKey
+import Data.FileCache.ImageKey (ImageKey, ImageShape)
 import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( show )
 import Data.Map.Strict as Map (filter, keysSet, Map, size, union)
@@ -73,66 +71,11 @@ doImageTask a key shape =
     Right (Left (e :: FileError)) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
     Right (Right _file) -> alog INFO ("completed " <> show key)
 
--- | Throw an exception if there are more than 20 unavailable
--- images.  This sends the images to the background image
--- generator thread, aborts whatever we are doing, and puts up a
--- "come back later" message.
-testImageKeys ::
-  forall a e m.
-  (MonadFileCache a e m,
-   HasCallStack)
-  => Set ImageKey
-  -> m (Map ImageKey (Either FileError ImageFile), ImageStats)
-testImageKeys ks = do
-  shapes :: Map ImageKey (Either FileError ImageFile)
-    <- getImageShapes mempty ks
-  let ready = Map.filter (has (_Right . _Ctor @"ImageFileReady")) shapes
-      -- Files that have been requested but not yet written out
-      unready = Map.filter (has (_Right . _Ctor @"ImageFileShape")) shapes
-      -- Files that were written out but have gone missing, or were
-      -- recorded with the retired NoShapeOld error constructor.
-      missing = Map.filter (\e -> has (_Left . _Ctor @"MissingDerivedEntry") e ||
-                                  has (_Left . _Ctor @"NoShapeOld") e) shapes
-      -- needed = Map.keysSet unready <> Map.keysSet missing
-  let stats = ImageStats {_keys = Map.size shapes,
-                          _ready = Map.size ready,
-                          _shapes = Map.size unready,
-                          _errors = Map.size missing }
-  alog DEBUG ("#keys=" <> show (_keys stats))
-  alog DEBUG ("#ready=" <> show (_ready stats))
-  alog DEBUG ("#unready image shapes: " <> show (_shapes stats))
-  alog DEBUG ("#errors=" <> show (_errors stats))
-  pure (Map.union unready missing, stats)
-
--- | Decide whether there are enough images to be built that we
--- need to do them in the background
-foregroundOrBackground ::
-  forall key a e m.
-  (MonadFileCache a e m,
-   HasTaskQueue key a,
-   Member ImageStats e,
-   HasCallStack)
-  => ([ImageKey] -> m ())
-  -> Set ImageKey
-  -> m ()
-foregroundOrBackground enq ks = do
-  (needed, stats) <- over _1 Map.keysSet <$> testImageKeys ks
-  -- let needed = Map.keysSet mp
-  view (to (taskQueue @key)) >>= \case
-    Just _ | _shapes stats + _errors stats > 20 -> do
-      alog DEBUG ("needed=" <> show needed)
-      enq (Set.toList needed)
-      throwMember stats
-    _ -> do
-      _ <- getImageFiles mempty needed
-      alog DEBUG ("getImageFiles " <> show needed)
-      pure ()
-
 -- * Example of a task key type
 
 data ImageTaskKey where
   ImageTask :: ImageKey -> ImageShape -> ImageTaskKey
   -- DummyTask :: String -> TaskKey
 
-instance (HasCacheAcid a, HasFileCacheTop a) => DoTask ImageTaskKey a where
+instance (HasCacheAcid a, HasFileCacheTop a) => DoTask ImageTaskKey a () where
   doTaskInternal a (ImageTask key shape) = doImageTask a key shape

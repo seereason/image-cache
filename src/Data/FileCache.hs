@@ -34,7 +34,7 @@ module Data.FileCache
     OriginalKey(originalKey), UprightKey(uprightKey),
     EditedKey(editedKey), ScaledKey(scaledKey),
 
-    -- ImagePath(ImagePath, _imagePathKey), HasImagePath(imagePath),
+    ImageStats(..),
 
     FileType(..), -- GIF, HEIC, JPEG, PDF, PNG, PPM, TIFF, CSV, Unknown
     HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
@@ -42,6 +42,8 @@ module Data.FileCache
     shapeFromKey, omitTIFF, omitHEICAndTIFF,
     HasImageShapeM(imageShapeM), HasImageShape, imageShape,
     HasOriginalShape(originalShape),
+
+    -- * import Data.FileCache.ImageStats
     ImageStats(..),
 
     -- * import Data.FileCache.ImageFile
@@ -98,6 +100,7 @@ import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect
 import Data.FileCache.ImageSize
+import Data.FileCache.ImageStats
 import Data.FileCache.Rational
 import Data.FileCache.FileCache
 import Data.FileCache.FileCacheTop
