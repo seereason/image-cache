@@ -79,7 +79,7 @@ Library
     unix,
     web-routes,
     web-routes-th
-  Hs-Source-Dirs: src src-ghc
+  Hs-Source-Dirs: src
   Exposed-Modules:
     Data.FileCache.Background
     Data.FileCache.FileCache

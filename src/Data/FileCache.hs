@@ -9,7 +9,7 @@ module Data.FileCache
     ContentType(..),
 
     -- * IO and error types
-    FileError(..), HasFileError(fileError), MyMonadIO, MyIOErrors, MonadFileIO, E, fromE, runFileIOT,
+    FileError(..), E, fromE, runFileIOT,
 
     -- * Running shell commands
     CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError),
@@ -34,8 +34,6 @@ module Data.FileCache
     OriginalKey(originalKey), UprightKey(uprightKey),
     EditedKey(editedKey), ScaledKey(scaledKey),
 
-    ImageStats(..),
-
     FileType(..), -- GIF, HEIC, JPEG, PDF, PNG, PPM, TIFF, CSV, Unknown
     HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
     ImageShape(ImageShape, _imageShapeType, _imageShapeRect),
@@ -56,11 +54,12 @@ module Data.FileCache
 
     -- * Image cache acid state repository
     FileCacheTop(FileCacheTop, _unFileCacheTop),
-    HasFileCacheTop(fileCacheTop), runFileCacheT,
+    HasFileCacheTop(fileCacheTop),
     -- * Image directory structure
     fileCachePath, HasFilePath(toFilePath),
 
 #if !__GHCJS__
+    runFileCacheT,
     -- * Image cache acid-state operations
     MonadFileCache, HasCacheAcid(cacheAcid),
     initCacheMap, openCache, PutValue(..), PutValues(..),
@@ -115,7 +114,7 @@ import Data.FileCache.Upload
 import Data.FileCache.CacheMap (ImageCached(..), CacheMap(..))
 import Data.FileCache.CommandError (CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError))
 import Data.FileCache.File (File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension))
-import Data.FileCache.FileError (FileError(..), HasFileError(fileError), MyMonadIO, MyIOErrors, MonadFileIO, E, fromE, runFileIOT)
+import Data.FileCache.FileError (FileError(..), HasFileError(fileError), E, fromE, runFileIOT)
 import Data.FileCache.Happstack (ContentType(..))
 import Data.FileCache.ImageCrop (ImageCrop(..), Rotation(..))
 import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)

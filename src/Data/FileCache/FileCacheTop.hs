@@ -9,20 +9,22 @@ module Data.FileCache.FileCacheTop
   , HasCacheAcid(cacheAcid)
   , CacheAcid
   , MonadFileCache
-#endif
   , FileCacheT
   , runFileCacheT
+#endif
   ) where
 
-import Control.Lens ( _1, view )
-import Control.Monad.Except (ExceptT)
-import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 #if !__GHCJS__
+import Control.Exception (IOException)
+import Control.Lens ( _1, view )
+import Control.Monad.Except (ExceptT, MonadError, MonadIO)
+import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
+import Control.Monad.RWS (RWST)
 import Data.Acid ( AcidState )
-#endif
 import Data.FileCache.CacheMap ( CacheMap )
-import Data.FileCache.FileError (E, MonadFileIO, runFileIOT)
-import SeeReason.Errors (OneOf)
+import Data.FileCache.FileError (E, FileError, runFileIOT)
+import SeeReason.Errors (Member, OneOf)
+#endif
 
 newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
 
@@ -38,12 +40,19 @@ instance  HasCacheAcid CacheAcid where cacheAcid = id
 instance  HasCacheAcid (CacheAcid, top) where cacheAcid = fst
 instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
 
-type MonadFileCache r e m =
-  (MonadFileIO e m,
-   MonadReader r m,
-   HasCacheAcid r,
-   HasFileCacheTop r)
-#endif
+class (MonadIO m,
+       MonadError (OneOf e) m,
+       Member IOException e,
+       Member FileError e,
+       MonadReader r m,
+       HasCacheAcid r,
+       HasFileCacheTop r)
+      => MonadFileCache r e m
+
+instance (MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+         ) => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
+instance (Monoid w, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+         ) => MonadFileCache r e (RWST r w s (ExceptT (OneOf e) m))
 
 -- | A simple type that is an instance of 'MonadFileCacheUIO'.
 type FileCacheT r m = ReaderT r (ExceptT (OneOf E) m)
@@ -54,3 +63,4 @@ runFileCacheT ::
   -> m (Either (OneOf E) a)
 runFileCacheT action r =
   runFileIOT (runReaderT action r)
+#endif

@@ -11,9 +11,8 @@ module Data.FileCache.FileError
   ( -- * FileError
     FileError(..)
   , CommandError
-  , HasFileError(fileError)
-  , MyMonadIO, MyIOErrors
-  , MonadFileIO
+  -- , MyMonadIO
+  -- , MonadFileIO
   , E, fromE
   , runFileIOT
   , CacheFlag(RetryErrors)
@@ -126,23 +125,8 @@ deriving instance Show FileError
 
 instance Value FileError where hops _ = []
 
--- | This ensures that runExceptT catches IOException
---instance HasIOException FileError where ioException = _Ctor @"IOException"
-instance HasErrorCall FileError where fromErrorCall = ErrorCall
-
--- These superclasses are due to types embedded in FileError.
--- they ought to be unbundled and removed going forward.
-class HasFileError e where fileError :: Prism' e FileError
-instance HasFileError FileError where fileError = id
-
-instance Member FileError e => HasFileError (OneOf e) where fileError = Errors.oneOf
-
-type MyMonadIO e m = (MonadIO m, MonadError (OneOf e) m, MyIOErrors e)
-
-type MyIOErrors e = (Member IOException e)
-
--- | Constraints typical of the functions in this package.
-type MonadFileIO e m = (MyMonadIO e m, Member FileError e)
+-- type MyMonadIO e m = (MonadIO m, MonadError (OneOf e) m, Member IOException e)
+-- type MonadFileIO e m = (MonadIO m, MonadError (OneOf e) m, Member IOException e, Member FileError e)
 
 type FileIOT e m = ExceptT (OneOf e) m
 
@@ -153,7 +137,7 @@ runFileIOT action = runExceptT action
 type E = '[FileError, IOException]
 
 -- | Convert an 'E' into some e
-fromE :: forall e. (Member FileError e, MyIOErrors e) => OneOf E -> OneOf e
+fromE :: forall e. (Member FileError e, Member IOException e) => OneOf E -> OneOf e
 fromE (Val e) = Errors.put1 (e :: FileError)
 fromE (NoVal (Val e)) = Errors.put1 (e :: IOException)
 fromE _ = error "Impossible"
