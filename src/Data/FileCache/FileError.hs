@@ -101,8 +101,8 @@ data FileError
     | InvalidBoundingBox FilePath Text Text
     | UnexpectedPnmfileOutput Text
     -- | CacheDamageUnknownOriginal ImageKey
-    | NoShapeFromKey ImageKey
-    | NoShapeFromPath FilePath Text
+    | NoShapeFromKey ImageKey -- ^ The image shape for this key has not yet been computed
+    | NoShapeFromPath FilePath Text -- ^ The image shape for this path has not yet been computed
     | NoShapeOld Text
       -- ^ Could not determine the dimensions of an image.  This comes
       -- from failed attempt to parse the output of the unix file(1)

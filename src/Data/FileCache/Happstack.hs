@@ -1,3 +1,6 @@
+-- | Provide a copy of the Happstack ContentType type if we are in an
+-- environment where it is not available (i.e. ghcjs.)
+
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}

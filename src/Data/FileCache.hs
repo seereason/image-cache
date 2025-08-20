@@ -88,7 +88,6 @@ module Data.FileCache
     rsqrt
   ) where
 
-#if 1
 import Data.FileCache.CacheMap
 import Data.FileCache.CommandError
 import Data.FileCache.File
@@ -108,42 +107,4 @@ import Data.FileCache.FileCacheTop
 import Data.FileCache.Acid
 import Data.FileCache.Derive
 import Data.FileCache.Upload
-#endif
-
-#else
-import Data.FileCache.CacheMap (ImageCached(..), CacheMap(..))
-import Data.FileCache.CommandError (CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError))
-import Data.FileCache.File (File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension))
-import Data.FileCache.FileError (FileError(..), HasFileError(fileError), E, fromE, runFileIOT)
-import Data.FileCache.Happstack (ContentType(..))
-import Data.FileCache.ImageCrop (ImageCrop(..), Rotation(..))
-import Data.FileCache.ImageFile (ImageFile(..), ImageReady(..), printerDPI)
-import Data.FileCache.ImageKey
-  (ImageKey(..), HasImageKey(imageKey), OriginalKey(originalKey), UprightKey(uprightKey), EditedKey(editedKey), ScaledKey(scaledKey),
-   {-ImagePath(ImagePath, _imagePathKey), HasImagePath(imagePath),-} shapeFromKey,
-   FileType(..), HasFileType(imageType), supportedFileTypes, supportedMimeTypes, omitTIFF, omitHEICAndTIFF,
-   ImageShape(..), HasImageShapeM(imageShapeM), HasImageShape, imageShape, HasOriginalShape(originalShape),
-   ImageStats(..))
-import Data.FileCache.ImageRect
-  (ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation), makeImageRect,
-   imageAspect, HasImageRect(imageRect), widthInInches, widthInInches', heightInInches,
-   scaleImageRect, scaleFromDPI, cropImageRect, uprightImageRect)
-import Data.FileCache.ImageSize
-  (ImageSize(..), HasImageSize(imageSize), Dimension(..), Units(..),
-   saneSize, SaneSize(..), defaultSize, inches)
-import Data.FileCache.Rational
-  ((%), fromRat, -- re-exports
-   approx, micro, rationalIso, rationalPrism, readRationalMaybe, showRational, rsqrt)
-
-#ifndef __GHCJS__
-import Data.FileCache.Acid
-  (initCacheMap, openCache, PutValue(..), PutValues(..),
-   LookValue(..), LookValues(..), LookMap(..), DeleteValue(..),
-   DeleteValues(..), Replace(..), Request(..), Requested(..),
-   Dequeue(..), Complete(..))
-import Data.FileCache.Derive (buildImageFile, getImageFile, getImageFiles)
-import Data.FileCache.FileCache (cacheLook, cachePut, fileCachePath, HasFilePath(toFilePath))
-import Data.FileCache.FileCacheTop (FileCacheTop(FileCacheTop, _unFileCacheTop), HasCacheAcid, MonadFileCache, HasCacheAcid(cacheAcid), HasFileCacheTop(fileCacheTop), runFileCacheT)
-import Data.FileCache.Upload (cacheOriginalFile)
-#endif
 #endif
