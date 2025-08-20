@@ -59,7 +59,7 @@ getImageFiles flags keys =
   getImageShapes flags keys >>= pure . mapWithKey f >>= sequence
   where
     f :: ImageKey -> Either FileError ImageFile -> m (Either FileError ImageFile)
-    f key (Right (ImageFileShape shape)) = cacheImageFile key shape
+    f key (Right (ImageFileShape _shape)) = cacheImageFile key
     f _key (Right ready@(ImageFileReady _)) = pure (Right ready)
     f _key (Left e) = pure (Left e)
 
@@ -83,7 +83,7 @@ getImageShapes ::
 getImageShapes flags keys =
   sequence $ fromSet (\key -> cacheLook key >>= (cacheImageShape flags key :: Maybe (Either FileError ImageFile) -> m (Either FileError ImageFile)) {-maybe (cacheImageShape flags key) pure-}) keys
 
--- | Compute the shapes of requested images
+-- | Compute the shapes of a requested image
 cacheImageShape ::
   forall r e m. (MonadFileCache r e m, HasCallStack)
   => Set CacheFlag
@@ -154,7 +154,7 @@ buildImage ::
   => ImageKey
   -> ImageFile
   -> m (Either FileError ImageFile)
-buildImage key (ImageFileShape shape) = cacheImageFile key shape
+buildImage key (ImageFileShape shape) = cacheImageFile key
 buildImage _ i@(ImageFileReady _) = pure (Right i)
 
 -- | Look up the key in the cache, if a miss call 'buildImageFile' and
@@ -162,9 +162,8 @@ buildImage _ i@(ImageFileReady _) = pure (Right i)
 cacheImageFile ::
   (MonadFileCacheWriter r e m, HasCallStack)
   => ImageKey
-  -> ImageShape
   -> m (Either FileError ImageFile)
-cacheImageFile key _shape = do
+cacheImageFile key = do
   -- Check the cache one last time - this image might appear more than once in this request
   cacheLook key >>=
     maybe (pure (Left (UnexpectedException "Impossible cache miss")))

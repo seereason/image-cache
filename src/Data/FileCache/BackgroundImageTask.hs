@@ -68,7 +68,7 @@ doImageTask ::
   (MonadFileCacheWriter a E (ReaderT a (ExceptT (OneOf E) IO)), HasCallStack)
   => a -> ImageKey -> ImageShape -> IO ()
 doImageTask a key shape =
-  runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) a) >>= \case
+  runExceptT (runReaderT (cacheImageFile key {- >> liftIO (threadDelay 5000000)-}) a) >>= \case
     Left (e :: OneOf E) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
     Right (Left (e :: FileError)) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
     Right (Right _file) -> alog INFO ("completed " <> show key)

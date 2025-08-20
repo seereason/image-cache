@@ -84,6 +84,7 @@ testImageKeys ks = do
   alog DEBUG ("#unready image shapes: " <> show (_shapes stats))
   alogDrop id DEBUG ("#errors=" <> show (_errors stats))
   pure (Map.union unready missing, stats)
+
 -- | Decide whether there are enough images to be built that we
 -- need to do them in the background
 foregroundOrBackground ::
