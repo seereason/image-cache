@@ -61,7 +61,7 @@ module Data.FileCache
 #if !__GHCJS__
     runFileCacheT,
     -- * Image cache acid-state operations
-    MonadFileCache, HasCacheAcid(cacheAcid),
+    MonadFileCache, MonadFileCacheWriter, HasCacheAcid(cacheAcid),
     initCacheMap, openCache, PutValue(..), PutValues(..),
     LookValue(..), LookValues(..), LookMap(..), DeleteValue(..),
     DeleteValues(..), Replace(..), Request(..), Requested(..),

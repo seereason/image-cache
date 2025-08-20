@@ -20,7 +20,7 @@ import GHC.Generics ( Generic )
 import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
 import Data.FileCache.Background ( HasTaskQueue(taskQueue) )
 import Data.FileCache.Derive ( getImageFiles, getImageShapes )
-import Data.FileCache.FileCacheTop ( MonadFileCache )
+import Data.FileCache.FileCacheTop ( MonadFileCache, MonadFileCacheWriter )
 import Data.FileCache.FileError ( FileError )
 import Data.FileCache.ImageFile ( ImageFile )
 import Data.FileCache.ImageKey ( ImageKey )
@@ -88,7 +88,7 @@ testImageKeys ks = do
 -- need to do them in the background
 foregroundOrBackground ::
   forall key a e m.
-  (MonadFileCache a e m,
+  (MonadFileCacheWriter a e m,
    HasTaskQueue key a,
    Member ImageStats e,
    HasCallStack)

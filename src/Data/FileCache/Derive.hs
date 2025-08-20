@@ -20,7 +20,7 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
-import Data.FileCache.FileCacheTop ( MonadFileCache )
+import Data.FileCache.FileCacheTop ( MonadFileCache, MonadFileCacheWriter )
 import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException), CacheFlag(RetryErrors) )
@@ -51,7 +51,7 @@ import System.Posix.Files (createLink, removeLink)
 import Text.PrettyPrint.HughesPJClass ( prettyShow )
 
 getImageFiles ::
-  forall r e m. (MonadFileCache r e m, HasCallStack)
+  forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
   => Set CacheFlag
   -> Set ImageKey
   -> m (Map ImageKey (Either FileError ImageFile))
@@ -65,7 +65,7 @@ getImageFiles flags keys =
 
 -- | This is just a wrapper around cacheDerivedImagesForeground.
 getImageFile ::
-  forall r e m. (MonadFileCache r e m, HasCallStack)
+  forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
   => Set CacheFlag
   -> ImageKey
   -> m (Either FileError ImageFile)
@@ -150,7 +150,7 @@ buildImageShape key0 =
     fileShape (ImageFileShape s) = s
 
 buildImage ::
-  (MonadFileCache r e m, HasCallStack)
+  (MonadFileCacheWriter r e m, HasCallStack)
   => ImageKey
   -> ImageFile
   -> m (Either FileError ImageFile)
@@ -160,7 +160,7 @@ buildImage _ i@(ImageFileReady _) = pure (Right i)
 -- | Look up the key in the cache, if a miss call 'buildImageFile' and
 -- cache the result.
 cacheImageFile ::
-  (MonadFileCache r e m, HasCallStack)
+  (MonadFileCacheWriter r e m, HasCallStack)
   => ImageKey
   -> ImageShape
   -> m (Either FileError ImageFile)

@@ -11,17 +11,19 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.FileCache.BackgroundImageTask
   ( queueImageTasks
   , doImageTask
   , ImageTaskKey(ImageTask)
+  , E
   ) where
 
 import Control.Exception (IOException)
 import Control.Lens
-import Control.Monad.Reader (runReaderT)
-import Control.Monad.Except (runExceptT)
+import Control.Monad.Reader (ReaderT, runReaderT)
+import Control.Monad.Except (ExceptT, runExceptT)
 import Data.FileCache.Background
 import Data.FileCache.FileCacheTop
 import Data.FileCache.Derive (cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
@@ -63,7 +65,7 @@ type E = '[FileError, IOException]
 -- | This is used to implement the image portion of doTask for
 -- whatever the ultimate 'DoTask' sum type is.
 doImageTask ::
-  (HasCacheAcid a, HasFileCacheTop a, HasCallStack)
+  (MonadFileCacheWriter a E (ReaderT a (ExceptT (OneOf E) IO)), HasCallStack)
   => a -> ImageKey -> ImageShape -> IO ()
 doImageTask a key shape =
   runExceptT (runReaderT (cacheImageFile key shape {- >> liftIO (threadDelay 5000000)-}) a) >>= \case
@@ -77,5 +79,7 @@ data ImageTaskKey where
   ImageTask :: ImageKey -> ImageShape -> ImageTaskKey
   -- DummyTask :: String -> TaskKey
 
-instance (HasCacheAcid a, HasFileCacheTop a) => DoTask ImageTaskKey a () where
+instance (HasCacheAcid a, HasFileCacheTop a,
+          MonadFileCacheWriter a E (ReaderT a (ExceptT (OneOf E) IO))
+         ) => DoTask ImageTaskKey a () where
   doTaskInternal a (ImageTask key shape) = doImageTask a key shape

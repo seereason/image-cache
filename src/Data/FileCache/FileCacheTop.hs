@@ -1,6 +1,15 @@
 -- Probably should merge into FileCache
 
-{-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
+{-# LANGUAGE DeriveLift #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.FileCache.FileCacheTop
   ( FileCacheTop(..)
@@ -9,6 +18,7 @@ module Data.FileCache.FileCacheTop
   , HasCacheAcid(cacheAcid)
   , CacheAcid
   , MonadFileCache
+  , MonadFileCacheWriter
   , FileCacheT
   , runFileCacheT
 #endif
@@ -48,6 +58,9 @@ class (MonadIO m,
        HasCacheAcid r,
        HasFileCacheTop r)
       => MonadFileCache r e m
+
+-- | For code that can add things to the cache
+class MonadFileCache r e m => MonadFileCacheWriter r e m
 
 instance (MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
