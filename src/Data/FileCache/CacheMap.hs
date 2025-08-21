@@ -17,10 +17,10 @@ import Control.Monad.Except (throwError)
 import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..) )
 import Data.FileCache.FileError ( FileError )
 import Data.FileCache.ImageKey
-  (FileType(PNG), HasImageShapeM(..), ImageShape, HasImagePath(..),
-   ImagePath(ImagePath), HasImageKey(..), ImageKey(..), originalKey)
+  (HasImageShapeM(..), ImageShape, HasImagePath(..),
+   ImagePath(ImagePath), HasImageKey(..), ImageKey(..))
 import Data.FileCache.ImageFile (ImageFile)
-import Data.Map as Map (filterWithKey, Map)
+import Data.Map as Map (Map)
 import Data.SafeCopy ( base, extension, Migrate(..), SafeCopy(..), safeGet, safePut )
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable (typeRep)

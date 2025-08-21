@@ -19,9 +19,7 @@ module Data.FileCache.FileError
   ) where
 
 import Control.Exception as E ( Exception, ErrorCall, IOException )
-import Control.Lens ( Prism' )
 import Control.Lens.Path ( Value(..) )
-import Control.Monad.IO.Class (MonadIO)
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.ImageFile (ImageReady)
 import Data.FileCache.ImageKey (FileType, ImageKey)
@@ -29,8 +27,8 @@ import Data.SafeCopy ( base, extension, Migrate(..), safeGet, safePut, SafeCopy(
 import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
-import Extra.Except ( ExceptT, MonadError, HasErrorCall(..), runExceptT )
-import SeeReason.Errors as Errors ( Member, OneOf(..), oneOf, put1)
+import Extra.Except ( ExceptT, runExceptT )
+import SeeReason.Errors as Errors ( Member, OneOf(..), put1)
 import GHC.Generics ( Generic )
 
 -- * FileError, CommandInfo

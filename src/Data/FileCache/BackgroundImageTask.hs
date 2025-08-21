@@ -21,26 +21,23 @@ module Data.FileCache.BackgroundImageTask
   ) where
 
 import Control.Exception (IOException)
-import Control.Lens
 import Control.Monad.Reader (ReaderT, runReaderT)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Data.FileCache.Background
 import Data.FileCache.FileCacheTop
-import Data.FileCache.Derive (cacheImageFile, cacheImageShape, getImageFiles, getImageShapes)
+import Data.FileCache.Derive (cacheImageFile, cacheImageShape)
 import Data.FileCache.FileError (CacheFlag, FileError)
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey (ImageKey, ImageShape)
-import Data.Generics.Sum (_Ctor)
 import Data.ListLike ( show )
-import Data.Map.Strict as Map (filter, keysSet, Map, size, union)
 import Data.Maybe (catMaybes)
 import Data.Monoid ( (<>) )
-import Data.Set as Set (Set, toList)
+import Data.Set as Set (Set)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
 import SeeReason.Log (alog)
-import SeeReason.Errors (Member, OneOf, throwMember)
+import SeeReason.Errors (OneOf)
 import System.Log.Logger (Priority(..))
 
 instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
