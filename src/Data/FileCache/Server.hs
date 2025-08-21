@@ -37,9 +37,7 @@ import Data.FileCache.FileCacheTop
   ( FileCacheTop(..)
   , HasFileCacheTop(fileCacheTop)
   , HasCacheAcid(cacheAcid)
-  , CacheAcid
-  , FileCacheT
-  , runFileCacheT )
+  , CacheAcid )
 import Data.FileCache.ImageIO
   ( MakeByteString(makeByteString)
   , validateJPG
