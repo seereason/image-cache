@@ -8,13 +8,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Data.FileCache.FileError
-  ( -- * FileError
-    FileError(..)
+  ( FileError(..)
   , CommandError
-  -- , MyMonadIO
-  -- , MonadFileIO
-  , E, fromE
-  , runFileIOT
   , CacheFlag(RetryErrors)
   ) where
 
@@ -27,7 +22,6 @@ import Data.SafeCopy ( base, extension, Migrate(..), safeGet, safePut, SafeCopy(
 import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
-import Extra.Except ( ExceptT, runExceptT )
 import SeeReason.Errors as Errors ( Member, OneOf(..), put1)
 import GHC.Generics ( Generic )
 
@@ -117,19 +111,9 @@ instance Exception FileError
 instance SafeCopy FileError where version = 4; kind = extension
 instance Serialize FileError where get = safeGet; put = safePut
 
---deriving instance Data FileError
---deriving instance Data CommandInfo
 deriving instance Show FileError
 
 instance Value FileError where hops _ = []
-
--- type MyMonadIO e m = (MonadIO m, MonadError (OneOf e) m, Member IOException e)
--- type MonadFileIO e m = (MonadIO m, MonadError (OneOf e) m, Member IOException e, Member FileError e)
-
-type FileIOT e m = ExceptT (OneOf e) m
-
-runFileIOT :: FileIOT e m a -> m (Either (OneOf e) a)
-runFileIOT action = runExceptT action
 
 -- | A minimal set of errors to run FileIOT
 type E = '[FileError, IOException]

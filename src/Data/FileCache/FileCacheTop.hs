@@ -1,5 +1,7 @@
 -- Probably should merge into FileCache
 
+{-# OPTIONS -Wno-unused-imports #-}
+
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -19,20 +21,22 @@ module Data.FileCache.FileCacheTop
   , CacheAcid
   , MonadFileCache
   , MonadFileCacheWriter
-  , FileCacheT
-  , runFileCacheT
+  -- , FileCacheT, runFileCacheT
+
+  , MonadFileCacheNew
+  , MonadFileCacheWriterNew
 #endif
   ) where
 
 #if !__GHCJS__
 import Control.Exception (IOException)
 import Control.Lens ( _1, view )
-import Control.Monad.Except (ExceptT, MonadError, MonadIO)
+import Control.Monad.Except (ExceptT, MonadError, MonadIO, runExceptT)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Control.Monad.RWS (RWST)
 import Data.Acid ( AcidState )
 import Data.FileCache.CacheMap ( CacheMap )
-import Data.FileCache.FileError (E, FileError, runFileIOT)
+import Data.FileCache.FileError (FileError)
 import SeeReason.Errors (Member, OneOf)
 #endif
 
@@ -67,6 +71,7 @@ instance (MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, H
 instance (Monoid w, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (RWST r w s (ExceptT (OneOf e) m))
 
+#if 0
 -- | A simple type that is an instance of 'MonadFileCacheUIO'.
 type FileCacheT r m = ReaderT r (ExceptT (OneOf E) m)
 
@@ -75,5 +80,16 @@ runFileCacheT ::
   -> r
   -> m (Either (OneOf E) a)
 runFileCacheT action r =
-  runFileIOT (runReaderT action r)
+  runExceptT (runReaderT action r)
+#endif
+
+-- | Without the error monad
+class (MonadIO m,
+       MonadReader r m,
+       HasCacheAcid r,
+       HasFileCacheTop r)
+      => MonadFileCacheNew r m
+
+-- | For code that can add things to the cache
+class MonadFileCacheNew r m => MonadFileCacheWriterNew r m
 #endif

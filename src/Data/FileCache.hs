@@ -9,7 +9,7 @@ module Data.FileCache
     ContentType(..),
 
     -- * IO and error types
-    FileError(..), E, fromE, runFileIOT,
+    FileError(..),
 
     -- * Running shell commands
     CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError),
@@ -59,7 +59,6 @@ module Data.FileCache
     fileCachePath, HasFilePath(toFilePath),
 
 #if !__GHCJS__
-    runFileCacheT,
     -- * Image cache acid-state operations
     MonadFileCache, MonadFileCacheWriter, HasCacheAcid(cacheAcid),
     initCacheMap, openCache, PutValue(..), PutValues(..),

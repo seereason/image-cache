@@ -15,7 +15,6 @@
 
 module Data.FileCache.BackgroundImageTask
   ( queueImageTasks
-  , doImageTask
   , ImageTaskKey(ImageTask)
   , E
   ) where
@@ -47,7 +46,7 @@ instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCache
 -- thread launched by startTaskQueue.
 queueImageTasks ::
   forall a e m key. (MonadFileCache a e m, HasTaskQueue key a, HasCallStack)
-  => (ImageKey -> ImageShape -> key)
+  => (ImageKey -> key)
   -> Set CacheFlag
   -> [ImageKey]
   -> m ()
@@ -56,19 +55,6 @@ queueImageTasks enq flags keys = do
   where
     fromShape key (Right (ImageFileShape shape)) = Just (key, shape)
     fromShape _ _ = Nothing
-
-type E = '[FileError, IOException]
-
--- | This is used to implement the image portion of doTask for
--- whatever the ultimate 'DoTask' sum type is.
-doImageTask ::
-  (MonadFileCacheWriter a E (ReaderT a (ExceptT (OneOf E) IO)), HasCallStack)
-  => a -> ImageKey -> ImageShape -> IO ()
-doImageTask a key shape =
-  runExceptT (runReaderT (cacheImageFile key {- >> liftIO (threadDelay 5000000)-}) a) >>= \case
-    Left (e :: OneOf E) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
-    Right (Left (e :: FileError)) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
-    Right (Right _file) -> alog INFO ("completed " <> show key)
 
 -- * Example of a task key type
 
