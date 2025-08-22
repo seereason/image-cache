@@ -13,6 +13,7 @@ module Data.FileCache
 
     -- * Running shell commands
     CommandError, CommandInfo(..), HasCommandError(fromCommandError), ToCommandError(toCommandError),
+    CacheFlag(RetryErrors),
 
     -- * File and image file types
     File(..), FileSource(..), Checksum, Extension, HasFileChecksum(fileChecksum), HasFileExtension(fileExtension),
@@ -60,7 +61,7 @@ module Data.FileCache
 
 #if !__GHCJS__
     -- * Image cache acid-state operations
-    MonadFileCache, MonadFileCacheWriter, HasCacheAcid(cacheAcid),
+    MonadFileCache, MonadFileCacheBG, MonadFileCacheWriter, HasCacheAcid(cacheAcid),
     initCacheMap, openCache, PutValue(..), PutValues(..),
     LookValue(..), LookValues(..), LookMap(..), DeleteValue(..),
     DeleteValues(..), Replace(..), Request(..), Requested(..),
@@ -70,7 +71,7 @@ module Data.FileCache
     cacheOriginalFile,
 
     -- * Turn an ImageKey into an ImageFile
-    buildImageFile, getImageFile, getImageFiles,
+    getImageFile, getImageFileBackground, getImageFiles,
 #endif
 
 ---------------------

@@ -4,6 +4,7 @@
 
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
@@ -20,11 +21,8 @@ module Data.FileCache.FileCacheTop
   , HasCacheAcid(cacheAcid)
   , CacheAcid
   , MonadFileCache
+  , MonadFileCacheBG
   , MonadFileCacheWriter
-  -- , FileCacheT, runFileCacheT
-
-  , MonadFileCacheNew
-  , MonadFileCacheWriterNew
 #endif
   ) where
 
@@ -35,8 +33,10 @@ import Control.Monad.Except (ExceptT, MonadError, MonadIO, runExceptT)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Control.Monad.RWS (RWST)
 import Data.Acid ( AcidState )
+import Data.FileCache.Background (HasTaskQueue)
 import Data.FileCache.CacheMap ( CacheMap )
 import Data.FileCache.FileError (FileError)
+import Data.FileCache.ImageKey (ImageKey)
 import SeeReason.Errors (Member, OneOf)
 #endif
 
@@ -63,11 +63,16 @@ class (MonadIO m,
        HasFileCacheTop r)
       => MonadFileCache r e m
 
+type MonadFileCacheBG r e m task =
+  (MonadFileCache r e m, ?task :: ImageKey -> task, HasTaskQueue task r)
+
 -- | For code that can add things to the cache
 class MonadFileCache r e m => MonadFileCacheWriter r e m
 
 instance (MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
+instance (MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+         ) => MonadFileCacheWriter r e (ReaderT r (ExceptT (OneOf e) m))
 instance (Monoid w, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (RWST r w s (ExceptT (OneOf e) m))
 
@@ -83,6 +88,7 @@ runFileCacheT action r =
   runExceptT (runReaderT action r)
 #endif
 
+#if 0
 -- | Without the error monad
 class (MonadIO m,
        MonadReader r m,
@@ -92,4 +98,5 @@ class (MonadIO m,
 
 -- | For code that can add things to the cache
 class MonadFileCacheNew r m => MonadFileCacheWriterNew r m
+#endif
 #endif

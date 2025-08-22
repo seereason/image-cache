@@ -1,16 +1,19 @@
 -- | Create derived images
 
 {-# LANGUAGE DeriveLift, LambdaCase, OverloadedLists, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
-{-# OPTIONS -Wno-deprecations -Werror=unused-top-binds -Werror=unused-matches #-}
+{-# OPTIONS -Wno-deprecations -Werror=unused-matches #-}
 
 module Data.FileCache.Derive
   ( getImageFile
+  , getImageFileBackground
+  , getImageShape
   , getImageFiles
   , getImageShapes
-  , cacheImageFile
-  , cacheImageFileIO
-  , cacheImageShape
-  , buildImageFile
+  -- , withImageShape
+  -- , cacheImageFile
+  -- , cacheImageFileIO
+  -- , cacheImageShape
+  -- , buildImageFile
   , queueImageTasks
   ) where
 
@@ -69,18 +72,36 @@ getImageFile ::
   -> ImageKey
   -> m (Either FileError ImageFile)
 getImageFile flags key = do
-  getImageShape flags key >>= withImageShape cacheImageFile key
+  getImageShape flags key >>=
+    withImageShape (pure . Left) (\_ -> cacheImageFile key) (pure . Right)
 
--- | Pass any images that have an ImageShape but no ImageFile to f.
-withImageShape ::
-  Applicative m
-  => (ImageKey -> m (Either FileError ImageFile))
+-- No MonadFileCacheWriter constraint.
+getImageFileBackground ::
+  forall r e m task. (MonadFileCache r e m, HasTaskQueue task r, HasCallStack)
+  => (ImageKey -> task)
+  -> Set CacheFlag
   -> ImageKey
-  -> Either FileError ImageFile
   -> m (Either FileError ImageFile)
-withImageShape _ _ (Left e) = pure $ Left e
-withImageShape _ _ (Right ready@(ImageFileReady _)) = pure $ Right ready
-withImageShape f key (Right (ImageFileShape _)) = f key
+getImageFileBackground task flags key = do
+  getImageShape flags key >>=
+    withImageShape
+      (pure . Left)
+      (\shape -> queueImageTasks task [] [key] >> pure (Right (ImageFileShape shape)))
+      (pure . Right)
+
+-- | Dispatch on the result of a function like cacheLook, handlers for
+-- error and the two types of ImageFile.
+withImageShape ::
+     (FileError -> m r) -- ^ Handle an error
+  -> (ImageShape -> m r) -- ^ Do the shape to image file thing
+  -> (ImageFile -> m r) -- ^ Handle an already processed image
+  -> Either FileError ImageFile
+  -> m r
+withImageShape err shape ready result =
+  case result of
+    Left e -> err e
+    Right i@(ImageFileReady _) -> ready i
+    Right (ImageFileShape sh) -> shape sh
 
 getImageFiles ::
   forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
@@ -225,7 +246,7 @@ cacheImageFileIO a key =
 -- 'ImageFile' and write the image file.  This can be used to repair
 -- missing cache files.
 buildImageFile ::
-  forall r e m. (MonadFileCache r e m, HasCallStack)
+  forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
   (key', bs) <- buildImageBytes Nothing key

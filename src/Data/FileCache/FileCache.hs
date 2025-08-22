@@ -88,10 +88,11 @@ instance HasFilePath ImageKey where
 
 -- | The full path name for the local cache of the file.
 fileCachePath ::
+  forall r m a.
   (HasFilePath a, MonadReader r m, HasFileCacheTop r, HasCallStack)
   => a -> m FilePath
 fileCachePath file = do
-  (FileCacheTop top) <- fileCacheTop <$> ask
+  (FileCacheTop top) <- fileCacheTop  <$> ask
   let path = toFilePath file
   return $ top </> makeRelative "/" path
   where _ = callStack
