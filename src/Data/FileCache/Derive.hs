@@ -1,7 +1,6 @@
 -- | Create derived images
 
 {-# LANGUAGE DeriveLift, LambdaCase, OverloadedLists, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
-{-# OPTIONS -Wno-deprecations -Werror=unused-matches #-}
 
 module Data.FileCache.Derive
   ( getImageFile
