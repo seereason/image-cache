@@ -89,14 +89,14 @@ getImageFileBackground ::
 getImageFileBackground task flags key = do
   getImageShape flags key >>= \case
     Left e -> do
-      alog DEBUG ("e=" <> show e)
+      -- alog DEBUG ("e=" <> show e)
       pure $ Left e
     Right i@(ImageFileShape shape) -> do
-      alog DEBUG ("shape=" <> show shape)
+      -- alog DEBUG ("shape=" <> show shape)
       queueImageTasks task [] [key]
       pure $ Right i
     Right i@(ImageFileReady ready) -> do
-      alog DEBUG ("ready=" <> show ready)
+      -- alog DEBUG ("ready=" <> show ready)
       pure $ Right i
 
 getImageFiles ::
@@ -125,7 +125,7 @@ cacheImageShape ::
   -> Maybe (Either FileError ImageFile)
   -> m (Either FileError ImageFile)
 cacheImageShape _ key Nothing = do
-  alog DEBUG ("key=" ++ prettyShow key ++ " (miss)")
+  -- alog DEBUG ("key=" ++ prettyShow key ++ " (miss)")
   cachePut_ key (Left (NoShapeFromKey key))
   buildAndCache
     where
@@ -133,7 +133,7 @@ cacheImageShape _ key Nothing = do
       buildAndCache =
         tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
 cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
-  alog DEBUG ("key=" ++ prettyShow key ++ " (shape)")
+  -- alog DEBUG ("key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
 cacheImageShape _ key (Just (Right (ImageFileReady img))) = do
@@ -149,14 +149,14 @@ cacheImageShape _ key (Just (Right (ImageFileReady img))) = do
       pure $ Right $ ImageFileReady img
 cacheImageShape flags key (Just (Left _))
   | Set.member RetryErrors flags = do
-      alog DEBUG ("key=" ++ prettyShow key ++ " (retry)")
+      -- alog DEBUG ("key=" ++ prettyShow key ++ " (retry)")
       buildAndCache
         where
           buildAndCache :: m (Either FileError ImageFile)
           buildAndCache =
             tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
 cacheImageShape flag key (Just (Left e)) = do
-  alog DEBUG ("key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
+  -- alog DEBUG ("key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
   cacheImageShape flag key Nothing
 
 -- | These are meant to be inexpensive operations that determine the
@@ -170,9 +170,9 @@ buildImageShape ::
   => ImageKey
   -> m ImageShape
 buildImageShape key0 = do
-  alog DEBUG ("key0=" <> show key0)
+  -- alog DEBUG ("key0=" <> show key0)
   shape <- originalShape key0
-  alog DEBUG ("shape=" <> show shape)
+  -- alog DEBUG ("shape=" <> show shape)
   pure $ shapeFromKey shape key0
   where
     originalShape key@(ImageOriginal csum typ) =
@@ -386,7 +386,7 @@ queueImageTasks ::
   -> [ImageKey]
   -> m ()
 queueImageTasks enq flags keys = do
-  alog DEBUG ("keys=" <> show keys)
+  -- alog DEBUG ("keys=" <> show keys)
   -- Get the shape in the foreground, then build the final image files in the background.
   images :: [Either FileError (ImageKey, ImageFile)]
     <- mapM (\key -> fmap (key,) <$> cacheImageShape flags key Nothing) keys
@@ -394,7 +394,7 @@ queueImageTasks enq flags keys = do
       shapes = mapMaybe (\case Right (key, ImageFileShape _) -> Just key
                                Right (_, ImageFileReady _) -> Nothing -- no work to do
                                Left _ -> Nothing) images
-  alog DEBUG ("shapes=" <> show shapes)
+  -- alog DEBUG ("shapes=" <> show shapes)
   let tasks = fmap enq shapes
   alog DEBUG ("tasks=" <> show tasks)
   queueTasks tasks

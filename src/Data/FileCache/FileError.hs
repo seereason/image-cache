@@ -9,7 +9,6 @@
 
 module Data.FileCache.FileError
   ( FileError(..)
-  , CommandError
   , CacheFlag(RetryErrors)
   ) where
 
@@ -27,6 +26,7 @@ import GHC.Generics ( Generic )
 
 -- * FileError, CommandInfo
 
+#if 0
 data FileError_3
     = IOException_3 IOError -- ^ Caught an IOException
     | ErrorCall_3 E.ErrorCall -- ^ Caught a call to error
@@ -74,6 +74,11 @@ instance Migrate FileError where
   migrate (UnexpectedPnmfileOutput_3 t) = UnexpectedPnmfileOutput t
   migrate (NoShape_3 t) = NoShapeOld t
 
+instance SafeCopy FileError where version = 4; kind = extension
+#else
+instance SafeCopy FileError where version = 4; kind = base
+#endif
+
 data FileError
     = IOException IOError -- ^ Caught an IOException
     | ErrorCall E.ErrorCall -- ^ Caught a call to error
@@ -108,7 +113,6 @@ data FileError
 instance IsString FileError where fromString = FromString
 
 instance Exception FileError
-instance SafeCopy FileError where version = 4; kind = extension
 instance Serialize FileError where get = safeGet; put = safePut
 
 deriving instance Show FileError
