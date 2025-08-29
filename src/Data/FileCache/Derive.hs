@@ -21,6 +21,7 @@ import Control.Exception (IOException)
 import Control.Lens ( _Right, over )
 import Control.Monad.Except (ExceptT, foldM, runExceptT)
 import Control.Monad.Reader (liftIO, ReaderT, runReaderT, unless, when)
+import Control.Monad.State (MonadState)
 import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
@@ -47,6 +48,7 @@ import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set )
 import Data.Text as T ( Text, pack )
+import Extra.Lens (HasLens)
 import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
 import SeeReason.Errors ( OneOf, throwMember, tryMember )
@@ -63,7 +65,7 @@ getImageShape ::
   => Set CacheFlag
   -> ImageKey
   -> m (Either FileError ImageFile)
-getImageShape flags key =
+getImageShape flags key = do
   cacheLook key >>= cacheImageShape flags key
 
 getImageFile ::
@@ -72,36 +74,30 @@ getImageFile ::
   -> ImageKey
   -> m (Either FileError ImageFile)
 getImageFile flags key = do
-  getImageShape flags key >>=
-    withImageShape (pure . Left) (\_ -> cacheImageFile key) (pure . Right)
+  getImageShape flags key >>= \case
+    Left e -> pure $ Left e
+    Right (ImageFileShape _) -> cacheImageFile key
+    Right i@(ImageFileReady _) -> pure $ Right i
 
 -- No MonadFileCacheWriter constraint.
 getImageFileBackground ::
-  forall r e m task. (MonadFileCache r e m, HasTaskQueue task r, HasCallStack)
+  forall r s e m task. (MonadFileCache r e m, HasTaskQueue task r, MonadState s m, HasLens s (Set task), HasCallStack)
   => (ImageKey -> task)
   -> Set CacheFlag
   -> ImageKey
   -> m (Either FileError ImageFile)
 getImageFileBackground task flags key = do
-  getImageShape flags key >>=
-    withImageShape
-      (pure . Left)
-      (\shape -> queueImageTasks task [] [key] >> pure (Right (ImageFileShape shape)))
-      (pure . Right)
-
--- | Dispatch on the result of a function like cacheLook, handlers for
--- error and the two types of ImageFile.
-withImageShape ::
-     (FileError -> m r) -- ^ Handle an error
-  -> (ImageShape -> m r) -- ^ Do the shape to image file thing
-  -> (ImageFile -> m r) -- ^ Handle an already processed image
-  -> Either FileError ImageFile
-  -> m r
-withImageShape err shape ready result =
-  case result of
-    Left e -> err e
-    Right i@(ImageFileReady _) -> ready i
-    Right (ImageFileShape sh) -> shape sh
+  getImageShape flags key >>= \case
+    Left e -> do
+      alog DEBUG ("e=" <> show e)
+      pure $ Left e
+    Right i@(ImageFileShape shape) -> do
+      alog DEBUG ("shape=" <> show shape)
+      queueImageTasks task [] [key]
+      pure $ Right i
+    Right i@(ImageFileReady ready) -> do
+      alog DEBUG ("ready=" <> show ready)
+      pure $ Right i
 
 getImageFiles ::
   forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
@@ -129,26 +125,15 @@ cacheImageShape ::
   -> Maybe (Either FileError ImageFile)
   -> m (Either FileError ImageFile)
 cacheImageShape _ key Nothing = do
-  -- alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (miss)")
+  alog DEBUG ("key=" ++ prettyShow key ++ " (miss)")
   cachePut_ key (Left (NoShapeFromKey key))
   buildAndCache
     where
       buildAndCache :: m (Either FileError ImageFile)
       buildAndCache =
         tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
-cacheImageShape flags key (Just (Left _))
-  | Set.member RetryErrors flags = do
-      alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (retry)")
-      buildAndCache
-        where
-          buildAndCache :: m (Either FileError ImageFile)
-          buildAndCache =
-            tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
-cacheImageShape flag key (Just (Left e)) = do
-  alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
-  cacheImageShape flag key Nothing
-cacheImageShape _ _ (Just (Right (ImageFileShape shape))) = do
-  -- alog INFO ("cacheImageShape key=" ++ prettyShow key ++ " (shape)")
+cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
+  alog DEBUG ("key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
 cacheImageShape _ key (Just (Right (ImageFileReady img))) = do
@@ -162,6 +147,17 @@ cacheImageShape _ key (Just (Right (ImageFileReady img))) = do
     True -> do
       -- alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
       pure $ Right $ ImageFileReady img
+cacheImageShape flags key (Just (Left _))
+  | Set.member RetryErrors flags = do
+      alog DEBUG ("key=" ++ prettyShow key ++ " (retry)")
+      buildAndCache
+        where
+          buildAndCache :: m (Either FileError ImageFile)
+          buildAndCache =
+            tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
+cacheImageShape flag key (Just (Left e)) = do
+  alog DEBUG ("key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
+  cacheImageShape flag key Nothing
 
 -- | These are meant to be inexpensive operations that determine the
 -- shape of the desired image, with the actual work of building them
@@ -173,8 +169,11 @@ buildImageShape ::
   forall r e m. (MonadFileCache r e m, HasCallStack)
   => ImageKey
   -> m ImageShape
-buildImageShape key0 =
-  originalShape key0 >>= \shape -> pure $ shapeFromKey shape key0
+buildImageShape key0 = do
+  alog DEBUG ("key0=" <> show key0)
+  shape <- originalShape key0
+  alog DEBUG ("shape=" <> show shape)
+  pure $ shapeFromKey shape key0
   where
     originalShape key@(ImageOriginal csum typ) =
       cacheLook (originalKey key) >>=
@@ -381,12 +380,13 @@ buildImageBytesFromFile source key csum _typ = do
 -- | Enqueue 'ImageFile' builds for any of the 'ImageKey's that have a
 -- 'ImageShape' but are not 'ImageReady'.
 queueImageTasks ::
-  forall a e m key. (MonadFileCache a e m, HasTaskQueue key a, HasCallStack)
-  => (ImageKey -> key)
+  forall a e s m task. (MonadFileCache a e m, HasTaskQueue task a, MonadState s m, HasLens s (Set task), HasCallStack)
+  => (ImageKey -> task)
   -> Set CacheFlag
   -> [ImageKey]
   -> m ()
 queueImageTasks enq flags keys = do
+  alog DEBUG ("keys=" <> show keys)
   -- Get the shape in the foreground, then build the final image files in the background.
   images :: [Either FileError (ImageKey, ImageFile)]
     <- mapM (\key -> fmap (key,) <$> cacheImageShape flags key Nothing) keys
@@ -394,7 +394,10 @@ queueImageTasks enq flags keys = do
       shapes = mapMaybe (\case Right (key, ImageFileShape _) -> Just key
                                Right (_, ImageFileReady _) -> Nothing -- no work to do
                                Left _ -> Nothing) images
-  queueTasks (fmap enq shapes)
+  alog DEBUG ("shapes=" <> show shapes)
+  let tasks = fmap enq shapes
+  alog DEBUG ("tasks=" <> show tasks)
+  queueTasks tasks
 
 #if 0
 -- | See if images are already in the cache

@@ -21,7 +21,10 @@ import Control.Lens
 import Control.Monad (forever, when)
 import Control.Monad.Except (liftIO, {-MonadError,-} MonadIO)
 import Control.Monad.Reader (ask, MonadReader)
+import Control.Monad.State (MonadState)
 import Data.ListLike ( length, show )
+import Data.Set as Set (fromList, Set, union)
+import Extra.Lens (HasLens(hasLens))
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
@@ -32,15 +35,15 @@ type TaskChan key = Chan [key]
 data TaskQueue key = TaskQueue (TaskChan key) (ThreadId, IO (Result ()))
 
 -- | Find the field containing the task queue
-class HasTaskQueue key a where
+class (Ord key, Show key) => HasTaskQueue key a where
   taskQueue :: a -> Maybe (TaskQueue key)
-instance HasTaskQueue key (TaskQueue key) where taskQueue = Just
-instance HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
+instance (Ord key, Show key) => HasTaskQueue key (TaskQueue key) where taskQueue = Just
+instance (Ord key, Show key) => HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
 -- instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
 -- | We need to be able to determine whether a task has successfully
 -- completed so we can abandon further effort to perform it.
-data TaskStatus result = Incomplete | Complete result
+data TaskStatus result = Incomplete | Complete result deriving Show
 
 -- | Class of types that represent tasks.
 class DoTask key a result | key -> result where
@@ -82,15 +85,17 @@ doTasks a tasks = do
   mapM_ (doTask a) tasks
 
 queueTasks ::
-  forall task a {-e-} m.
+  forall m s r task.
   (MonadIO m,
-   MonadReader a m,
-   -- MonadError (OneOf e) m,
-   HasTaskQueue task a,
+   MonadReader r m,
+   MonadState s m,
+   HasLens s (Set task),
+   HasTaskQueue task r,
    HasCallStack)
   => [task]
   -> m ()
 queueTasks tasks = do
   TaskQueue chan _ <- maybe (error "Chan Is Missing") pure =<< (taskQueue <$> ask)
   liftIO (writeChan chan tasks)
+  hasLens @_ @(Set task) %= Set.union (Set.fromList tasks)
   alog DEBUG ("enqueuing " ++ show (length tasks) ++ " tasks")

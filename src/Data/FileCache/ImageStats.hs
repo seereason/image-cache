@@ -2,9 +2,9 @@
 {-# OPTIONS -ddump-minimal-imports #-}
 
 module Data.FileCache.ImageStats
-  ( ImageStats(_keys, _ready, _shapes, _errors)
-  , imageStatsTimeout
+  ( ImageStats(..)
   , imageStatsDefault
+  , imageStatsError
 #if !__GHCJS__
   , testImageKeys
   , foregroundOrBackground
@@ -12,9 +12,10 @@ module Data.FileCache.ImageStats
   ) where
 
 import Control.Lens.Path ( Value(..) )
-import Data.SafeCopy ( SafeCopy )
+import Data.SafeCopy (SafeCopy(version, kind), extension, Migrate(MigrateFrom, migrate), safeGet, safePut)
 import Data.Serialize ( Serialize(..) )
 import GHC.Generics ( Generic )
+import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
 
 #if !__GHCJS__
 import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
@@ -25,10 +26,9 @@ import Data.FileCache.FileError ( FileError )
 import Data.FileCache.ImageFile ( ImageFile )
 import Data.FileCache.ImageKey ( ImageKey )
 import Data.Generics.Sum ( _Ctor )
-import Data.Map.Strict as Map ( filter, keysSet, Map, size, union )
+import Data.Map.Strict as Map ( filter, keysSet, Map, size, toList, union )
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( Set, toList )
-import GHC.Stack ( HasCallStack )
 import SeeReason.Errors ( throwMember, Member )
 import SeeReason.Log ( alog, alogDrop )
 import System.Log.Logger ( Priority(..) )
@@ -42,17 +42,35 @@ data ImageStats
     { _keys :: Int
     , _ready :: Int
     , _shapes :: Int
-    , _errors :: Int
-    } deriving (Generic, Eq, Ord, Show, Serialize)
+    , _errors :: [String]
+    , _stack :: CallStack
+    } deriving (Generic, Eq, Ord, Show)
 
-instance SafeCopy ImageStats
 instance Value ImageStats where hops _ = []
+instance SafeCopy ImageStats where version = 1; kind = extension
+instance Serialize ImageStats where get = safeGet; put = safePut
 
-imageStatsDefault = ImageStats 0 0 0 0
+instance Migrate ImageStats where
+  type MigrateFrom ImageStats = ImageStats_0
+  migrate (ImageStats_0 a b c _) =  ImageStats a b c [] emptyCallStack
+
+data ImageStats_0
+  = ImageStats_0
+    { _keys_0 :: Int
+    , _ready_0 :: Int
+    , _shapes_0 :: Int
+    , _errors_0 :: Int
+    } deriving (Generic, Eq, Ord, Show)
+
+instance SafeCopy ImageStats_0
+instance Serialize ImageStats_0 where get = safeGet; put = safePut
+
+imageStatsDefault = ImageStats 0 0 0 [] emptyCallStack
 
 -- | This is thrown if we get some timeout not releated to image
 -- generation - i.e. generating the latex or pdf file took too long.
-imageStatsTimeout = ImageStats 0 0 0 1
+imageStatsError :: (Show e, HasCallStack) => e -> ImageStats
+imageStatsError e = ImageStats 0 0 0 [show e] callStack
 
 
 #if !__GHCJS__
@@ -78,7 +96,8 @@ testImageKeys ks = do
   let stats = ImageStats {_keys = Map.size shapes,
                           _ready = Map.size ready,
                           _shapes = Map.size unready,
-                          _errors = Map.size missing }
+                          _errors = fmap show (Map.toList missing),
+                          _stack = callStack }
   alog DEBUG ("#keys=" <> show (_keys stats))
   alog DEBUG ("#ready=" <> show (_ready stats))
   alog DEBUG ("#unready image shapes: " <> show (_shapes stats))
@@ -101,7 +120,9 @@ foregroundOrBackground enq ks = do
   (needed, stats) <- over _1 Map.keysSet <$> testImageKeys ks
   -- let needed = Map.keysSet mp
   view (to (taskQueue @key)) >>= \case
-    Just _ | _shapes stats + _errors stats > 20 -> do
+    -- Number of errors does not seem to be a useful heuristic - can
+    -- these errors be corrected by waiting?
+    Just _ | _shapes stats + length (_errors stats) > 20 -> do
       alog DEBUG ("needed=" <> show needed)
       enq (Set.toList needed)
       throwMember stats
