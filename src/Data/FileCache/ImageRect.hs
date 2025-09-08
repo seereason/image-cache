@@ -39,7 +39,10 @@ data ImageRect
     { _imageRectWidth :: Int
     , _imageRectHeight :: Int
     , _imageFileOrientation :: Rotation
-    } deriving (Generic, Eq, Ord, Data, Typeable, Read, Show)
+    } deriving (Generic, Eq, Ord, Data, Typeable, Read)
+
+instance Show ImageRect where
+  show ImageRect{..} = "(makeImageRect " <> show _imageRectWidth <> " " <> show _imageRectHeight <> " " <> show _imageFileOrientation <> ")"
 
 instance Serialize ImageRect where get = safeGet; put = safePut
 instance SafeCopy ImageRect where version = 1; kind = base
