@@ -1,0 +1,14 @@
+diff --git a/src/Data/FileCache/FileCacheTop.hs b/src/Data/FileCache/FileCacheTop.hs
+index 42e8c0a..0e6bb6a 100644
+--- a/src/Data/FileCache/FileCacheTop.hs
++++ b/src/Data/FileCache/FileCacheTop.hs
+@@ -31,7 +31,8 @@ import Control.Exception (IOException)
+ import Control.Lens ( _1, view )
+ import Control.Monad.Except (ExceptT, MonadError, MonadIO, runExceptT)
+ import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
+-import Control.Monad.RWS (MonadState, RWST)
++import Control.Monad.State.Class (MonadState)
++import Control.Monad.RWS.Strict (RWST)
+ import Data.Acid ( AcidState )
+ import Data.FileCache.Background (HasTaskQueue)
+ import Data.FileCache.CacheMap ( CacheMap )
