@@ -7,6 +7,7 @@ module Data.FileCache.ImageIO
   , uprightImage'
   , scaleImage'
   , editImage'
+  , vips_resize
   ) where
 
 import Codec.Picture.Jpg (decodeJpegWithMetadata)
@@ -269,6 +270,24 @@ parseExtractBBOutput = do
 
 deriving instance Show ExtractBB
 deriving instance Show Hires
+
+
+
+-- | use vips resize to scale an image.
+-- Unfortunately, vips shell bindings do not understand filepath "-", so this is going to have to be rejiggered.
+-- Fortunately, vips infers the image formats from the image contents (input) and filename (output) and does the conversion, so the decode/scale/encode of scaleImage isn't necessary.
+-- https://www.libvips.org/API/current/using-the-cli.html
+-- However, there remains the problem of renaming the file after the checksum has been calculated.  that will have to be dealt with above this module.
+-- If we really cared, we might make a libvips C routine that would calculate the checksum, but I suspect that overhead of another process to read the output file,
+-- calculate the checksum, and link the new file name would be minimal.
+
+vips_resize :: (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
+  => Double
+  -> FilePath
+  -> FilePath
+  -> m String
+vips_resize sc fin fout = showCommandForUser "vips" ["resize", fin, fout, showFFloat (Just 6) sc ""]
+  
 
 -- | Build an image resized by decoding, applying pnmscale, and then
 -- re-encoding.  The new image inherits attributes of the old (other
