@@ -5,37 +5,30 @@ let
   inherit (nixpkgs) pkgs;
 
   f = { mkDerivation, acid-state, base, binary, bytestring, cereal
-      , containers, data-default, directory, either, exceptions, fbida
-      , filemanip, filemanip-extra, filepath, generic-data, generic-lens
-      , gi-vips, happstack-server, HaTeX, hslogger, HUnit, JuicyPixels
-      , lens, lens-path, ListLike, mtl, network-uri, parsec, pretty
-      , process, process-extras, pureMD5, QuickCheck, regex-compat-tdfa
-      , regex-tdfa, safecopy, sr-errors, sr-log, sr-utils, stdenv, syb
-      , template-haskell, temporary, text, th-lift, th-orphans, threads
-      , transformers, unix, Unixutils, utf8-string, web-routes
-      , web-routes-th
+      , containers, data-default, directory, exceptions, fbida
+      , filemanip-extra, filepath, generic-data, generic-lens, hslogger
+      , HUnit, JuicyPixels, lens, lens-path, ListLike, mtl, network-uri
+      , parsec, pretty, process, process-extras, pureMD5, QuickCheck
+      , regex-compat-tdfa, regex-tdfa, safecopy, sr-errors, sr-log
+      , sr-utils, stdenv, syb, template-haskell, temporary, text, th-lift
+      , th-orphans, threads, transformers, unexceptionalio-trans, unix
+      , Unixutils, utf8-string, web-routes, web-routes-th
       }:
       mkDerivation {
         pname = "image-cache";
-        version = "0.45.1";
+        version = "0.27";
         src = ./.;
         libraryHaskellDepends = [
           acid-state base binary bytestring cereal containers data-default
-          directory exceptions filemanip filemanip-extra filepath
-          generic-data generic-lens gi-vips happstack-server hslogger HUnit
-          JuicyPixels lens lens-path ListLike mtl network-uri parsec pretty
-          process process-extras pureMD5 QuickCheck regex-compat-tdfa
-          regex-tdfa safecopy sr-errors sr-log sr-utils syb template-haskell
-          temporary text th-lift th-orphans threads transformers unix
-          Unixutils utf8-string web-routes web-routes-th
+          directory exceptions filemanip-extra filepath generic-data
+          generic-lens hslogger HUnit JuicyPixels lens lens-path ListLike mtl
+          network-uri parsec pretty process process-extras pureMD5 QuickCheck
+          regex-compat-tdfa regex-tdfa safecopy sr-errors sr-log sr-utils syb
+          template-haskell temporary text th-lift th-orphans threads
+          transformers unexceptionalio-trans unix Unixutils utf8-string
+          web-routes web-routes-th
         ];
         libraryToolDepends = [ fbida ];
-        testHaskellDepends = [
-          acid-state base binary bytestring containers directory either
-          exceptions filemanip filemanip-extra filepath HaTeX HUnit lens mtl
-          sr-errors sr-utils text
-        ];
-        testToolDepends = [ fbida ];
         homepage = "http://src.seereason.com/image-cache";
         description = "Support for image file processing and caching";
         license = stdenv.lib.licenses.unfree;

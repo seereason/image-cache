@@ -79,9 +79,6 @@ Library
     unix,
     web-routes,
     web-routes-th
-  if !impl(ghcjs)
-    Build-Depends:
-      gi-vips
   Hs-Source-Dirs: src
   Exposed-Modules:
     Data.FileCache.Background
