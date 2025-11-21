@@ -1,30 +1,53 @@
 -- | Create derived images
 
-{-# LANGUAGE DeriveLift, LambdaCase, OverloadedLists, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveLift #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
+{-# OPTIONS -ddump-minimal-imports #-}
 
 module Data.FileCache.Derive
-  ( getImageFile
-  , getImageFileBackground
-  , getImageShape
+  ( ImageStats(..)
+  , imageStatsDefault
+  , imageStatsError
+#if !__GHCJS__
+  , testImageKeys
+  , foregroundOrBackground
+
+  , getImageFile
   , getImageFiles
+  , getImageFileBackground
+{-
+  , getImageShape
   , getImageShapes
-  -- , withImageShape
-  -- , cacheImageFile
-  -- , cacheImageFileIO
-  -- , cacheImageShape
-  -- , buildImageFile
+-}
   , queueImageTasks
+#endif
   ) where
 
+import Control.Lens.Path ( Value(..) )
+import Data.SafeCopy (SafeCopy(version, kind), extension, Migrate(MigrateFrom, migrate), safeGet, safePut)
+import Data.Serialize ( Serialize(..) )
+import GHC.Generics ( Generic )
+import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
+
+#if !__GHCJS__
 import Control.Exception (IOException)
-import Control.Lens ( _Right, over )
+import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
 import Control.Monad.Except (ExceptT, foldM, runExceptT)
 import Control.Monad.Reader (liftIO, ReaderT, runReaderT, unless, when)
 import Control.Monad.State (MonadState)
-import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
+import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
-import Data.FileCache.Background (HasTaskQueue, queueTasks)
+import Data.FileCache.Background ( HasTaskQueue(taskQueue), queueTasks )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
@@ -41,23 +64,123 @@ import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect (HasImageRect(imageRect), scaleFromDPI)
 import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalFile )
-import Data.ListLike ( ListLike(length) )
+import qualified Data.Foldable as Foldable (length)
+import Data.Generics.Sum ( _Ctor )
+import qualified Data.ListLike as ListLike ( ListLike(length) )
+import Data.Map.Strict as Map ( filter, keysSet, Map, size, toList, union )
 import Data.Map.Strict as Map (Map, fromSet, insert)
 import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
-import Data.Set as Set ( member, Set )
+import Data.Set as Set ( member, Set, toList )
 import Data.Text as T ( Text, pack )
 import Extra.Lens (HasLens)
 import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
-import SeeReason.Errors ( OneOf, throwMember, tryMember )
-import SeeReason.Log ( alog )
+import SeeReason.Errors ( Member, OneOf, throwMember, tryMember )
+import SeeReason.Log ( alog, alogDrop )
 import System.Directory ( doesFileExist )
 import System.FilePath ()
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import System.Posix.Files (createLink, removeLink)
 import Text.PrettyPrint.HughesPJClass ( prettyShow )
+#endif
+
+-- * ImageStats
+
+-- Statistics about the server status of the images in this reports.
+data ImageStats
+  = ImageStats
+    { _keys :: Int
+    , _ready :: Int
+    , _shapes :: Int
+    , _errors :: [String]
+    , _stack :: CallStack
+    } deriving (Generic, Eq, Ord, Show)
+
+instance Value ImageStats where hops _ = []
+instance SafeCopy ImageStats where version = 1; kind = extension
+instance Serialize ImageStats where get = safeGet; put = safePut
+
+instance Migrate ImageStats where
+  type MigrateFrom ImageStats = ImageStats_0
+  migrate (ImageStats_0 a b c _) =  ImageStats a b c [] emptyCallStack
+
+data ImageStats_0
+  = ImageStats_0
+    { _keys_0 :: Int
+    , _ready_0 :: Int
+    , _shapes_0 :: Int
+    , _errors_0 :: Int
+    } deriving (Generic, Eq, Ord, Show)
+
+instance SafeCopy ImageStats_0
+instance Serialize ImageStats_0 where get = safeGet; put = safePut
+
+imageStatsDefault = ImageStats 0 0 0 [] emptyCallStack
+
+-- | This is thrown if we get some timeout not releated to image
+-- generation - i.e. generating the latex or pdf file took too long.
+imageStatsError :: (Show e, HasCallStack) => e -> ImageStats
+imageStatsError e = ImageStats 0 0 0 [show e] callStack
+
+#if !__GHCJS__
+-- | Throw an exception if there are more than 20 unavailable
+-- images.  This sends the images to the background image
+-- generator thread, aborts whatever we are doing, and puts up a
+-- "come back later" message.
+testImageKeys ::
+  forall a e m. (MonadFileCache a e m, HasCallStack)
+  => Set ImageKey
+  -> m (Map ImageKey (Either FileError ImageFile), ImageStats)
+testImageKeys ks = do
+  shapes :: Map ImageKey (Either FileError ImageFile)
+    <- getImageShapes mempty ks
+  let ready = Map.filter (has (_Right . _Ctor @"ImageFileReady")) shapes
+      -- Files that have been requested but not yet written out
+      unready = Map.filter (has (_Right . _Ctor @"ImageFileShape")) shapes
+      -- Files that were written out but have gone missing, or were
+      -- recorded with the retired NoShapeOld error constructor.
+      missing = Map.filter (\e -> has (_Left . _Ctor @"MissingDerivedEntry") e ||
+                                  has (_Left . _Ctor @"NoShapeOld") e) shapes
+      -- needed = Map.keysSet unready <> Map.keysSet missing
+  let stats = ImageStats {_keys = Map.size shapes,
+                          _ready = Map.size ready,
+                          _shapes = Map.size unready,
+                          _errors = fmap show (Map.toList missing),
+                          _stack = callStack }
+  alog DEBUG ("#keys=" <> show (_keys stats))
+  alog DEBUG ("#ready=" <> show (_ready stats))
+  alog DEBUG ("#unready image shapes: " <> show (_shapes stats))
+  alogDrop id DEBUG ("#errors=" <> show (_errors stats))
+  pure (Map.union unready missing, stats)
+
+-- | Decide whether there are enough images to be built that we
+-- need to do them in the background
+foregroundOrBackground ::
+  forall key a e m.
+  (MonadFileCacheWriter a e m,
+   HasTaskQueue key a,
+   Member ImageStats e,
+   HasCallStack)
+  => ([ImageKey] -> m ())
+  -> Set ImageKey
+  -> m ()
+foregroundOrBackground enq ks = do
+  alogDrop id INFO ("#ks=" <> show (Foldable.length ks))
+  (needed, stats) <- over _1 Map.keysSet <$> testImageKeys ks
+  -- let needed = Map.keysSet mp
+  view (to (taskQueue @key)) >>= \case
+    -- Number of errors does not seem to be a useful heuristic - can
+    -- these errors be corrected by waiting?
+    Just _ | _shapes stats + Foldable.length (_errors stats) > 20 -> do
+      alog DEBUG ("needed=" <> show needed)
+      enq (Set.toList needed)
+      throwMember stats
+    _ -> do
+      _ <- getImageFiles mempty needed
+      alog DEBUG ("getImageFiles " <> show needed)
+      pure ()
 
 getImageShape ::
   forall r e m. (MonadFileCache r e m, HasCallStack)
@@ -269,8 +392,8 @@ buildImageFile key shape = do
           -- being written?  This needs review.  Assuming it is
           -- damaged because the contents do not match.
           alog WARNING ("Replacing damaged cache file: " <> show path <>
-                                       " length " <> show (length bs') <>
-                                       " -> " <> show (length bs))
+                                       " length " <> show (BS.length bs') <>
+                                       " -> " <> show (BS.length bs))
           liftIO $ writeFileReadable path bs
         True ->
           -- The image file already exists and contains what we
@@ -398,7 +521,7 @@ queueImageTasks enq flags keys = do
   alog DEBUG ("tasks=" <> show tasks)
   queueTasks tasks
 
-#if 0
+{-
 -- | See if images are already in the cache
 cacheLookImages ::
   (MonadFileCache r e m, HasCallStack)
@@ -415,4 +538,5 @@ foregroundBuilds pairs =
     doImage key (Right (ImageFileShape shape)) =
       cacheImageFile key shape
     doImage _ x = return x
+-}
 #endif

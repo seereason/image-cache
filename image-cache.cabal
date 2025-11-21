@@ -31,7 +31,7 @@ Library
     Data.FileCache.CacheMap
     Data.FileCache.ImageRect
     Data.FileCache.ImageKey
-    Data.FileCache.ImageStats
+    Data.FileCache.Derive
   Other-Modules:
     Data.FileCache.CommandError
     Data.FileCache.File
@@ -67,8 +67,8 @@ Library
     pureMD5,
     safecopy >= 0.9.4.4,
     sr-errors >= 1.15,
-    sr-utils >= 1.104,
-    sr-log >= 1.18,
+    sr-utils >= 1.111,
+    sr-log >= 1.20,
     syb,
     template-haskell,
     text,
@@ -92,8 +92,6 @@ Library
   else
     Exposed-Modules:
       Data.FileCache.Acid
-      -- Data.FileCache.BackgroundImageTask
-      Data.FileCache.Derive
       Data.FileCache.Server
       Data.FileCache.FileInfo
       Data.FileCache.Test
