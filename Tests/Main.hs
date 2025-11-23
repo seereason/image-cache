@@ -216,6 +216,6 @@ test1 = TestCase $ do
     action2 :: ExceptT ES IO ImageShape
     action2 = runExceptionless throwMember action
     action :: Exceptionless (ExceptT ES IO) ImageShape
-    action = catchMember (makeByteString pdf) (\(e :: IOException) -> throwMember e) >>= fileInfoFromBytes
+    action = catchMember (makeByteString pdf) (\(_ :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
     pdf :: FilePath
     pdf = "/home/dsf/git/happstack-ghcjs.alpha/happstack-ghcjs-server/test-top/images/fb/fbddca395b0912cdfa710f84ab09f317.pdf"
