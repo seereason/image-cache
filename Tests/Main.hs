@@ -26,6 +26,7 @@ import Data.FileCache.FileInfo (fileInfoFromBytes)
 import Data.FileCache.ImageKey (ImageShape)
 import Data.FileCache.Test (tests)
 import Data.Map as Map (size)
+import Data.Proxy (Proxy)
 import Data.Set as Set (filter, size)
 import Debug.Trace
 import Extra.Exceptionless (Exceptionless, runExceptionless)
@@ -206,16 +207,16 @@ imageTests acid =
     -- handle :: SomeException -> IO (Either SomeException ImageShape)
     -- handle e = undefined
 
-type ES = OneOf '[IOException, FileError, SomeException]
+type ES = '[IOException, FileError, SomeException]
 
 test1 :: Test
 test1 = TestCase $ do
   (shape :: Either String ImageShape) <- over _Left show <$> runExceptT action2
   assertEqual "fileInfoFromBytes" (Right (ImageShape PDF (Left "PDF"))) shape
   where
-    action2 :: ExceptT ES IO ImageShape
+    action2 :: ExceptT (OneOf ES) IO ImageShape
     action2 = runExceptionless throwMember action
-    action :: Exceptionless (ExceptT ES IO) ImageShape
+    action :: Exceptionless (ExceptT (OneOf ES) IO) ImageShape
     action = catchMember (makeByteString pdf) (\(_ :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
     pdf :: FilePath
     pdf = "/home/dsf/git/happstack-ghcjs.alpha/happstack-ghcjs-server/test-top/images/fb/fbddca395b0912cdfa710f84ab09f317.pdf"
