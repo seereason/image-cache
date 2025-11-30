@@ -42,7 +42,7 @@ module Data.FileCache
     HasImageShapeM(imageShapeM), HasImageShape, imageShape,
     HasOriginalShape(originalShape),
 
-    -- * import Data.FileCache.ImageStats
+    -- * import Data.FileCache.Derive
     ImageStats(..),
 
     -- * import Data.FileCache.ImageFile
@@ -90,6 +90,7 @@ module Data.FileCache
 
 import Data.FileCache.CacheMap
 import Data.FileCache.CommandError
+import Data.FileCache.Derive
 import Data.FileCache.File
 import Data.FileCache.FileError
 import Data.FileCache.Happstack
@@ -98,13 +99,11 @@ import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect
 import Data.FileCache.ImageSize
-import Data.FileCache.ImageStats
 import Data.FileCache.Rational
 import Data.FileCache.FileCache
 import Data.FileCache.FileCacheTop
 
 #if !__GHCJS__
 import Data.FileCache.Acid
-import Data.FileCache.Derive
 import Data.FileCache.Upload
 #endif

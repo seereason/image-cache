@@ -15,10 +15,11 @@ import Codec.Picture.Metadata (Keys(Exif), lookup)
 import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
 import Control.Exception ( IOException )
 import Control.Lens (preview, _Right, _2, to, _Just)
+import Control.Monad.Catch (handle, MonadCatch)
 import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
-import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFile, toStrict )
+import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hGetContents, hPutStr, length, readFile, toStrict, writeFile )
 --import Data.ByteString.Lazy ( fromStrict, toStrict )
 --import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import Data.Char ( isSpace )
@@ -35,6 +36,7 @@ import Data.FileCache.Rational (approx, readRationalMaybe)
 import Data.List ( intercalate )
 import Data.ListLike ( StringLike(show) )
 import Data.Monoid ( (<>) )
+import Data.Ratio (approxRational)
 import Data.String ( fromString )
 import Data.Text as T ( Text )
 import Data.Text.Lazy (toStrict)
@@ -47,11 +49,12 @@ import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
 import Prelude hiding (show)
 import SeeReason.Errors (tryError)
+import SeeReason.Log (alog, alogDrop)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
-import System.IO.Temp (withSystemTempFile)
-import System.Log.Logger ( Priority(ERROR) )
-import System.Process ( proc, shell, showCommandForUser, CreateProcess )
+import System.IO.Temp (emptySystemTempFile, withSystemTempFile)
+import System.Log.Logger ( Priority(DEBUG, INFO, ERROR) )
+import System.Process ( CmdSpec(RawCommand), proc, shell, showCommandForUser, CreateProcess )
 import System.Process.ByteString.Lazy as BS ( readCreateProcessWithExitCode )
 import System.Process.ListLike as LL ( readCreateProcess )
 import Text.Parsec
@@ -281,27 +284,53 @@ deriving instance Show Hires
 -- If we really cared, we might make a libvips C routine that would calculate the checksum, but I suspect that overhead of another process to read the output file,
 -- calculate the checksum, and link the new file name would be minimal.
 
-vips_resize :: (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
-  => Double
-  -> FilePath
-  -> FilePath
-  -> m String
-vips_resize sc fin fout = showCommandForUser "vips" ["resize", fin, fout, showFFloat (Just 6) sc ""]
-  
+-- | Create a shell command that scales an image.
+--
+--     > readCreateProcessWithExitCode (vips_resize 0.5 "/home/dsf/Downloads/005832283_00146.jpg" "/tmp/out.jpg") ""
+--     (ExitSuccess,"","")
+vips_resize :: Double -> FilePath -> FilePath -> CreateProcess
+vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) sc ""]
 
 -- | Build an image resized by decoding, applying pnmscale, and then
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
 scaleImage' ::
-  (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
+  (MonadIO m, Member FileError e, Member IOException e,
+   MonadCatch m, MonadError (OneOf e) m, HasCallStack)
   => Double
   -> BS.ByteString
   -> FileType
   -> m (Maybe BS.ByteString)
-scaleImage' sc _ _ | approx (toRational sc) == 1 = return Nothing
+#if 1
+-- | If the scale factor is within 1% of the original
+-- size don't resize.
+scaleImage' sc bs _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
+#else
+scaleImage' sc _ _ | approx (toRational sc) == 1 = pure Nothing
+#endif
 scaleImage' _ _ PDF = throwMember $ CannotScale PDF
 scaleImage' _ _ CSV = throwMember $ CannotScale CSV
 scaleImage' _ _ Unknown = throwMember $ CannotScale Unknown
+#if 1
+scaleImage' sc bytes typ =
+  handle (\(e :: IOException) -> throwMember e) $ liftIO $ do
+    alogDrop id DEBUG ("sc=" <> show sc)
+    -- Some, maybe a lot of unnecessary reading and writing here.  What
+    -- if the bytestring argument was just read from a file?  Or the
+    -- bytestring output is going to be immediately written to a file?
+    withSystemTempFile "input.XXXXXXXXXX" $ \inpath inh -> do
+      BS.hPutStr inh bytes
+      hFlush inh
+      hClose inh
+      -- Problem here is this temporary output file is not
+      -- automatically removed the way the input file above is.  What
+      -- we need to do is move them into position.
+      outpath <- emptySystemTempFile "output.XXXXXXXXXX.jpg"
+      readCreateProcessWithExitCode (vips_resize sc inpath outpath) ""
+      outbytes <- BS.readFile outpath
+      -- alog INFO ("length outbytes=" <> show (BS.length outbytes))
+      pure $ Just outbytes
+#else
 scaleImage' sc bytes typ = do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
@@ -327,6 +356,7 @@ scaleImage' sc bytes typ = do
                     Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
+#endif
 
 logIOError' :: (MonadIO m, MonadError e m) => m a -> m a
 logIOError' io =

@@ -29,6 +29,7 @@ module Data.FileCache.FileCacheTop
 #if !__GHCJS__
 import Control.Exception (IOException)
 import Control.Lens ( _1, view )
+import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (ExceptT, MonadError, MonadIO, runExceptT)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Control.Monad.State.Class (MonadState)
@@ -58,6 +59,7 @@ instance  HasCacheAcid (CacheAcid, top) where cacheAcid = fst
 instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
 
 class (MonadIO m,
+       MonadCatch m,
        MonadError (OneOf e) m,
        Member IOException e,
        Member FileError e,
@@ -77,11 +79,11 @@ type MonadFileCacheBG r s e m task =
 -- | For code that can add things to the cache
 class MonadFileCache r e m => MonadFileCacheWriter r e m
 
-instance (MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
-instance (MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCacheWriter r e (ReaderT r (ExceptT (OneOf e) m))
-instance (Monoid w, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+instance (Monoid w, MonadCatch m, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (RWST r w s (ExceptT (OneOf e) m))
 
 #if 0

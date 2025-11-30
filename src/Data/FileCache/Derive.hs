@@ -33,6 +33,7 @@ module Data.FileCache.Derive
   ) where
 
 import Control.Lens.Path ( Value(..) )
+import Control.Monad.Catch (MonadCatch)
 import Data.SafeCopy (SafeCopy(version, kind), extension, Migrate(MigrateFrom, migrate), safeGet, safePut)
 import Data.Serialize ( Serialize(..) )
 import GHC.Generics ( Generic )
@@ -258,14 +259,16 @@ cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
   -- alog DEBUG ("key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
-cacheImageShape _ key (Just (Right (ImageFileReady img))) = do
+cacheImageShape _ key (Just (Right (ImageFileReady img@ImageReady{..}))) = do
   -- Final validation - does the file we are supposed to have
   -- created in the previous case actually exist?
   path <- fileCachePath (ImagePath key)
   liftIO (doesFileExist path) >>= \case
     False -> do
       alog WARNING ("missing cache file: " <> prettyShow key <> " -> " <> show path)
-      pure $ Left $ MissingDerivedEntry key
+      -- Return the shape so the system can regenerate this file
+      -- pure $ Left $ MissingDerivedEntry key
+      pure $ Right $ ImageFileShape _imageShape
     True -> do
       -- alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
       pure $ Right $ ImageFileReady img
@@ -367,9 +370,10 @@ cacheImageFileIO a key =
 -- 'ImageFile' and write the image file.  This can be used to repair
 -- missing cache files.
 buildImageFile ::
-  forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
+  alogDrop id DEBUG ("key=" <> show key)
   (key', bs) <- buildImageBytes Nothing key
   -- key' may differ from key due to removal of no-ops.  If so we hard
   -- link the corresponsing image files so both keys work.
@@ -381,7 +385,7 @@ buildImageFile key shape = do
   path <- fileCachePathIO (ImageCached key img) -- the rendered key
   liftIO (doesFileExist path) >>= \case
     False -> do
-      alog INFO ("Writing new cache file: " <> show path)
+      alog DEBUG ("Writing new cache file: " <> show path)
       liftIO $ writeFileReadable path bs
     True -> do
       -- The cached file exists.
@@ -416,7 +420,7 @@ buildImageFile key shape = do
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
-  forall r e m. (MonadFileCache r e m, HasCallStack)
+  forall r e m. (MonadCatch m, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource -> ImageKey -> m (ImageKey, BS.ByteString)
 buildImageBytes source key@(ImageOriginal csum typ) =
   cacheLook key >>=
@@ -518,7 +522,7 @@ queueImageTasks enq flags keys = do
                                Left _ -> Nothing) images
   -- alog DEBUG ("shapes=" <> show shapes)
   let tasks = fmap enq shapes
-  alog DEBUG ("tasks=" <> show tasks)
+  -- alog DEBUG ("tasks=" <> show tasks)
   queueTasks tasks
 
 {-
