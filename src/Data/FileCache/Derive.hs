@@ -33,7 +33,6 @@ module Data.FileCache.Derive
   ) where
 
 import Control.Lens.Path ( Value(..) )
-import Control.Monad.Catch (MonadCatch)
 import Data.SafeCopy (SafeCopy(version, kind), extension, Migrate(MigrateFrom, migrate), safeGet, safePut)
 import Data.Serialize ( Serialize(..) )
 import GHC.Generics ( Generic )
@@ -42,8 +41,9 @@ import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
 #if !__GHCJS__
 import Control.Exception (IOException)
 import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
+import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (ExceptT, foldM, runExceptT)
-import Control.Monad.Reader (liftIO, ReaderT, runReaderT, unless, when)
+import Control.Monad.Reader (ask, liftIO, ReaderT, runReaderT, unless, when)
 import Control.Monad.State (MonadState)
 import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
@@ -52,7 +52,7 @@ import Data.FileCache.Background ( HasTaskQueue(taskQueue), queueTasks )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
-import Data.FileCache.FileCacheTop ( MonadFileCache, MonadFileCacheWriter )
+import Data.FileCache.FileCacheTop ( FileCacheTop(FileCacheTop), fileCacheTop, MonadFileCache, MonadFileCacheWriter )
 import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException), CacheFlag(RetryErrors) )
@@ -63,6 +63,7 @@ import Data.FileCache.ImageKey
     HasFileType(imageType), FileType, imageShape, HasImageShapeM(imageShapeM),
     ImageShape(_imageShapeType) )
 import Data.FileCache.ImageRect (HasImageRect(imageRect), scaleFromDPI)
+import Data.FileCache.Process ( Result(Bytes, Temporary), resultBytes )
 import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalFile )
 import qualified Data.Foldable as Foldable (length)
@@ -79,8 +80,8 @@ import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
 import SeeReason.Errors ( Member, OneOf, throwMember, tryMember )
 import SeeReason.Log ( alog, alogDrop )
-import System.Directory ( doesFileExist )
-import System.FilePath ()
+import System.Directory ( createDirectoryIfMissing, doesFileExist, renameFile )
+import System.FilePath ((</>), takeDirectory)
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import System.Posix.Files (createLink, removeLink)
@@ -374,7 +375,8 @@ buildImageFile ::
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
   alogDrop id DEBUG ("key=" <> show key)
-  (key', bs) <- buildImageBytes Nothing key
+  (key', result) <- buildImageBytes Nothing key
+  bs <- resultBytes result
   -- key' may differ from key due to removal of no-ops.  If so we hard
   -- link the corresponsing image files so both keys work.
   let file = File { _fileSource = Derived
@@ -384,25 +386,48 @@ buildImageFile key shape = do
   let img = ImageFileReady (ImageReady { _imageFile = file, _imageShape = shape })
   path <- fileCachePathIO (ImageCached key img) -- the rendered key
   liftIO (doesFileExist path) >>= \case
+    -- False -> installCacheFile path bs
+    False -> installCacheFile path result
+    True -> repairDamagedCache path bs
+  hardLinkCanonicalImage path key' img bs
+  -- alog DEBUG ("added to cache: " <> prettyShow img)
+  pure img
+
+installCacheFile ::
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  => FilePath -> Result -> m ()
+installCacheFile path (Bytes bs) = liftIO $ do
+  alog INFO ("Writing new cache file: " <> show path)
+  writeFileReadable path bs
+installCacheFile to (Temporary from) = liftIO $ do
+  alog INFO ("Moving new cache file: " <> show from <> " -> " <> show to)
+  createDirectoryIfMissing True (takeDirectory to)
+  renameFile from to
+
+repairDamagedCache ::
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  => FilePath -> BS.ByteString -> m ()
+repairDamagedCache path bs = do
+  -- The cached file exists.
+  bs' <- liftIO $ BS.readFile path
+  case bs == bs' of
     False -> do
-      alog DEBUG ("Writing new cache file: " <> show path)
+      -- Do we have to worry that this file is in the process of
+      -- being written?  This needs review.  Assuming it is
+      -- damaged because the contents do not match.
+      alog WARNING ("Replacing damaged cache file: " <> show path <>
+                                   " length " <> show (BS.length bs') <>
+                                   " -> " <> show (BS.length bs))
       liftIO $ writeFileReadable path bs
-    True -> do
-      -- The cached file exists.
-      bs' <- liftIO $ BS.readFile path
-      case bs == bs' of
-        False -> do
-          -- Do we have to worry that this file is in the process of
-          -- being written?  This needs review.  Assuming it is
-          -- damaged because the contents do not match.
-          alog WARNING ("Replacing damaged cache file: " <> show path <>
-                                       " length " <> show (BS.length bs') <>
-                                       " -> " <> show (BS.length bs))
-          liftIO $ writeFileReadable path bs
-        True ->
-          -- The image file already exists and contains what we
-          -- expected.  Is this worth a warning?
-          alog WARNING ("Cache file for new key already exists: " <> show path)
+    True ->
+      -- The image file already exists and contains what we
+      -- expected.  Is this worth a warning?
+      alog WARNING ("Cache file for new key already exists: " <> show path)
+
+hardLinkCanonicalImage ::
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  => FilePath -> ImageKey -> ImageFile -> BS.ByteString -> m ()
+hardLinkCanonicalImage path key' img bs = do
   path' <- fileCachePathIO (ImageCached key' img) -- the equivalent file
   when (path /= path') $ do
     -- The key contained no-ops, so the returned key is different.
@@ -415,13 +440,13 @@ buildImageFile key shape = do
           liftIO (createLink path path')
       False -> do
         liftIO (createLink path path')
-  -- alog DEBUG ("added to cache: " <> prettyShow img)
-  return img
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
   forall r e m. (MonadCatch m, MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> m (ImageKey, BS.ByteString)
+  => Maybe FileSource -- ^ Where the original comes from
+  -> ImageKey -- ^ Description of the derived image
+  -> m (ImageKey, Result) -- ^ The revised ImageKey and the final image
 buildImageBytes source key@(ImageOriginal csum typ) =
   cacheLook key >>=
   maybe ((key,) <$> buildImageBytesFromFile source key csum typ)
@@ -429,33 +454,50 @@ buildImageBytes source key@(ImageOriginal csum typ) =
                                    (lookImageBytes . ImageCached key) img)
   where _ = callStack
 buildImageBytes source key@(ImageUpright key') = do
-  (key'', bs) <- buildImageBytes source key'
-  uprightImage' bs >>= return . maybe (key'', bs) (key,)
+  (key'', result) <- buildImageBytes source key'
+  uprightImage' result >>= return . maybe (key'', result) (key,)
 buildImageBytes source key@(ImageScaled sz dpi key') = do
-  (key'', bs) <- buildImageBytes source key'
+  (key'', result) <- buildImageBytes source key'
   -- the buildImageBytes that just ran might have this info
+  bs <- resultBytes result
   shape <- imageShapeM bs
   case either (const Nothing) (scaleFromDPI sz dpi) (imageRect shape) of
-    Nothing -> return (key'', bs)
-    Just sc ->
-      maybe (key'', bs) (key,) <$> scaleImage' (fromRat sc) bs (imageType shape)
+    Nothing -> return (key'', result)
+    Just sc -> do
+      FileCacheTop top <- fileCacheTop <$> ask
+      let tmp = top </> "tmp"
+      maybe (key'', result) (key,) <$>
+        scaleImage' tmp (fromRat sc) result (imageType shape)
 buildImageBytes source key@(ImageCropped crop key') = do
-  (key'', bs) <- buildImageBytes source key'
+  (key'', result) <- buildImageBytes source key'
+  bs <- resultBytes result
   shape <- imageShapeM bs
-  maybe (key'', bs) (key,) <$> editImage' crop bs (imageType shape) (imageShape shape)
+  maybe (key'', result) (key,) <$> editImage' crop result (imageType shape) (imageShape shape)
 
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
   forall r e m a. (MonadFileCache r e m, HasFilePath a, HasCallStack)
-  => a -> m BS.ByteString
-lookImageBytes a = fileCachePath a >>= liftIO . BS.readFile
+  => a -> m Result
+lookImageBytes a = do
+  path <- fileCachePath a
+  Bytes <$> liftIO (BS.readFile path)
   where _ = callStack
+
+#if 0
+-- | Need to add the Installed constructor to the Result type
+lookImagePath ::
+  forall r e m a. (MonadFileCache r e m, HasFilePath a, HasCallStack)
+  => a -> m Result
+lookImagePath a = do
+  Installed <$> fileCachePath a
+  where _ = callStack
+#endif
 
 -- | There is an error stored in the cache, maybe it can be repaired
 -- now?  Be careful not to get into a loop doing this.
 rebuildImageBytes ::
   forall e r m. (MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> FileType -> FileError -> m BS.ByteString
+  => Maybe FileSource -> ImageKey -> FileType -> FileError -> m Result
 rebuildImageBytes source key _typ e | retry e = do
   alog ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
   path <- fileCachePath (ImagePath key)
@@ -463,7 +505,7 @@ rebuildImageBytes source key _typ e | retry e = do
   -- IOException - I need LyftIO to make sure this is caught.
   bs <- liftIO (BS.readFile path)
   _cached <- cacheOriginalFile source bs
-  return bs
+  return $ Bytes bs
     where
       retry (MissingOriginalEntry _) = True -- transient I think
       retry CacheDamageMigrated = True -- obsolete error type is obsolete
@@ -478,7 +520,7 @@ rebuildImageBytes _ key _typ e = do
 -- its checksum.
 buildImageBytesFromFile ::
   forall r e m. (MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> Text -> FileType -> m BS.ByteString
+  => Maybe FileSource -> ImageKey -> Text -> FileType -> m Result
 buildImageBytesFromFile source key csum _typ = do
   -- If we get a cache miss for an ImageOriginal key something
   -- has gone wrong.  Try to rebuild from the file if it exists.
@@ -501,7 +543,7 @@ buildImageBytesFromFile source key csum _typ = do
         True -> do
           alog ALERT ("recaching " ++ show key)
           _cached <- cacheOriginalFile source bs
-          return bs
+          return $ Bytes bs
 
 -- | Enqueue 'ImageFile' builds for any of the 'ImageKey's that have a
 -- 'ImageShape' but are not 'ImageReady'.
