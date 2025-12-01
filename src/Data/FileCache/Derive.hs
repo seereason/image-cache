@@ -42,7 +42,7 @@ import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
 import Control.Exception (IOException)
 import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (ExceptT, foldM, runExceptT)
+import Control.Monad.Except (ExceptT, foldM, liftEither, runExceptT)
 import Control.Monad.Reader (ask, liftIO, ReaderT, runReaderT, unless, when)
 import Control.Monad.State (MonadState)
 import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
@@ -77,7 +77,7 @@ import Data.Text as T ( Text, pack )
 import Extra.Lens (HasLens)
 import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
-import SeeReason.Errors ( Member, OneOf, throwMember, tryMember )
+import SeeReason.Errors ( liftMember, Member, OneOf, throwMember, tryMember )
 import SeeReason.Log ( alog, alogDrop )
 import System.Directory ( createDirectoryIfMissing, doesFileExist, renameFile )
 import System.FilePath ((</>), takeDirectory)
@@ -465,8 +465,9 @@ buildImageBytes source key@(ImageScaled sz dpi key') = do
     Just sc -> do
       FileCacheTop top <- fileCacheTop <$> ask
       let tmp = top </> "tmp"
-      maybe (key'', result) (key,) <$>
-        scaleImage' tmp (fromRat sc) result (imageType shape)
+      scaled :: Maybe InputOutput
+        <- liftEither =<< liftIO (runExceptT (scaleImage' tmp (fromRat sc) result (imageType shape)))
+      pure $ maybe (key'', result) (key,) scaled
 buildImageBytes source key@(ImageCropped crop key') = do
   (key'', result) <- buildImageBytes source key'
   bs <- makeByteString result
