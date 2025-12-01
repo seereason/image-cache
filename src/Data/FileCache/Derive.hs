@@ -57,13 +57,12 @@ import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException), CacheFlag(RetryErrors) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
-import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
+import Data.FileCache.ImageIO ( editImage', InputOutput(Bytes, Temporary), MakeByteString(makeByteString), scaleImage', uprightImage' )
 import Data.FileCache.ImageKey
   ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey,
     HasFileType(imageType), FileType, imageShape, HasImageShapeM(imageShapeM),
     ImageShape(_imageShapeType) )
 import Data.FileCache.ImageRect (HasImageRect(imageRect), scaleFromDPI)
-import Data.FileCache.Process ( Result(Bytes, Temporary), resultBytes )
 import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalFile )
 import qualified Data.Foldable as Foldable (length)
@@ -376,7 +375,7 @@ buildImageFile ::
 buildImageFile key shape = do
   alogDrop id DEBUG ("key=" <> show key)
   (key', result) <- buildImageBytes Nothing key
-  bs <- resultBytes result
+  bs <- makeByteString result
   -- key' may differ from key due to removal of no-ops.  If so we hard
   -- link the corresponsing image files so both keys work.
   let file = File { _fileSource = Derived
@@ -395,7 +394,7 @@ buildImageFile key shape = do
 
 installCacheFile ::
   forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
-  => FilePath -> Result -> m ()
+  => FilePath -> InputOutput -> m ()
 installCacheFile path (Bytes bs) = liftIO $ do
   alog INFO ("Writing new cache file: " <> show path)
   writeFileReadable path bs
@@ -446,7 +445,7 @@ buildImageBytes ::
   forall r e m. (MonadCatch m, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource -- ^ Where the original comes from
   -> ImageKey -- ^ Description of the derived image
-  -> m (ImageKey, Result) -- ^ The revised ImageKey and the final image
+  -> m (ImageKey, InputOutput) -- ^ The revised ImageKey and the final image
 buildImageBytes source key@(ImageOriginal csum typ) =
   cacheLook key >>=
   maybe ((key,) <$> buildImageBytesFromFile source key csum typ)
@@ -459,7 +458,7 @@ buildImageBytes source key@(ImageUpright key') = do
 buildImageBytes source key@(ImageScaled sz dpi key') = do
   (key'', result) <- buildImageBytes source key'
   -- the buildImageBytes that just ran might have this info
-  bs <- resultBytes result
+  bs <- makeByteString result
   shape <- imageShapeM bs
   case either (const Nothing) (scaleFromDPI sz dpi) (imageRect shape) of
     Nothing -> return (key'', result)
@@ -470,24 +469,24 @@ buildImageBytes source key@(ImageScaled sz dpi key') = do
         scaleImage' tmp (fromRat sc) result (imageType shape)
 buildImageBytes source key@(ImageCropped crop key') = do
   (key'', result) <- buildImageBytes source key'
-  bs <- resultBytes result
+  bs <- makeByteString result
   shape <- imageShapeM bs
   maybe (key'', result) (key,) <$> editImage' crop result (imageType shape) (imageShape shape)
 
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
   forall r e m a. (MonadFileCache r e m, HasFilePath a, HasCallStack)
-  => a -> m Result
+  => a -> m InputOutput
 lookImageBytes a = do
   path <- fileCachePath a
   Bytes <$> liftIO (BS.readFile path)
   where _ = callStack
 
 #if 0
--- | Need to add the Installed constructor to the Result type
+-- | Need to add the Installed constructor to the InputOutput type
 lookImagePath ::
   forall r e m a. (MonadFileCache r e m, HasFilePath a, HasCallStack)
-  => a -> m Result
+  => a -> m InputOutput
 lookImagePath a = do
   Installed <$> fileCachePath a
   where _ = callStack
@@ -497,7 +496,7 @@ lookImagePath a = do
 -- now?  Be careful not to get into a loop doing this.
 rebuildImageBytes ::
   forall e r m. (MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> FileType -> FileError -> m Result
+  => Maybe FileSource -> ImageKey -> FileType -> FileError -> m InputOutput
 rebuildImageBytes source key _typ e | retry e = do
   alog ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
   path <- fileCachePath (ImagePath key)
@@ -520,7 +519,7 @@ rebuildImageBytes _ key _typ e = do
 -- its checksum.
 buildImageBytesFromFile ::
   forall r e m. (MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> Text -> FileType -> m Result
+  => Maybe FileSource -> ImageKey -> Text -> FileType -> m InputOutput
 buildImageBytesFromFile source key csum _typ = do
   -- If we get a cache miss for an ImageOriginal key something
   -- has gone wrong.  Try to rebuild from the file if it exists.
