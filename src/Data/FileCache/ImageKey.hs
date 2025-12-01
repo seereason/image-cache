@@ -28,7 +28,7 @@ module Data.FileCache.ImageKey
   , HasFileType(imageType)
   , supportedFileTypes
   , allSupported
-  , omitHEICAndTIFF, omitTIFF
+  , omitHEICAndTIFF, omitTIFF, omitUnknown
 
   , supportedMimeTypes
   , MimeType
@@ -187,6 +187,9 @@ omitHEICAndTIFF typ = elem typ [HEIC, TIFF, Unknown]
 
 omitTIFF :: FileType -> Bool
 omitTIFF typ = elem typ [TIFF, Unknown]
+
+omitUnknown :: FileType -> Bool
+omitUnknown typ = elem typ [Unknown]
 
 -- | A Pretty comma-separated list of FileTypes supported by this library.
 supportedFileTypes :: (FileType -> Bool) -> Doc
