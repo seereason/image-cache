@@ -59,9 +59,10 @@ cacheOriginalFiles pairs =
     doPair :: (FileSource, x) -> m ()
     doPair (source, x) = tryMember @FileError (cacheOriginalFile (Just source) x) >>= modify . Map.insert x
 
--- | 'cacheOriginalFile' with the 'FileError' captured.
+-- | 'cacheOriginalFile' with the 'FileError' captured.  See
+-- uploadTest in Tests/Main.hs for standalone usage.
 cacheOriginalFile' ::
-  forall x e r m.
+  forall e m r x.
   (MakeByteString x, MonadFileCache r e m, HasCallStack, Show x)
   => Maybe FileSource
   -> x

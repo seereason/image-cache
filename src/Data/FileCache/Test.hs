@@ -23,11 +23,12 @@ import Data.FileCache.FileError
 import Data.FileCache.FileInfo ()
 import Data.FileCache.ImageCrop
 import Data.FileCache.ImageFile
-import Data.FileCache.ImageIO ( validateJPG )
+import Data.FileCache.ImageIO -- ( validateJPG )
 import Data.FileCache.ImageKey
-import Data.FileCache.ImageRect (makeImageRect)
+import Data.FileCache.ImageRect -- (makeImageRect)
 import Data.FileCache.ImageSize
 import Data.FileCache.Rational ((%), approx)
+import Data.FileCache.Upload
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, lookup, toList, fromList )
 import Data.Text as T ( pack, Text, unpack )

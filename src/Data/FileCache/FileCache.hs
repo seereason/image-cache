@@ -14,16 +14,19 @@ module Data.FileCache.FileCache
   , Classified(..)
 #if !__GHCJS__
   , fileCachePathIO
-  -- , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
+  , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
   , cacheLook, cacheDelete, cacheMap
   , cachePut, cachePut_
   , collectGarbage
 #endif
+  , runFileCacheT
   ) where
 
 import Control.Lens (at, ifoldlM, Lens', set)
--- import Control.Lens ( _1, _2, view )
--- import Control.Monad.RWS ( RWST(runRWST) )
+import Control.Lens ( _1, _2, view )
+import Control.Monad.Except (MonadError)
+import Control.Monad.Reader (ReaderT, runReaderT)
+import Control.Monad.RWS ( RWST(runRWST) )
 import Control.Monad.Reader (liftIO, MonadIO, MonadReader(ask))
 #if !__GHCJS__
 import Data.Acid (AcidState)
@@ -109,19 +112,18 @@ fileCachePathIO file = do
   return path
 #endif
 
--- * FileCacheT
+-- * FileCacheT - An example monad that supports image file
+-- * operations.  Used for tests, whatever.
 
-#if 0
-type FileCacheT r s m = RWST r () s m
+type FileCacheT r s e m = RWST r () s m
 
-runFileCacheT :: r -> s -> FileCacheT r s m a -> m (a, s, ())
+runFileCacheT :: MonadError e m => r -> s -> FileCacheT r s e m a -> m (a, s, ())
 runFileCacheT r s0 action = runRWST action r s0
 
-evalFileCacheT :: Functor m => r -> s -> FileCacheT r s m a -> m a
+evalFileCacheT :: MonadError e m => r -> s -> FileCacheT r s e m a -> m a
 evalFileCacheT r s0 action = view _1 <$> runFileCacheT r s0 action
-execFileCacheT :: Functor m => r -> s -> FileCacheT r s m a-> m s
+execFileCacheT :: MonadError e m => r -> s -> FileCacheT r s e m a-> m s
 execFileCacheT r s0 action = view _2 <$> runFileCacheT r s0 action
-#endif
 
 #if !__GHCJS__
 askCacheAcid :: (MonadReader r m, HasCacheAcid r, HasCallStack) => m CacheAcid

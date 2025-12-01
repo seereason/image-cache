@@ -85,28 +85,4 @@ instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e, Has
          ) => MonadFileCacheWriter r e (ReaderT r (ExceptT (OneOf e) m))
 instance (Monoid w, MonadCatch m, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (RWST r w s (ExceptT (OneOf e) m))
-
-#if 0
--- | A simple type that is an instance of 'MonadFileCacheUIO'.
-type FileCacheT r m = ReaderT r (ExceptT (OneOf E) m)
-
-runFileCacheT ::
-     FileCacheT r m a
-  -> r
-  -> m (Either (OneOf E) a)
-runFileCacheT action r =
-  runExceptT (runReaderT action r)
-#endif
-
-#if 0
--- | Without the error monad
-class (MonadIO m,
-       MonadReader r m,
-       HasCacheAcid r,
-       HasFileCacheTop r)
-      => MonadFileCacheNew r m
-
--- | For code that can add things to the cache
-class MonadFileCacheNew r m => MonadFileCacheWriterNew r m
-#endif
 #endif
