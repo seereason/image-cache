@@ -16,13 +16,10 @@ import Codec.Picture.Metadata (Keys(Exif), lookup)
 import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
 import Control.Exception ( IOException )
 import Control.Lens (preview, _Right, _2, to, _Just)
-import Control.Monad.Catch (handle, MonadCatch)
 import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
-import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hGetContents, hPutStr, length, readFile, toStrict, writeFile )
---import Data.ByteString.Lazy ( fromStrict, toStrict )
---import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
+import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFile, toStrict )
 import Data.Char ( isSpace )
 import Data.Default ( def )
 import Data.FileCache.CommandError ( CommandInfo(..) )
@@ -31,9 +28,7 @@ import Data.FileCache.ImageCrop ( ImageCrop(..), Rotation(..) )
 import Data.FileCache.ImageKey ( ImageShape(..), FileType(..) )
 import Data.FileCache.ImageRect (ImageRect (_imageRectWidth, _imageRectHeight))
 import Data.FileCache.LogException ( logException )
-import Data.FileCache.Pipify ( heifConvert )
-import Data.FileCache.Rational (approx, readRationalMaybe)
-import Data.List ( intercalate )
+import Data.FileCache.Rational (readRationalMaybe)
 import Data.ListLike ( StringLike(show) )
 import Data.Monoid ( (<>) )
 import Data.Ratio (approxRational)
@@ -43,7 +38,7 @@ import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Encoding ( decodeUtf8 )
 import qualified SeeReason.Errors as Errors ()
 import GHC.Generics (Generic)
-import GHC.Stack (HasCallStack)
+import GHC.Stack (callStack, HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
@@ -53,7 +48,7 @@ import SeeReason.Log (alog, alogDrop)
 import System.Directory (createDirectoryIfMissing)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
-import System.IO.Temp (emptySystemTempFile, emptyTempFile, withSystemTempFile, withTempFile)
+import System.IO.Temp (emptyTempFile, withSystemTempFile, withTempFile)
 import System.Log.Logger ( Priority(DEBUG, INFO, ERROR) )
 import System.Process ( CmdSpec(RawCommand, ShellCommand), cmdspec, proc, shell, showCommandForUser, CreateProcess )
 import System.Process.ByteString.Lazy as BS ( readCreateProcessWithExitCode )
@@ -97,6 +92,7 @@ instance MakeByteString BS.ByteString where
 instance MakeByteString FilePath where
   makeByteString :: (MonadIO m, HasCallStack) => FilePath -> m BS.ByteString
   makeByteString path = liftIO (BS.readFile path)
+    where _ = callStack
 
 instance MakeByteString CreateProcess where
   makeByteString cmd = makeByteString (cmd, BS.empty)
@@ -111,6 +107,7 @@ instance MakeByteString (CreateProcess, BS.ByteString) where
         throwMember $ CommandFailure [StartedFrom "MakeByteString CreateProcess",
                                       CommandCreateProcess cmd,
                                       CommandExitCode code]
+    where _ = callStack
 
 instance MakeByteString URI where
   makeByteString uri = do
@@ -366,18 +363,24 @@ scaleImage' tmp sc input typ = do
       _ ->
         case input of
           Temporary inpath -> do
-            liftIO $ writeResult inpath
+            writeResult inpath
           Bytes bytes -> do
             withTempFile tmp "input.XXXXXXXXXX" $ \inpath inh -> do
               liftIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
-              liftIO $ writeResult inpath
+              writeResult inpath
   where
-    writeResult :: FilePath -> IO (Maybe InputOutput)
+    writeResult :: FilePath -> ExceptT (OneOf e) IO (Maybe InputOutput)
     writeResult inpath = do
-      outpath <- emptyTempFile tmp "output.XXXXXXXXXX.jpg"
-      readCreateProcessWithExitCode (vips_resize sc inpath outpath) ""
-      outbytes <- BS.readFile outpath
-      pure $ Just $ Temporary outpath
+      outpath <- liftIO $ emptyTempFile tmp "output.XXXXXXXXXX.jpg"
+      let cmd = vips_resize sc inpath outpath
+      (code, out, err) <- liftIO $ readCreateProcessWithExitCode cmd ""
+      case code of
+        ExitFailure n -> throwMember @_ @e $ CommandFailure [StartedFrom "scaleImage'",
+                                                             CommandCreateProcess cmd,
+                                                             CommandExitCode code]
+        ExitSuccess -> do
+          -- outbytes <- BS.readFile outpath
+          pure $ Just $ Temporary outpath
 
 editImage' ::
     forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
