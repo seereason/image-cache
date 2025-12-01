@@ -351,19 +351,18 @@ scaleImage' tmp sc input typ = do
     -- if the bytestring argument was just read from a file?  Or the
     -- bytestring output is going to be immediately written to a file?
     case typ of
-#if 0
       HEIC ->
         case input of
-          -- Convert the heic file to a jpg
-          Temporary heicpath -> do
-            withTempFile tmp "heic.XXXXXXXXXX.jpg" $ \outpath _ -> do
-              readCreateProcessWithExitCode (proc "heif-convert" [heicpath, outpath]) ""
-              scaleImage' tmp sc outpath JPG
-          Bytes bs -> do
-            withTempFile tmp "heic.XXXXXXXXXX" $ \inpath inh -> do
+          -- Save the bytestring and convert from temporary file
+          Bytes bytes -> do
+            withTempFile tmp "heic.XXXXXXXXXX" $ \heicpath inh -> do
               liftIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
-              scaleImage' tmp sc inpath JPG
-#endif
+              scaleImage' tmp sc (Temporary heicpath) typ
+          -- Convert the heic file to a jpg and then scale that
+          Temporary heicpath -> do
+            withTempFile tmp "output.XXXXXXXXXX.jpg" $ \outpath _ -> do
+              liftIO $ readCreateProcessWithExitCode (proc "heif-convert" [heicpath, outpath]) ""
+              scaleImage' tmp sc (Temporary outpath) JPEG
       _ ->
         case input of
           Temporary inpath -> do
