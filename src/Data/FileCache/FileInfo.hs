@@ -1,10 +1,12 @@
-{-# LANGUAGE OverloadedStrings, TupleSections, UndecidableInstances #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings, TupleSections, UndecidableInstances #-}
 
 -- | Beginning of a parser for the output of file(1).
 
 module Data.FileCache.FileInfo
   ( fileInfoFromBytes
   , fileInfoFromPath
+  , pHEIFInfo
+  , heifTestInput
   ) where
 
 import Control.Exception (IOException)
@@ -14,17 +16,19 @@ import Control.Monad.Reader (liftIO, MonadIO)
 import Data.ByteString.Lazy as BS ( ByteString, toStrict )
 import Data.FileCache.FileError (FileError(NoShapeFromPath))
 import Data.FileCache.ImageCrop (Rotation(..))
+import Data.FileCache.ImageIO (InputOutput(..))
 import Data.FileCache.ImageKey (HasImageShapeM(..), ImageShape(..), FileType(..))
 import Data.FileCache.ImageRect (makeImageRect)
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, fromMaybe, listToMaybe )
-import Data.Text ( Text )
+import Data.Text as Text ( Text, unlines )
 import Data.Text.Encoding (decodeUtf8)
 import Data.Typeable (typeOf)
 import GHC.Stack (HasCallStack)
 import SeeReason.Errors (Member, OneOf, throwMember)
 import Prelude hiding (show)
 import SeeReason.LogServer (alog, alogDrop, Priority(DEBUG, ERROR))
+import System.Exit (ExitCode(ExitSuccess, ExitFailure))
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
 import Text.Parsec as Parsec
     ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )
@@ -34,6 +38,13 @@ instance (MonadIO m, MonadError (OneOf e) m, Member IOException e, Member FileEr
   imageShapeM bytes = fileInfoFromPath Nothing ("-", bytes)
 instance (MonadIO m, MonadError (OneOf e) m, Member IOException e, Member FileError e) => HasImageShapeM m (FilePath, BS.ByteString) where
   imageShapeM (path, input) = fileInfoFromPath Nothing (path, input)
+
+{-
+fileCommand :: MonadIO m => InputOutput -> m Text
+fileCommand (Temporary path) =
+  liftIO (LL.readProcessWithExitCode "file" ["-b", path] mempty) >>= \case
+    (ExitSuccess, out, _) -> pure out
+-}
 
 -- | Helper function to learn the 'FileType' of a file by running
 -- @file -b@.
@@ -46,7 +57,7 @@ fileInfoFromPath ::
   forall e m. (MonadIO m, MonadError (OneOf e) m, Member FileError e, HasCallStack)
   => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
 fileInfoFromPath mtyp (path, input) =
-  liftIO (LL.readProcessWithExitCode cmd args input) >>=
+  liftIO (LL.readProcessWithExitCode "file" ["-b", "-"] input) >>=
   (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
   where
     cmd = "file"
@@ -112,6 +123,19 @@ pOrientation = do
     testOrientation "lower-left" = Orientation NineHr
     testOrientation "lower-right" = Orientation SixHr
     testOrientation _ = Orientation ZeroHr
+
+-- | Parse the output of heif-info
+pHEIFInfo :: Parser (Maybe ImageAttribute)
+pHEIFInfo = do
+  string "image: "
+  pShape
+
+heifTestInput :: Text
+heifTestInput =
+  Text.unlines ["image: 1920x1280 (id=1), primary",
+                "  color profile: no",
+                "  alpha channel: no",
+                "  depth channel: no"]
 
 {-
 Data.ByteString.readFile "/srv/appraisalscribe3-development/images/00/00314183eddf66b90c7e60cf7d88d993.jpg" >>= runExceptT @FileError . getFileInfo

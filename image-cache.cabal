@@ -141,6 +141,7 @@ test-suite image-cache-tests
     filemanip-extra,
     filepath,
     HaTeX,
+    hslogger,
     HUnit,
     image-cache >= 0.19,
     lens,
