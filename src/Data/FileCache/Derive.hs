@@ -57,7 +57,7 @@ import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException), CacheFlag(RetryErrors) )
 import Data.FileCache.ImageFile ( ImageFile(..), ImageReady(ImageReady, _imageFile, _imageShape) )
-import Data.FileCache.ImageIO ( editImage', scaleImage', uprightImage', MakeByteString(makeByteString) )
+import Data.FileCache.ImageIO ( editImage', InputOutput(Bytes, Temporary), MakeByteString(makeByteString), scaleImage', uprightImage' )
 import Data.FileCache.ImageKey
   ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey,
     HasFileType(imageType), FileType, imageShape, HasImageShapeM(imageShapeM),
@@ -421,7 +421,7 @@ buildImageBytes ::
   forall r e m. (MonadCatch m, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource -- ^ Where the original comes from
   -> ImageKey -- ^ Description of the derived image
-  -> m (ImageKey, BS.ByteString) -- ^ The revised ImageKey and the final image
+  -> m (ImageKey, InputOutput) -- ^ The revised ImageKey and the final image
 buildImageBytes source key@(ImageOriginal csum typ) =
   cacheLook key >>=
   maybe ((key,) <$> buildImageBytesFromFile source key csum typ)
@@ -441,9 +441,9 @@ buildImageBytes source key@(ImageScaled sz dpi key') = do
     Just sc -> do
       FileCacheTop top <- fileCacheTop <$> ask
       let tmp = top </> "tmp"
-      scaled :: Maybe BS.ByteString
-        <- liftEither =<< liftIO (runExceptT (scaleImage' tmp (fromRat sc) bs (imageType shape)))
-      pure $ maybe (key'', bs) (key,) scaled
+      scaled :: Maybe InputOutput
+        <- liftEither =<< liftIO (runExceptT (scaleImage' tmp (fromRat sc) result (imageType shape)))
+      pure $ maybe (key'', result) (key,) scaled
 buildImageBytes source key@(ImageCropped crop key') = do
   (key'', result) <- buildImageBytes source key'
   bs <- makeByteString result
@@ -453,10 +453,10 @@ buildImageBytes source key@(ImageCropped crop key') = do
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
   forall r e m a. (MonadFileCache r e m, HasFilePath a, HasCallStack)
-  => a -> m BS.ByteString
+  => a -> m InputOutput
 lookImageBytes a = do
   path <- fileCachePath a
-  liftIO (BS.readFile path)
+  Bytes <$> liftIO (BS.readFile path)
   where _ = callStack
 
 #if 0
@@ -473,7 +473,7 @@ lookImagePath a = do
 -- now?  Be careful not to get into a loop doing this.
 rebuildImageBytes ::
   forall e r m. (MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> FileType -> FileError -> m BS.ByteString
+  => Maybe FileSource -> ImageKey -> FileType -> FileError -> m InputOutput
 rebuildImageBytes source key _typ e | retry e = do
   alog ALERT ("Retrying build of " ++ show key ++ " (e=" ++ show e ++ ")")
   path <- fileCachePath (ImagePath key)
@@ -481,7 +481,7 @@ rebuildImageBytes source key _typ e | retry e = do
   -- IOException - I need LyftIO to make sure this is caught.
   bs <- liftIO (BS.readFile path)
   _cached <- cacheOriginalFile source bs
-  return bs
+  return $ Bytes bs
     where
       retry (MissingOriginalEntry _) = True -- transient I think
       retry CacheDamageMigrated = True -- obsolete error type is obsolete
@@ -496,7 +496,7 @@ rebuildImageBytes _ key _typ e = do
 -- its checksum.
 buildImageBytesFromFile ::
   forall r e m. (MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> Text -> FileType -> m BS.ByteString
+  => Maybe FileSource -> ImageKey -> Text -> FileType -> m InputOutput
 buildImageBytesFromFile source key csum _typ = do
   -- If we get a cache miss for an ImageOriginal key something
   -- has gone wrong.  Try to rebuild from the file if it exists.
@@ -519,7 +519,7 @@ buildImageBytesFromFile source key csum _typ = do
         True -> do
           alog ALERT ("recaching " ++ show key)
           _cached <- cacheOriginalFile source bs
-          return bs
+          return $ Bytes bs
 
 -- | Enqueue 'ImageFile' builds for any of the 'ImageKey's that have a
 -- 'ImageShape' but are not 'ImageReady'.

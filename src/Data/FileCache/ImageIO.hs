@@ -99,6 +99,12 @@ instance MakeByteString FilePath where
 instance MakeByteString CreateProcess where
   makeByteString cmd = makeByteString (cmd, BS.empty)
 
+instance MakeByteString (CreateProcess, InputOutput) where
+  makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, InputOutput) -> m BS.ByteString
+  makeByteString (cmd, Bytes input) = makeByteString (cmd, input)
+  makeByteString (cmd, Temporary path) =
+    (makeByteString . (cmd,)) =<< makeByteString path
+
 instance MakeByteString (CreateProcess, BS.ByteString) where
   makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, BS.ByteString) -> m BS.ByteString
   makeByteString (cmd, input) = do
@@ -133,10 +139,12 @@ instance MakeByteString URI where
 -- (OneOf e) m", but in fact its not redundant.
 uprightImage' ::
   forall m. (MonadIO m)
-  => BS.ByteString
-  -> m (Maybe BS.ByteString)
-uprightImage' bs =
-  liftIO $ either (\(_ :: FileError) -> Nothing) Just <$> runExceptT (normalizeOrientationCode bs)
+  => InputOutput
+  -> m (Maybe InputOutput)
+uprightImage' (Bytes bs) =
+  liftIO $ either (\(_ :: FileError) -> Nothing) (Just . Bytes) <$> runExceptT (normalizeOrientationCode bs)
+uprightImage' (Temporary path) =
+  liftIO $ BS.readFile path >>= uprightImage' . Bytes
 
 deriving instance Generic ExifData
 
@@ -329,9 +337,9 @@ scaleImage' ::
   (Member FileError e, Member IOException e, HasCallStack)
   => FilePath -- ^ Directory for temporary files
   -> Double
-  -> BS.ByteString
+  -> InputOutput
   -> FileType
-  -> ExceptT (OneOf e) IO (Maybe BS.ByteString)
+  -> ExceptT (OneOf e) IO (Maybe InputOutput)
 -- | If the scale factor is within 1% of the original size don't resize.
 scaleImage' _ sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
 scaleImage' _ _ _ PDF = throwMember $ CannotScale PDF
@@ -361,11 +369,11 @@ scaleImage' _ sc bytes typ = do
                     TIFF -> showCommandForUser "cjpeg" []
                     Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
-    Just <$> makeByteString (shell cmd, bytes)
+    (Just . Bytes) <$> makeByteString (shell cmd, bytes)
 
 editImage' ::
     forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
-    => ImageCrop -> BS.ByteString -> FileType -> ImageShape -> m (Maybe BS.ByteString)
+    => ImageCrop -> InputOutput -> FileType -> ImageShape -> m (Maybe InputOutput)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' crop input typ ImageShape{_imageShapeRect = Right rect} =
   logIOError' $
@@ -390,7 +398,7 @@ editImage' _ _ typ _ = throwMember $ CannotCrop typ
 data FileOperation =
   FileOperation
   { startType :: FileType
-  , operation :: CreateProcess
+  , operation :: InputOutput -> CreateProcess
   , endType :: FileType
   }
 
@@ -401,18 +409,19 @@ cut rect crop =
     (l, r, t, b) -> Just (FileOperation
                           { startType = PPM
                           , operation =
-                              proc "pnmcut" ["-left", show l,
-                                             "-right", show (_imageRectWidth rect - r - 1),
-                                             "-top", show t,
-                                             "-bottom", show (_imageRectHeight rect - b - 1)]
+                              pathOrStdin "pamcut"
+                                ["-left", show l,
+                                 "-right", show (_imageRectWidth rect - r - 1),
+                                 "-top", show t,
+                                 "-bottom", show (_imageRectHeight rect - b - 1)]
                           , endType = PPM })
 
 rotate :: ImageCrop -> Maybe FileOperation
 rotate crop =
   case rotation crop of
-    ThreeHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "90"], endType = JPEG})
-    SixHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "180"], endType = JPEG})
-    NineHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "270"], endType = JPEG})
+    ThreeHr -> Just (FileOperation {startType = JPEG, operation = pathOrStdin "jpegtran" ["-rotate", "90"], endType = JPEG})
+    SixHr -> Just (FileOperation {startType = JPEG, operation = pathOrStdin "jpegtran" ["-rotate", "180"], endType = JPEG})
+    NineHr -> Just (FileOperation {startType = JPEG, operation = pathOrStdin "jpegtran" ["-rotate", "270"], endType = JPEG})
     ZeroHr -> Nothing
 
 -- | A "typed" pipeline of file operations, the input of each
@@ -423,40 +432,48 @@ buildPipeline ::
      FileType -- ^ Pipeline start type
   -> [Maybe FileOperation]
   -> FileType -- ^ Pipeline result type
-  -> [CreateProcess]
+  -> [InputOutput -> CreateProcess]
 buildPipeline start [] end = convert start end
 buildPipeline start (Nothing : ops) end = buildPipeline start ops end
 buildPipeline start (Just op@(FileOperation a cmd b) : ops) end
-  | start == a = cmd : buildPipeline b ops end
-buildPipeline start (Just op@(FileOperation a cmd b) : ops) end =
-  convert start a ++ buildPipeline a (Just op : ops) end
+  | start /= a =
+      convert start a ++ buildPipeline a (Just op : ops) end
+  | otherwise =
+      cmd : buildPipeline b ops end
 
 -- | Return a pipeline that converts one file type to another
-convert JPEG PPM = [proc "jpegtopnm" []]
-convert GIF PPM = [proc "giftpnm" []]
-convert PNG PPM = [proc "pngtopnm" []]
-convert PPM JPEG = [proc "cjpeg" []]
-convert PPM GIF = [proc "ppmtogif" []]
-convert PPM PNG = [proc "pnmtopng" []]
-convert PNG x = proc "pngtopnm" [] : convert PPM x
-convert GIF x = proc "giftopnm" [] : convert PPM x
+convert :: FileType -> FileType -> [InputOutput -> CreateProcess]
+convert JPEG PPM = [pathOrStdin "jpegtopnm" []]
+convert GIF PPM = [pathOrStdin "giftpnm" []]
+convert PNG PPM = [pathOrStdin "pngtopnm" []]
+convert PPM JPEG = [pathOrStdin "cjpeg" []]
+convert PPM GIF = [pathOrStdin "ppmtogif" []]
+convert PPM PNG = [pathOrStdin "pnmtopng" []]
+convert PNG x = pathOrStdin "pngtopnm" [] : convert PPM x
+convert GIF x = pathOrStdin "giftopnm" [] : convert PPM x
 convert a b | a == b = []
 convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
 
+pathOrStdin :: String -> [String] -> InputOutput -> CreateProcess
+pathOrStdin cmd args (Bytes _) = proc cmd args
+pathOrStdin cmd args (Temporary path) = proc cmd (args <> [path])
+
 pipeline ::
   forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
-  => [CreateProcess]
-  -> BS.ByteString
-  -> m BS.ByteString
+  => [InputOutput -> CreateProcess]
+  -> InputOutput
+  -> m InputOutput
 pipeline [] input = return input
 pipeline (p : ps) input =
-  liftIO (LL.readCreateProcessWithExitCode p input) >>= doResult
+  case input of
+    Bytes bytes -> liftIO (LL.readCreateProcessWithExitCode (p input) bytes) >>= doResult
+    Temporary path -> liftIO (LL.readCreateProcessWithExitCode (p input) "") >>= doResult
   where
-    doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m BS.ByteString
+    doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m InputOutput
     -- doResult (Left e) = alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e) >> throwError e
-    doResult (ExitSuccess, out, _) = pipeline ps out
+    doResult (ExitSuccess, out, _) = pipeline ps (Bytes out)
     doResult (code, _, err) =
-      let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
+      let message = (LL.showCreateProcessForUser (p input) ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
         alog ERROR message >>
         -- Not actually an IOExeption, this is a process error exit
         throwMember (fromString message :: FileError)
