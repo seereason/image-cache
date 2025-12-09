@@ -30,7 +30,11 @@ import Data.FileCache.ImageKey (ImageShape)
 import Data.FileCache.Test (tests)
 import Data.FileCache.Upload (cacheOriginalFile)
 import Data.Map as Map (size)
+#if MIN_VERSION_sr_errors(1,19.0)
 import Data.Proxy (Proxy(Proxy))
+#else
+import Data.Proxy (Proxy)
+#endif
 import Data.Set as Set (filter, size)
 import Debug.Trace
 import Extra.Exceptionless (Exceptionless, runExceptionless)
@@ -232,7 +236,9 @@ imageTests acid =
     -- handle e = undefined
 
 type ES = '[IOException, FileError, SomeException]
+#if MIN_VERSION_sr_errors(1,19.0)
 type R = (AcidState CacheMap, FileCacheTop)
+#endif
 
 test1 :: Test
 test1 = TestCase $ do
@@ -242,7 +248,11 @@ test1 = TestCase $ do
     action2 :: ExceptT (OneOf ES) IO ImageShape
     action2 = runExceptionless throwMember action
     action :: Exceptionless (ExceptT (OneOf ES) IO) ImageShape
+#if MIN_VERSION_sr_errors(1,19.0)
     action = catchMember (makeByteString pdf) (\(Proxy :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
+#else
+    action = catchMember (makeByteString pdf) (\(_ :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
+#endif
     pdf :: FilePath
     pdf = "/home/dsf/git/happstack-ghcjs.alpha/happstack-ghcjs-server/test-top/images/fb/fbddca395b0912cdfa710f84ab09f317.pdf"
 
