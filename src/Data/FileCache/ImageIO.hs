@@ -3,6 +3,7 @@
 module Data.FileCache.ImageIO
   ( -- * Image IO
     MakeByteString(makeByteString)
+  , InputOutput(Bytes, Temporary)
   , validateJPG
   , uprightImage'
   , scaleImage'
@@ -19,8 +20,6 @@ import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
 import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFile, toStrict )
---import Data.ByteString.Lazy ( fromStrict, toStrict )
---import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import Data.Char ( isSpace )
 import Data.Default ( def )
 import Data.FileCache.CommandError ( CommandInfo(..) )
@@ -48,6 +47,7 @@ import Numeric ( showFFloat )
 import Prelude hiding (show)
 import SeeReason.Errors (tryError)
 import SeeReason.Log (alog, alogDrop)
+import System.Directory (createDirectoryIfMissing)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
 import System.IO.Temp (emptyTempFile, withSystemTempFile, withTempFile)
@@ -82,9 +82,10 @@ instance Pretty CreateProcess where
 instance Pretty CmdSpec where
     pPrint (ShellCommand s) = text s
     pPrint (RawCommand path args) = text (showCommandForUser path args)
-
+
+-- | Convert various things to byte strings
 class MakeByteString a where
-  makeByteString :: (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString
+  makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => a -> m BS.ByteString
 
 instance MakeByteString BS.ByteString where
   makeByteString :: (Applicative m, HasCallStack) => BS.ByteString -> m BS.ByteString
@@ -295,6 +296,16 @@ logIOError' :: (MonadIO m, MonadError e m) => m a -> m a
 logIOError' io =
   tryError io >>= either (\e -> liftIO ($logException ERROR (pure e)) >> throwError e) return
 -- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
+
+-- | File processing operations used to only produce a bytestring, now
+-- they might also produce a temporary file.
+data InputOutput
+  = Bytes BS.ByteString
+  | Temporary FilePath
+
+instance MakeByteString InputOutput where
+  makeByteString (Bytes bs) = makeByteString bs
+  makeByteString (Temporary path) = makeByteString path
 
 -- | use vips resize to scale an image.
 -- Unfortunately, vips shell bindings do not understand filepath "-", so this is going to have to be rejiggered.
