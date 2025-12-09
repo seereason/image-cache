@@ -425,20 +425,22 @@ buildImageBytes source key@(ImageOriginal csum typ) =
                                    (lookImageBytes . ImageCached key) img)
   where _ = callStack
 buildImageBytes source key@(ImageUpright key') = do
-  (key'', bs) <- buildImageBytes source key'
-  uprightImage' bs >>= return . maybe (key'', bs) (key,)
+  (key'', result) <- buildImageBytes source key'
+  uprightImage' result >>= return . maybe (key'', result) (key,)
 buildImageBytes source key@(ImageScaled sz dpi key') = do
-  (key'', bs) <- buildImageBytes source key'
+  (key'', result) <- buildImageBytes source key'
   -- the buildImageBytes that just ran might have this info
+  bs <- makeByteString result
   shape <- imageShapeM bs
   case either (const Nothing) (scaleFromDPI sz dpi) (imageRect shape) of
-    Nothing -> return (key'', bs)
+    Nothing -> return (key'', result)
     Just sc ->
       maybe (key'', bs) (key,) <$> scaleImage' (fromRat sc) bs (imageType shape)
 buildImageBytes source key@(ImageCropped crop key') = do
-  (key'', bs) <- buildImageBytes source key'
+  (key'', result) <- buildImageBytes source key'
+  bs <- makeByteString result
   shape <- imageShapeM bs
-  maybe (key'', bs) (key,) <$> editImage' crop bs (imageType shape) (imageShape shape)
+  maybe (key'', result) (key,) <$> editImage' crop result (imageType shape) (imageShape shape)
 
 -- | Look up the image FilePath and read the ByteString it contains.
 lookImageBytes ::
