@@ -38,7 +38,7 @@ module Data.FileCache
     FileType(..), -- GIF, HEIC, JPEG, PDF, PNG, PPM, TIFF, CSV, Unknown
     HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
     ImageShape(ImageShape, _imageShapeType, _imageShapeRect),
-    shapeFromKey, omitTIFF, omitHEICAndTIFF,
+    shapeFromKey, omitTIFF, omitHEICAndTIFF, omitUnknown,
     HasImageShapeM(imageShapeM), HasImageShape, imageShape,
     HasOriginalShape(originalShape),
 

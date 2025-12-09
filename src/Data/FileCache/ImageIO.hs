@@ -71,7 +71,17 @@ import Text.Parsec
       string,
       many1,
       optionMaybe )
+import Text.PrettyPrint.HughesPJClass ( text, Pretty(pPrint) )
 import SeeReason.Errors as Err ( throwMember, Member, OneOf)
+
+-- * Orphan Instances
+
+instance Pretty CreateProcess where
+    pPrint p = pPrint (cmdspec p)
+
+instance Pretty CmdSpec where
+    pPrint (ShellCommand s) = text s
+    pPrint (RawCommand path args) = text (showCommandForUser path args)
 
 class MakeByteString a where
   makeByteString :: (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString
