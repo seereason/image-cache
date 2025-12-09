@@ -327,16 +327,17 @@ vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) 
 -- than size.)
 scaleImage' ::
   (Member FileError e, Member IOException e, HasCallStack)
-  => Double
+  => FilePath -- ^ Directory for temporary files
+  -> Double
   -> BS.ByteString
   -> FileType
   -> ExceptT (OneOf e) IO (Maybe BS.ByteString)
 -- | If the scale factor is within 1% of the original size don't resize.
-scaleImage' sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
-scaleImage' _ _ PDF = throwMember $ CannotScale PDF
-scaleImage' _ _ CSV = throwMember $ CannotScale CSV
-scaleImage' _ _ Unknown = throwMember $ CannotScale Unknown
-scaleImage' sc bytes typ = do
+scaleImage' _ sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
+scaleImage' _ _ _ PDF = throwMember $ CannotScale PDF
+scaleImage' _ _ _ CSV = throwMember $ CannotScale CSV
+scaleImage' _ _ _ Unknown = throwMember $ CannotScale Unknown
+scaleImage' _ sc bytes typ = do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
                     HEIC -> heifConvert
