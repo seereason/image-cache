@@ -438,8 +438,10 @@ buildImageBytes source key@(ImageScaled sz dpi key') = do
   shape <- imageShapeM bs
   case either (const Nothing) (scaleFromDPI sz dpi) (imageRect shape) of
     Nothing -> return (key'', result)
-    Just sc ->
-      maybe (key'', bs) (key,) <$> scaleImage' (fromRat sc) bs (imageType shape)
+    Just sc -> do
+      scaled :: Maybe BS.ByteString
+        <- liftEither =<< liftIO (runExceptT (scaleImage' (fromRat sc) bs (imageType shape)))
+      pure $ maybe (key'', bs) (key,) scaled
 buildImageBytes source key@(ImageCropped crop key') = do
   (key'', result) <- buildImageBytes source key'
   bs <- makeByteString result

@@ -326,11 +326,11 @@ vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) 
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
 scaleImage' ::
-  (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
+  (Member FileError e, Member IOException e, HasCallStack)
   => Double
   -> BS.ByteString
   -> FileType
-  -> m (Maybe BS.ByteString)
+  -> ExceptT (OneOf e) IO (Maybe BS.ByteString)
 -- | If the scale factor is within 1% of the original size don't resize.
 scaleImage' sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
 scaleImage' _ _ PDF = throwMember $ CannotScale PDF
