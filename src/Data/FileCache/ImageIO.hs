@@ -281,6 +281,7 @@ scaleImage' ::
   -> BS.ByteString
   -> FileType
   -> m (Maybe BS.ByteString)
+-- | If the scale factor is within 1% of the original size don't resize.
 scaleImage' sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
 scaleImage' _ _ PDF = throwMember $ CannotScale PDF
 scaleImage' _ _ CSV = throwMember $ CannotScale CSV
@@ -340,21 +341,32 @@ editImage' crop input typ ImageShape{_imageShapeRect = Right rect} =
       latexImageFileType Unknown = error "editImage' - Unexpected file type"
 editImage' _ _ typ _ = throwMember $ CannotCrop typ
 
-cut :: ImageRect -> ImageCrop -> Maybe (FileType, CreateProcess, FileType)
+data FileOperation =
+  FileOperation
+  { startType :: FileType
+  , operation :: CreateProcess
+  , endType :: FileType
+  }
+
+cut :: ImageRect -> ImageCrop -> Maybe FileOperation
 cut rect crop =
   case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
     (0, 0, 0, 0) -> Nothing
-    (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
-                                              "-right", show (_imageRectWidth rect - r - 1),
-                                              "-top", show t,
-                                              "-bottom", show (_imageRectHeight rect - b - 1)], PPM)
+    (l, r, t, b) -> Just (FileOperation
+                          { startType = PPM
+                          , operation =
+                              proc "pnmcut" ["-left", show l,
+                                             "-right", show (_imageRectWidth rect - r - 1),
+                                             "-top", show t,
+                                             "-bottom", show (_imageRectHeight rect - b - 1)]
+                          , endType = PPM })
 
-rotate :: ImageCrop -> Maybe (FileType, CreateProcess, FileType)
+rotate :: ImageCrop -> Maybe FileOperation
 rotate crop =
   case rotation crop of
-    ThreeHr -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
-    SixHr -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
-    NineHr -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
+    ThreeHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "90"], endType = JPEG})
+    SixHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "180"], endType = JPEG})
+    NineHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "270"], endType = JPEG})
     ZeroHr -> Nothing
 
 -- | A "typed" pipeline of file operations, the input of each
@@ -363,15 +375,15 @@ rotate crop =
 -- pipeline function.
 buildPipeline ::
      FileType -- ^ Pipeline start type
-  -> [Maybe (FileType, CreateProcess, FileType)]
+  -> [Maybe FileOperation]
   -> FileType -- ^ Pipeline result type
   -> [CreateProcess]
 buildPipeline start [] end = convert start end
 buildPipeline start (Nothing : ops) end = buildPipeline start ops end
-buildPipeline start (Just (a, cmd, b) : ops) end
+buildPipeline start (Just op@(FileOperation a cmd b) : ops) end
   | start == a = cmd : buildPipeline b ops end
-buildPipeline start (Just (a, cmd, b) : ops) end =
-  convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
+buildPipeline start (Just op@(FileOperation a cmd b) : ops) end =
+  convert start a ++ buildPipeline a (Just op : ops) end
 
 -- | Return a pipeline that converts one file type to another
 convert JPEG PPM = [proc "jpegtopnm" []]
