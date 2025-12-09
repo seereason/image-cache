@@ -235,8 +235,10 @@ parsePnmfileOutput = do
 data ExtractBB =
     ExtractBB (Integer, Integer, Integer, Integer)
               (Hires, Hires, Hires, Hires)
+deriving instance Show ExtractBB
 
 data Hires = Inf | Rational Rational
+deriving instance Show Hires
 
 -- | Parse the output of extractbb (based on trial and error.)
 parseExtractBBOutput :: Parsec Text () ExtractBB
@@ -289,8 +291,10 @@ readCreateProcessWithExitCode' :: LL.ListLikeProcessIO a c => CreateProcess -> a
 readCreateProcessWithExitCode' p s =
     $logException ERROR (LL.readCreateProcessWithExitCode p s)
 
-deriving instance Show ExtractBB
-deriving instance Show Hires
+logIOError' :: (MonadIO m, MonadError e m) => m a -> m a
+logIOError' io =
+  tryError io >>= either (\e -> liftIO ($logException ERROR (pure e)) >> throwError e) return
+-- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
 
 -- | use vips resize to scale an image.
 -- Unfortunately, vips shell bindings do not understand filepath "-", so this is going to have to be rejiggered.
@@ -346,11 +350,6 @@ scaleImage' sc bytes typ = do
                     Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
     Just <$> makeByteString (shell cmd, bytes)
-
-logIOError' :: (MonadIO m, MonadError e m) => m a -> m a
-logIOError' io =
-  tryError io >>= either (\e -> liftIO ($logException ERROR (pure e)) >> throwError e) return
--- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
 
 editImage' ::
     forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
