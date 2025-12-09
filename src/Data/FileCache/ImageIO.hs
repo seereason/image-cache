@@ -29,7 +29,6 @@ import Data.FileCache.ImageKey ( ImageShape(..), FileType(..) )
 import Data.FileCache.ImageRect (ImageRect (_imageRectWidth, _imageRectHeight))
 import Data.FileCache.LogException ( logException )
 import Data.FileCache.Pipify ( heifConvert )
-import Data.FileCache.Process ( readCreateProcessWithExitCode' )
 import Data.FileCache.Rational (readRationalMaybe)
 import Data.List ( intercalate )
 import Data.ListLike ( StringLike(show) )
@@ -268,6 +267,11 @@ parseExtractBBOutput = do
 
       creationDate :: Parsec Text () ()
       creationDate = string "%%CreationDate:" >> many (noneOf "\n") >> newline >> return ()
+
+-- | Run a process and log any exception that it throws.
+readCreateProcessWithExitCode' :: LL.ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
+readCreateProcessWithExitCode' p s =
+    $logException ERROR (LL.readCreateProcessWithExitCode p s)
 
 deriving instance Show ExtractBB
 deriving instance Show Hires
