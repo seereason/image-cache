@@ -320,13 +320,13 @@ editImage' ::
     forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
     => ImageCrop -> BS.ByteString -> FileType -> ImageShape -> m (Maybe BS.ByteString)
 editImage' crop _ _ _ | crop == def = return Nothing
-editImage' crop bs typ ImageShape{_imageShapeRect = Right rect} =
+editImage' crop input typ ImageShape{_imageShapeRect = Right rect} =
   logIOError' $
     case commands of
       [] -> return Nothing
-      _ -> Just <$> pipeline commands bs
+      _ -> Just <$> pipeline commands input
     where
-      commands = buildPipeline typ [cut, rotate] (latexImageFileType typ)
+      commands = buildPipeline typ [cut rect crop, rotate crop] (latexImageFileType typ)
       -- We can only embed JPEG and PNG images in a LaTeX
       -- includegraphics command, so here we choose which one to use.
       latexImageFileType GIF = JPEG
@@ -338,43 +338,61 @@ editImage' crop bs typ ImageShape{_imageShapeRect = Right rect} =
       latexImageFileType CSV = error "editImage' - Unexpected file type"
       latexImageFileType TIFF = JPEG
       latexImageFileType Unknown = error "editImage' - Unexpected file type"
-      cut = case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
-              (0, 0, 0, 0) -> Nothing
-              (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
-                                                        "-right", show (_imageRectWidth rect - r - 1),
-                                                        "-top", show t,
-                                                        "-bottom", show (_imageRectHeight rect - b - 1)], PPM)
-      rotate = case rotation crop of
-                 ThreeHr -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
-                 SixHr -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
-                 NineHr -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
-                 ZeroHr -> Nothing
-      -- ImageShape {_imageShapeWidth = w, _imageShapeHeight = h} = imageShape shape
-      buildPipeline :: FileType -> [Maybe (FileType, CreateProcess, FileType)] -> FileType -> [CreateProcess]
-      buildPipeline start [] end = convert start end
-      buildPipeline start (Nothing : ops) end = buildPipeline start ops end
-      buildPipeline start (Just (a, cmd, b) : ops) end | start == a = cmd : buildPipeline b ops end
-      buildPipeline start (Just (a, cmd, b) : ops) end = convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
-      convert JPEG PPM = [proc "jpegtopnm" []]
-      convert GIF PPM = [proc "giftpnm" []]
-      convert PNG PPM = [proc "pngtopnm" []]
-      convert PPM JPEG = [proc "cjpeg" []]
-      convert PPM GIF = [proc "ppmtogif" []]
-      convert PPM PNG = [proc "pnmtopng" []]
-      convert PNG x = proc "pngtopnm" [] : convert PPM x
-      convert GIF x = proc "giftopnm" [] : convert PPM x
-      convert a b | a == b = []
-      convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
 editImage' _ _ typ _ = throwMember $ CannotCrop typ
+
+cut :: ImageRect -> ImageCrop -> Maybe (FileType, CreateProcess, FileType)
+cut rect crop =
+  case (leftCrop crop, rightCrop crop, topCrop crop, bottomCrop crop) of
+    (0, 0, 0, 0) -> Nothing
+    (l, r, t, b) -> Just (PPM, proc "pnmcut" ["-left", show l,
+                                              "-right", show (_imageRectWidth rect - r - 1),
+                                              "-top", show t,
+                                              "-bottom", show (_imageRectHeight rect - b - 1)], PPM)
+
+rotate :: ImageCrop -> Maybe (FileType, CreateProcess, FileType)
+rotate crop =
+  case rotation crop of
+    ThreeHr -> Just (JPEG, proc "jpegtran" ["-rotate", "90"], JPEG)
+    SixHr -> Just (JPEG, proc "jpegtran" ["-rotate", "180"], JPEG)
+    NineHr -> Just (JPEG, proc "jpegtran" ["-rotate", "270"], JPEG)
+    ZeroHr -> Nothing
+
+-- | A "typed" pipeline of file operations, the input of each
+-- operation must match the output type of the previous one.  The
+-- result is a series of operations that can be executed by the
+-- pipeline function.
+buildPipeline ::
+     FileType -- ^ Pipeline start type
+  -> [Maybe (FileType, CreateProcess, FileType)]
+  -> FileType -- ^ Pipeline result type
+  -> [CreateProcess]
+buildPipeline start [] end = convert start end
+buildPipeline start (Nothing : ops) end = buildPipeline start ops end
+buildPipeline start (Just (a, cmd, b) : ops) end
+  | start == a = cmd : buildPipeline b ops end
+buildPipeline start (Just (a, cmd, b) : ops) end =
+  convert start a ++ buildPipeline a (Just (a, cmd, b) : ops) end
+
+-- | Return a pipeline that converts one file type to another
+convert JPEG PPM = [proc "jpegtopnm" []]
+convert GIF PPM = [proc "giftpnm" []]
+convert PNG PPM = [proc "pngtopnm" []]
+convert PPM JPEG = [proc "cjpeg" []]
+convert PPM GIF = [proc "ppmtogif" []]
+convert PPM PNG = [proc "pnmtopng" []]
+convert PNG x = proc "pngtopnm" [] : convert PPM x
+convert GIF x = proc "giftopnm" [] : convert PPM x
+convert a b | a == b = []
+convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
 
 pipeline ::
   forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
   => [CreateProcess]
   -> BS.ByteString
   -> m BS.ByteString
-pipeline [] bytes = return bytes
-pipeline (p : ps) bytes =
-  liftIO (LL.readCreateProcessWithExitCode p bytes) >>= doResult
+pipeline [] input = return input
+pipeline (p : ps) input =
+  liftIO (LL.readCreateProcessWithExitCode p input) >>= doResult
   where
     doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m BS.ByteString
     -- doResult (Left e) = alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e) >> throwError e
