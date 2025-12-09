@@ -7,26 +7,34 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
-module Main (main) where
+module Main (main, uploadTest) where
 
 import Data.FileCache
 import Control.Exception (bracket, IOException, SomeException)
 import Control.Lens (itraverse, over, _Left)
-import Control.Monad.Except (ExceptT, runExceptT)
+import Control.Monad.Except (ExceptT, MonadIO(liftIO), runExceptT)
 import Control.Monad.Reader (runReaderT)
+import Control.Monad.RWS (RWST)
 import Data.Acid (AcidState, openLocalStateFrom, closeAcidState)
 import Data.Acid.Abstract (query')
 import Data.FileCache.Acid (LookMap(LookMap))
 import Data.FileCache.CacheMap (CacheMap(CacheMap, _unCacheMap, _requested))
-import Data.FileCache.FileCache as FileCache (collectGarbage, Classified(..))
+import Data.FileCache.FileCache as FileCache (collectGarbage, Classified(..), runFileCacheT, FileCacheT)
 import Data.FileCache.FileInfo (fileInfoFromBytes)
 import Data.FileCache.ImageKey (ImageShape)
 import Data.FileCache.Test (tests)
+import Data.FileCache.Upload (cacheOriginalFile)
 import Data.Map as Map (size)
+#if MIN_VERSION_sr_errors(1,19,0)
+import Data.Proxy (Proxy(Proxy))
+#else
 import Data.Proxy (Proxy)
+#endif
 import Data.Set as Set (filter, size)
 import Debug.Trace
 import Extra.Exceptionless (Exceptionless, runExceptionless)
@@ -34,6 +42,9 @@ import qualified LaTeX
 import SeeReason.Errors as Err (catchMember, throwMember, OneOf)
 import System.Exit (exitSuccess, exitFailure)
 import System.FilePath ((</>))
+import System.IO (Handle, hPutStr, hPutStrLn, stderr)
+import System.Log.Handler.Simple (streamHandler)
+import System.Log.Logger (Priority(DEBUG), rootLoggerName, setHandlers, setLevel, updateGlobalLogger)
 import Test.HUnit (assertEqual, Test(TestList, TestCase), runTestTT, Counts(errors, failures))
 import Data.FileCache.Server (makeByteString)
 
@@ -55,7 +66,7 @@ main =
 
 dump :: IO ()
 dump =
-  withImageCache $ \acid -> do
+  withImageCache $ \(acid, top) -> do
     CacheMap{..} <- query' acid LookMap
     itraverse (\key file ->
                   case key of
@@ -65,16 +76,33 @@ dump =
                            _ -> pure file) _unCacheMap
     pure ()
 
-withImageCache :: (AcidState CacheMap -> IO r) -> IO r
+withImageCache :: ((AcidState CacheMap, FileCacheTop) -> IO r) -> IO r
 withImageCache f =
   bracket
     (openLocalStateFrom
       (top </> "imageCache")
       (error $ "Could not open " <> top </> "imageCache"))
     closeAcidState
-    f
+    (f . (, FileCacheTop top))
   where
     top = "/home/dsf/appraisalscribe3-development/_state"
+
+withTestCache :: ((AcidState CacheMap, FileCacheTop) -> IO r) -> IO r
+withTestCache f =
+  bracket
+    (openLocalStateFrom top (error $ "Could not open " <> top))
+    closeAcidState
+    (f . (, FileCacheTop top))
+  where
+    top = "_state/imageCache"
+
+-- | Set up logging so it writes to stderr.  Note that logging messes
+-- up HUnit, do not turn this on while running the test suite.
+withLogging :: MonadIO m => Priority -> m a -> m a
+withLogging lvl io = do
+  applog <- liftIO $ streamHandler stderr lvl
+  liftIO $ updateGlobalLogger rootLoggerName (setLevel lvl . setHandlers [applog])
+  io
 
 runTestTTAndExit :: Test -> IO ()
 runTestTTAndExit test = do
@@ -208,6 +236,9 @@ imageTests acid =
     -- handle e = undefined
 
 type ES = '[IOException, FileError, SomeException]
+#if MIN_VERSION_sr_errors(1,19,0)
+type R = (AcidState CacheMap, FileCacheTop)
+#endif
 
 test1 :: Test
 test1 = TestCase $ do
@@ -217,6 +248,26 @@ test1 = TestCase $ do
     action2 :: ExceptT (OneOf ES) IO ImageShape
     action2 = runExceptionless throwMember action
     action :: Exceptionless (ExceptT (OneOf ES) IO) ImageShape
+#if MIN_VERSION_sr_errors(1,19,0)
+    action = catchMember (makeByteString pdf) (\(Proxy :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
+#else
     action = catchMember (makeByteString pdf) (\(_ :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
+#endif
     pdf :: FilePath
     pdf = "/home/dsf/git/happstack-ghcjs.alpha/happstack-ghcjs-server/test-top/images/fb/fbddca395b0912cdfa710f84ab09f317.pdf"
+
+instance HasFileCacheTop (AcidState CacheMap, FileCacheTop) where fileCacheTop = snd
+instance MonadFileCache (AcidState CacheMap, FileCacheTop) ES (RWST R () () (ExceptT (OneOf ES) IO))
+
+uploadTest :: IO ()
+uploadTest = do
+  withLogging DEBUG $
+    withTestCache (run action) >>= \case
+      Left e -> putStrLn ("e=" <> show e)
+      Right ((key, file), (), ()) -> do
+        putStrLn ("key=" <> show key)
+        putStrLn ("file=" <> show file)
+  where
+    action :: FileCacheT R () () (ExceptT (OneOf ES) IO) (ImageKey, ImageFile)
+    action = cacheOriginalFile @FilePath Nothing "sample2.heic"
+    run action acid = runExceptT @(OneOf ES) (runFileCacheT acid () action)
