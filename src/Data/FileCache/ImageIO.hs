@@ -16,7 +16,7 @@ import Codec.Picture.Metadata (Keys(Exif), lookup)
 import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
 import Control.Exception ( IOException )
 import Control.Lens (preview, _Right, _2, to, _Just)
-import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
+import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT, when)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
 import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFile, toStrict )
@@ -334,7 +334,7 @@ vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) 
 -- re-encoding.  The new image inherits attributes of the old (other
 -- than size.)
 scaleImage' ::
-  (Member FileError e, Member IOException e, HasCallStack)
+  forall e. (Member FileError e, Member IOException e, HasCallStack)
   => FilePath -- ^ Directory for temporary files
   -> Double
   -> InputOutput
@@ -345,7 +345,9 @@ scaleImage' _ sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
 scaleImage' _ _ _ PDF = throwMember $ CannotScale PDF
 scaleImage' _ _ _ CSV = throwMember $ CannotScale CSV
 scaleImage' _ _ _ Unknown = throwMember $ CannotScale Unknown
-scaleImage' _ sc bytes typ = do
+scaleImage' tmp sc input typ = do
+  if False
+  then do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
                     HEIC -> heifConvert
@@ -369,7 +371,50 @@ scaleImage' _ sc bytes typ = do
                     TIFF -> showCommandForUser "cjpeg" []
                     Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
-    (Just . Bytes) <$> makeByteString (shell cmd, bytes)
+    (Just . Bytes) <$> makeByteString (shell cmd, input)
+  else do
+    liftIO $ createDirectoryIfMissing True tmp
+    alogDrop id DEBUG ("sc=" <> show sc)
+    -- Some, maybe a lot of unnecessary reading and writing here.  What
+    -- if the bytestring argument was just read from a file?  Or the
+    -- bytestring output is going to be immediately written to a file?
+    case typ of
+#if 0
+      -- Not yet sure this works
+      HEIC ->
+        case input of
+          -- Save the bytestring and convert from temporary file
+          Bytes bytes -> do
+            withTempFile tmp "heic.XXXXXXXXXX" $ \heicpath inh -> do
+              liftIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
+              scaleImage' tmp sc (Temporary heicpath) typ
+          -- Convert the heic file to a jpg and then scale that
+          Temporary heicpath -> do
+            withTempFile tmp "output.XXXXXXXXXX.jpg" $ \outpath _ -> do
+              liftIO $ readCreateProcessWithExitCode (proc "heif-convert" [heicpath, outpath]) ""
+              scaleImage' tmp sc (Temporary outpath) JPEG
+#endif
+      _ ->
+        case input of
+          Temporary inpath -> do
+            writeResult inpath
+          Bytes bytes -> do
+            withTempFile tmp "input.XXXXXXXXXX" $ \inpath inh -> do
+              liftIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
+              writeResult inpath
+  where
+    writeResult :: FilePath -> ExceptT (OneOf e) IO (Maybe InputOutput)
+    writeResult inpath = do
+      outpath <- liftIO $ emptyTempFile tmp "output.XXXXXXXXXX.jpg"
+      let cmd = vips_resize sc inpath outpath
+      (code, out, err) <- liftIO $ readCreateProcessWithExitCode cmd ""
+      case code of
+        ExitFailure n -> throwMember @_ @e $ CommandFailure [StartedFrom "scaleImage'",
+                                                             CommandCreateProcess cmd,
+                                                             CommandExitCode code]
+        ExitSuccess -> do
+          -- outbytes <- BS.readFile outpath
+          pure $ Just $ Temporary outpath
 
 editImage' ::
     forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
