@@ -41,8 +41,9 @@ import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
 #if !__GHCJS__
 import Control.Exception (IOException)
 import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
-import Control.Monad.Except (ExceptT, foldM, runExceptT)
-import Control.Monad.Reader (liftIO, ReaderT, runReaderT, unless, when)
+import Control.Monad.Catch (MonadCatch)
+import Control.Monad.Except (ExceptT, foldM, liftEither, runExceptT)
+import Control.Monad.Reader (ask, liftIO, ReaderT, runReaderT, unless, when)
 import Control.Monad.State (MonadState)
 import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
@@ -51,7 +52,7 @@ import Data.FileCache.Background ( HasTaskQueue(taskQueue), queueTasks )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
-import Data.FileCache.FileCacheTop ( MonadFileCache, MonadFileCacheWriter )
+import Data.FileCache.FileCacheTop ( FileCacheTop(FileCacheTop), fileCacheTop, MonadFileCache, MonadFileCacheWriter )
 import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException), CacheFlag(RetryErrors) )
@@ -76,10 +77,10 @@ import Data.Text as T ( Text, pack )
 import Extra.Lens (HasLens)
 import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
-import SeeReason.Errors ( Member, OneOf, throwMember, tryMember )
+import SeeReason.Errors ( liftMember, Member, OneOf, throwMember, tryMember )
 import SeeReason.Log ( alog, alogDrop )
-import System.Directory ( doesFileExist )
-import System.FilePath ()
+import System.Directory ( createDirectoryIfMissing, doesFileExist, renameFile )
+import System.FilePath ((</>), takeDirectory)
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import System.Posix.Files (createLink, removeLink)
@@ -258,7 +259,7 @@ cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
   -- alog DEBUG ("key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
-cacheImageShape _ key (Just (Right (ImageFileReady img))) = do
+cacheImageShape _ key (Just (Right (ImageFileReady img@ImageReady{..}))) = do
   -- Final validation - does the file we are supposed to have
   -- created in the previous case actually exist?
   path <- fileCachePath (ImagePath key)
@@ -367,10 +368,11 @@ cacheImageFileIO a key =
 -- 'ImageFile' and write the image file.  This can be used to repair
 -- missing cache files.
 buildImageFile ::
-  forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
-  (key', bs) <- buildImageBytes Nothing key
+  (key', result) <- buildImageBytes Nothing key
+  bs <- makeByteString result
   -- key' may differ from key due to removal of no-ops.  If so we hard
   -- link the corresponsing image files so both keys work.
   let file = File { _fileSource = Derived
@@ -416,7 +418,7 @@ buildImageFile key shape = do
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
-  forall r e m. (MonadFileCache r e m, HasCallStack)
+  forall r e m. (MonadCatch m, MonadFileCache r e m, HasCallStack)
   => Maybe FileSource -> ImageKey -> m (ImageKey, BS.ByteString)
 buildImageBytes source key@(ImageOriginal csum typ) =
   cacheLook key >>=
