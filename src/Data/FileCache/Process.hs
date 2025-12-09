@@ -2,7 +2,6 @@
 
 module Data.FileCache.Process
   ( readCreateProcessWithExitCode'
-  , pipeline
   ) where
 
 import Control.Exception (IOException)
@@ -38,21 +37,3 @@ instance Pretty CmdSpec where
 readCreateProcessWithExitCode' :: ListLikeProcessIO a c => CreateProcess -> a -> IO (ExitCode, a, a)
 readCreateProcessWithExitCode' p s =
     $logException ERROR (LL.readCreateProcessWithExitCode p s)
-
-pipeline ::
-  forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
-  => [CreateProcess]
-  -> BS.ByteString
-  -> m BS.ByteString
-pipeline [] bytes = return bytes
-pipeline (p : ps) bytes =
-  liftIO (LL.readCreateProcessWithExitCode p bytes) >>= doResult
-  where
-    doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m BS.ByteString
-    -- doResult (Left e) = alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e) >> throwError e
-    doResult (ExitSuccess, out, _) = pipeline ps out
-    doResult (code, _, err) =
-      let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
-        alog ERROR message >>
-        -- Not actually an IOExeption, this is a process error exit
-        throwMember (fromString message :: FileError)

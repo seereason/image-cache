@@ -7,7 +7,6 @@ module Data.FileCache.Server
   , module Data.FileCache.FileCacheTop
   , module Data.FileCache.ImageIO
   , module Data.FileCache.LogException
-  , module Data.FileCache.Process
   , module Data.FileCache.Test
   , module Data.FileCache.Upload
   ) where
@@ -49,9 +48,6 @@ import Data.FileCache.LogException
   , logExceptionV
   , logAndThrow
   , Loggable(logit) )
-import Data.FileCache.Process
-  ( readCreateProcessWithExitCode'
-  , pipeline )
 import Data.FileCache.Test
 import Data.FileCache.Upload
   ( cacheOriginalFile

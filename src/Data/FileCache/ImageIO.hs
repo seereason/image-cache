@@ -29,11 +29,12 @@ import Data.FileCache.ImageKey ( ImageShape(..), FileType(..) )
 import Data.FileCache.ImageRect (ImageRect (_imageRectWidth, _imageRectHeight))
 import Data.FileCache.LogException ( logException )
 import Data.FileCache.Pipify ( heifConvert )
-import Data.FileCache.Process ( readCreateProcessWithExitCode', pipeline )
-import Data.FileCache.Rational (approx, readRationalMaybe)
+import Data.FileCache.Process ( readCreateProcessWithExitCode' )
+import Data.FileCache.Rational (readRationalMaybe)
 import Data.List ( intercalate )
 import Data.ListLike ( StringLike(show) )
 import Data.Monoid ( (<>) )
+import Data.Ratio (approxRational)
 import Data.String ( fromString )
 import Data.Text as T ( Text )
 import Data.Text.Lazy (toStrict)
@@ -46,13 +47,14 @@ import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
 import Prelude hiding (show)
 import SeeReason.Errors (tryError)
+import SeeReason.Log (alog, alogDrop)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
 import System.IO.Temp (withSystemTempFile)
 import System.Log.Logger ( Priority(ERROR) )
 import System.Process ( proc, shell, showCommandForUser, CreateProcess )
 import System.Process.ByteString.Lazy as BS ( readCreateProcessWithExitCode )
-import System.Process.ListLike as LL ( readCreateProcess )
+import qualified System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcess, readCreateProcessWithExitCode, showCreateProcessForUser )
 import Text.Parsec
     ( Parsec,
       (<|>),
@@ -279,7 +281,7 @@ scaleImage' ::
   -> BS.ByteString
   -> FileType
   -> m (Maybe BS.ByteString)
-scaleImage' sc _ _ | approx (toRational sc) == 1 = return Nothing
+scaleImage' sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
 scaleImage' _ _ PDF = throwMember $ CannotScale PDF
 scaleImage' _ _ CSV = throwMember $ CannotScale CSV
 scaleImage' _ _ Unknown = throwMember $ CannotScale Unknown
@@ -364,3 +366,21 @@ editImage' crop bs typ ImageShape{_imageShapeRect = Right rect} =
       convert a b | a == b = []
       convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
 editImage' _ _ typ _ = throwMember $ CannotCrop typ
+
+pipeline ::
+  forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
+  => [CreateProcess]
+  -> BS.ByteString
+  -> m BS.ByteString
+pipeline [] bytes = return bytes
+pipeline (p : ps) bytes =
+  liftIO (LL.readCreateProcessWithExitCode p bytes) >>= doResult
+  where
+    doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m BS.ByteString
+    -- doResult (Left e) = alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e) >> throwError e
+    doResult (ExitSuccess, out, _) = pipeline ps out
+    doResult (code, _, err) =
+      let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
+        alog ERROR message >>
+        -- Not actually an IOExeption, this is a process error exit
+        throwMember (fromString message :: FileError)
