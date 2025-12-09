@@ -1,10 +1,12 @@
-{-# LANGUAGE OverloadedStrings, TupleSections, UndecidableInstances #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings, TupleSections, UndecidableInstances #-}
 
 -- | Beginning of a parser for the output of file(1).
 
 module Data.FileCache.FileInfo
   ( fileInfoFromBytes
   , fileInfoFromPath
+  , pHEIFInfo
+  , heifTestInput
   ) where
 
 import Control.Exception (IOException)
@@ -18,12 +20,14 @@ import Data.FileCache.ImageKey (HasImageShapeM(..), ImageShape(..), FileType(..)
 import Data.FileCache.ImageRect (makeImageRect)
 import Data.ListLike ( show )
 import Data.Maybe ( catMaybes, fromMaybe, listToMaybe )
-import Data.Text ( Text )
+import Data.Text as Text ( Text, unlines )
 import Data.Text.Encoding (decodeUtf8)
+import Data.Typeable (typeOf)
 import GHC.Stack (HasCallStack)
 import SeeReason.Errors (Member, OneOf, throwMember)
 import Prelude hiding (show)
 import SeeReason.LogServer (alog, alogDrop, Priority(DEBUG, ERROR))
+import System.Exit (ExitCode(ExitSuccess, ExitFailure))
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
 import Text.Parsec as Parsec
     ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )
@@ -33,6 +37,13 @@ instance (MonadIO m, MonadError (OneOf e) m, Member IOException e, Member FileEr
   imageShapeM bytes = fileInfoFromPath Nothing ("-", bytes)
 instance (MonadIO m, MonadError (OneOf e) m, Member IOException e, Member FileError e) => HasImageShapeM m (FilePath, BS.ByteString) where
   imageShapeM (path, input) = fileInfoFromPath Nothing (path, input)
+
+{-
+fileCommand :: MonadIO m => InputOutput -> m Text
+fileCommand (Temporary path) =
+  liftIO (LL.readProcessWithExitCode "file" ["-b", path] mempty) >>= \case
+    (ExitSuccess, out, _) -> pure out
+-}
 
 -- | Helper function to learn the 'FileType' of a file by running
 -- @file -b@.
@@ -45,7 +56,7 @@ fileInfoFromPath ::
   forall e m. (MonadIO m, MonadError (OneOf e) m, Member FileError e, HasCallStack)
   => Maybe FileType -> (FilePath, BS.ByteString) -> m ImageShape
 fileInfoFromPath mtyp (path, input) =
-  liftIO (LL.readProcessWithExitCode cmd args input) >>=
+  liftIO (LL.readProcessWithExitCode "file" ["-b", "-"] input) >>=
   (fileInfoFromOutput mtyp path . decodeUtf8 . toStrict . view _2)
   where
     cmd = "file"
@@ -60,12 +71,15 @@ fileInfoFromOutput mtyp path output = do
   alog DEBUG ("fileInfoFromOutput output=" <> show output)
   case parse pFileOutput path output of
     Left e -> do
-      alog ERROR ("pFileOutput -> " <> show e)
+      alog ERROR ("pFileOutput -> " <> show (show e :: String) <> " :: " <> show (typeOf e))
       return $ ImageShape {_imageShapeType = fromMaybe Unknown mtyp, _imageShapeRect = Left ("parse pFileOutput " <> show path <> " " <> show output <> " -> " <> show e)}
       -- throwError $ fileError $ fromString $ "Failure parsing file(1) output: e=" ++ show e ++ " output=" ++ show output
     Right (PDF, []) -> return $ ImageShape (fromMaybe PDF mtyp) (Left "PDF")
     Right (CSV, []) -> return $ ImageShape (fromMaybe CSV mtyp) (Left "CSV")
+    -- Right (HEIC, _) -> LL.readProcessWithExitCode "heic-info" args input
     Right (typ, attrs) ->
+      alog DEBUG ("typ=" <> show typ) >>
+      alog DEBUG ("attrs=" <> show attrs) >>
       case (listToMaybe (catMaybes (fmap findShape attrs)),
             listToMaybe (catMaybes (fmap findRotation attrs))) of
         (Just (w, h), Just rot) ->
@@ -85,7 +99,7 @@ data ImageAttribute = Shape (Int, Int) | Orientation Rotation deriving Show
 
 pFileOutput :: Parser (FileType, [ImageAttribute])
 pFileOutput =
-  (,) <$> choice [pPPM, pJPEG, pPNG, pGIF, pPDF, pCSV]
+  (,) <$> choice [pPPM, pJPEG, pHEIC, pPNG, pGIF, pPDF, pCSV]
       <*> (catMaybes <$> (sepBy (Parsec.try pShape <|> pOrientation <|> pNotAShape) pSep))
 
 pSep :: Parser ()
@@ -108,6 +122,19 @@ pOrientation = do
     testOrientation "lower-left" = Orientation NineHr
     testOrientation "lower-right" = Orientation SixHr
     testOrientation _ = Orientation ZeroHr
+
+-- | Parse the output of heif-info
+pHEIFInfo :: Parser (Maybe ImageAttribute)
+pHEIFInfo = do
+  string "image: "
+  pShape
+
+heifTestInput :: Text
+heifTestInput =
+  Text.unlines ["image: 1920x1280 (id=1), primary",
+                "  color profile: no",
+                "  alpha channel: no",
+                "  depth channel: no"]
 
 {-
 Data.ByteString.readFile "/srv/appraisalscribe3-development/images/00/00314183eddf66b90c7e60cf7d88d993.jpg" >>= runExceptT @FileError . getFileInfo
@@ -136,6 +163,9 @@ pCSV1 :: Parser FileType
 pCSV1 = Parsec.try (string "ASCII text" >> pSep >> return CSV)
 pCSV2 :: Parser FileType
 pCSV2 = Parsec.try (string "UTF-8 Unicode text, with very long lines, with CRLF, LF line terminators" >> pSep >> return CSV)
+
+pHEIC :: Parser FileType
+pHEIC = Parsec.try (string "ISO Media, HEIF Image HEVC Main or Main Still Picture Profile" >> return HEIC)
 
 #if 0
 pICON = string "MS Windows icon resource" >> many anyChar >> return ???

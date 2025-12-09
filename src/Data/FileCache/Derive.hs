@@ -419,7 +419,9 @@ buildImageFile key shape = do
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
   forall r e m. (MonadCatch m, MonadFileCache r e m, HasCallStack)
-  => Maybe FileSource -> ImageKey -> m (ImageKey, BS.ByteString)
+  => Maybe FileSource -- ^ Where the original comes from
+  -> ImageKey -- ^ Description of the derived image
+  -> m (ImageKey, BS.ByteString) -- ^ The revised ImageKey and the final image
 buildImageBytes source key@(ImageOriginal csum typ) =
   cacheLook key >>=
   maybe ((key,) <$> buildImageBytesFromFile source key csum typ)
@@ -448,8 +450,20 @@ buildImageBytes source key@(ImageCropped crop key') = do
 lookImageBytes ::
   forall r e m a. (MonadFileCache r e m, HasFilePath a, HasCallStack)
   => a -> m BS.ByteString
-lookImageBytes a = fileCachePath a >>= liftIO . BS.readFile
+lookImageBytes a = do
+  path <- fileCachePath a
+  liftIO (BS.readFile path)
   where _ = callStack
+
+#if 0
+-- | Need to add the Installed constructor to the InputOutput type
+lookImagePath ::
+  forall r e m a. (MonadFileCache r e m, HasFilePath a, HasCallStack)
+  => a -> m InputOutput
+lookImagePath a = do
+  Installed <$> fileCachePath a
+  where _ = callStack
+#endif
 
 -- | There is an error stored in the cache, maybe it can be repaired
 -- now?  Be careful not to get into a loop doing this.
@@ -522,7 +536,7 @@ queueImageTasks enq flags keys = do
                                Left _ -> Nothing) images
   -- alog DEBUG ("shapes=" <> show shapes)
   let tasks = fmap enq shapes
-  alog DEBUG ("tasks=" <> show tasks)
+  -- alog DEBUG ("tasks=" <> show tasks)
   queueTasks tasks
 
 {-
