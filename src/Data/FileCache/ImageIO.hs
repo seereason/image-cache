@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveLift, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
+{-# LANGUAGE DeriveLift, InstanceSigs, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
 
 module Data.FileCache.ImageIO
   ( -- * Image IO
@@ -7,6 +7,7 @@ module Data.FileCache.ImageIO
   , uprightImage'
   , scaleImage'
   , editImage'
+  , vips_resize
   ) where
 
 import Codec.Picture.Jpg (decodeJpegWithMetadata)
@@ -40,7 +41,7 @@ import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Encoding ( decodeUtf8 )
 import qualified SeeReason.Errors as Errors ()
 import GHC.Generics (Generic)
-import GHC.Stack (HasCallStack)
+import GHC.Stack (callStack, HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
@@ -49,9 +50,9 @@ import SeeReason.Errors (tryError)
 import SeeReason.Log (alog, alogDrop)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
-import System.IO.Temp (withSystemTempFile)
-import System.Log.Logger ( Priority(ERROR) )
-import System.Process ( proc, shell, showCommandForUser, CreateProcess )
+import System.IO.Temp (emptyTempFile, withSystemTempFile, withTempFile)
+import System.Log.Logger ( Priority(DEBUG, INFO, ERROR) )
+import System.Process ( CmdSpec(RawCommand, ShellCommand), cmdspec, proc, shell, showCommandForUser, CreateProcess )
 import System.Process.ByteString.Lazy as BS ( readCreateProcessWithExitCode )
 import qualified System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcess, readCreateProcessWithExitCode, showCreateProcessForUser )
 import Text.Parsec
@@ -76,15 +77,19 @@ class MakeByteString a where
   makeByteString :: (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString
 
 instance MakeByteString BS.ByteString where
-  makeByteString = return
+  makeByteString :: (Applicative m, HasCallStack) => BS.ByteString -> m BS.ByteString
+  makeByteString = pure
 
 instance MakeByteString FilePath where
+  makeByteString :: (MonadIO m, HasCallStack) => FilePath -> m BS.ByteString
   makeByteString path = liftIO (BS.readFile path)
+    where _ = callStack
 
 instance MakeByteString CreateProcess where
   makeByteString cmd = makeByteString (cmd, BS.empty)
 
 instance MakeByteString (CreateProcess, BS.ByteString) where
+  makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, BS.ByteString) -> m BS.ByteString
   makeByteString (cmd, input) = do
     (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd input)
     case code of
@@ -93,6 +98,7 @@ instance MakeByteString (CreateProcess, BS.ByteString) where
         throwMember $ CommandFailure [StartedFrom "MakeByteString CreateProcess",
                                       CommandCreateProcess cmd,
                                       CommandExitCode code]
+    where _ = callStack
 
 instance MakeByteString URI where
   makeByteString uri = do
@@ -275,6 +281,21 @@ readCreateProcessWithExitCode' p s =
 
 deriving instance Show ExtractBB
 deriving instance Show Hires
+
+-- | use vips resize to scale an image.
+-- Unfortunately, vips shell bindings do not understand filepath "-", so this is going to have to be rejiggered.
+-- Fortunately, vips infers the image formats from the image contents (input) and filename (output) and does the conversion, so the decode/scale/encode of scaleImage isn't necessary.
+-- https://www.libvips.org/API/current/using-the-cli.html
+-- However, there remains the problem of renaming the file after the checksum has been calculated.  that will have to be dealt with above this module.
+-- If we really cared, we might make a libvips C routine that would calculate the checksum, but I suspect that overhead of another process to read the output file,
+-- calculate the checksum, and link the new file name would be minimal.
+
+-- | Create a shell command that scales an image.
+--
+--     > readCreateProcessWithExitCode (vips_resize 0.5 "/home/dsf/Downloads/005832283_00146.jpg" "/tmp/out.jpg") ""
+--     (ExitSuccess,"","")
+vips_resize :: Double -> FilePath -> FilePath -> CreateProcess
+vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) sc ""]
 
 -- | Build an image resized by decoding, applying pnmscale, and then
 -- re-encoding.  The new image inherits attributes of the old (other
