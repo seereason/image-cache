@@ -346,7 +346,7 @@ scaleImage' _ _ _ PDF = throwMember $ CannotScale PDF
 scaleImage' _ _ _ CSV = throwMember $ CannotScale CSV
 scaleImage' _ _ _ Unknown = throwMember $ CannotScale Unknown
 scaleImage' tmp sc input typ = do
-  if True
+  if False
   then do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
