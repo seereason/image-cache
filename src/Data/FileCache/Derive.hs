@@ -52,7 +52,7 @@ import Data.FileCache.Background ( HasTaskQueue(taskQueue), queueTasks )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
-import Data.FileCache.FileCacheTop ( FileCacheTop(FileCacheTop), fileCacheTop, MonadFileCache, MonadFileCacheWriter )
+import Data.FileCache.FileCacheTop ( FileCacheTop(FileCacheTop), fileCacheTop )
 import Data.FileCache.FileError
   ( FileError(NoShapeFromKey, DamagedOriginalFile, MissingOriginalFile, MissingDerivedEntry,
               CacheDamageMigrated, MissingOriginalEntry, UnexpectedException), CacheFlag(RetryErrors) )
@@ -63,21 +63,22 @@ import Data.FileCache.ImageKey
     HasFileType(imageType), FileType, imageShape, HasImageShapeM(imageShapeM),
     ImageShape(_imageShapeType) )
 import Data.FileCache.ImageRect (HasImageRect(imageRect), scaleFromDPI)
+import Data.FileCache.Monads ( MonadFileCache, MonadFileCacheWriter )
 import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalFile )
 import qualified Data.Foldable as Foldable (length)
 import Data.Generics.Sum ( _Ctor )
-import qualified Data.ListLike as ListLike ( ListLike(length) )
+-- import qualified Data.ListLike as ListLike ( ListLike(length) )
 import Data.Map.Strict as Map ( filter, keysSet, Map, size, toList, union )
-import Data.Map.Strict as Map (Map, fromSet, insert)
+import Data.Map.Strict as Map (fromSet, insert)
 import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set, toList )
 import Data.Text as T ( Text, pack )
 import Extra.Lens (HasLens)
-import GHC.Stack (callStack, HasCallStack)
+-- import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
-import SeeReason.Errors ( ConvertError(convertError), liftMember, Member, OneOf, put1, throwMember, tryMember )
+import SeeReason.Errors ( ConvertError(convertError), Member, OneOf, put1, throwMember, tryMember )
 import SeeReason.Log ( alog, alogDrop )
 import System.Directory ( createDirectoryIfMissing, doesFileExist, renameFile )
 import System.FilePath ((</>), takeDirectory)
@@ -326,7 +327,7 @@ buildImage _ i@(ImageFileReady _) = pure (Right i)
 -- | Look up the key in the cache, if a miss call 'buildImageFile' and
 -- cache the result.
 cacheImageFile ::
-  (MonadFileCacheWriter r e m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
+  (MonadFileCacheWriter r e m, {-ConvertError SomeException (Either SomeException (OneOf e)),-} HasCallStack)
   => ImageKey
   -> m (Either FileError ImageFile)
 cacheImageFile key = do
@@ -376,7 +377,7 @@ cacheImageFileIO a key =
 -- 'ImageFile' and write the image file.  This can be used to repair
 -- missing cache files.
 buildImageFile ::
-  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, {-ConvertError SomeException (Either SomeException (OneOf e)),-} HasCallStack)
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
   alog DEBUG ("key=" <> show key)
@@ -397,7 +398,7 @@ buildImageFile key shape = do
   pure img
 
 installCacheFile ::
-  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  forall r e m. ({-MonadCatch m,-} MonadFileCacheWriter r e m, HasCallStack)
   => FilePath -> InputOutput -> m ()
 installCacheFile path (Bytes bs) = liftIO $ do
   alog INFO ("Writing new cache file: " <> show path)
@@ -446,7 +447,7 @@ hardLinkCanonicalImage path key' img bs = do
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
-  forall r e m. (MonadCatch m, MonadFileCache r e m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
+  forall r e m. (MonadCatch m, MonadFileCache r e m, {-ConvertError SomeException (Either SomeException (OneOf e)),-} HasCallStack)
   => Maybe FileSource -- ^ Where the original comes from
   -> ImageKey -- ^ Description of the derived image
   -> m (ImageKey, InputOutput) -- ^ The revised ImageKey and the final image

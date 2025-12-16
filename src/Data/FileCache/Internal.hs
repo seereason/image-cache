@@ -9,7 +9,7 @@ module Data.FileCache.Internal
   , module Data.FileCache.ImageKey
   , module Data.FileCache.ImageRect
   , module Data.FileCache.ImageSize
-  , module Data.FileCache.Orphans
+  -- , module Data.FileCache.Orphans
   , module Data.FileCache.Rational
 #ifndef __GHCJS__
   , module Data.FileCache.Acid
@@ -36,7 +36,7 @@ import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect
 import Data.FileCache.ImageSize
-import Data.FileCache.Orphans
+import Data.FileCache.Orphans ()
 import Data.FileCache.Rational
 #ifndef __GHCJS__
 import Data.FileCache.Acid

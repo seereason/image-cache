@@ -4,34 +4,14 @@ module Data.FileCache.Process
   ( readCreateProcessWithExitCode'
   ) where
 
-import Control.Exception (IOException)
-import Control.Monad.Except (MonadError, MonadIO(liftIO))
-import qualified Data.ByteString.Lazy as BS ( ByteString, readFile )
-import Data.FileCache.FileError ( FileError )
 import Data.FileCache.LogException ( logException )
-import Data.ListLike ( StringLike(show) )
-import Data.String ( fromString )
-import GHC.Stack ( HasCallStack )
+import Data.FileCache.Orphans ()
 import Prelude hiding (show)
-import SeeReason.Log (alog)
-import SeeReason.Errors ( throwMember, Member, OneOf )
 import System.Exit ( ExitCode(..) )
-import System.FilePath (FilePath)
 import System.Log.Logger ( Priority(..) )
-import qualified System.Process.ListLike as LL ( showCreateProcessForUser )
-import System.Process ( showCommandForUser, CmdSpec(..), CreateProcess(cmdspec) )
+import System.Process ( CreateProcess )
 import System.Process.ByteString.Lazy as LBS ()
 import System.Process.ListLike as LL ( readCreateProcessWithExitCode, ListLikeProcessIO )
-import Text.PrettyPrint.HughesPJClass ( text, Pretty(pPrint) )
-
--- * Orphan Instances
-
-instance Pretty CreateProcess where
-    pPrint p = pPrint (cmdspec p)
-
-instance Pretty CmdSpec where
-    pPrint (ShellCommand s) = text s
-    pPrint (RawCommand path args) = text (showCommandForUser path args)
 
 -- * Processes and IO
 

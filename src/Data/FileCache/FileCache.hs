@@ -14,7 +14,7 @@ module Data.FileCache.FileCache
   , Classified(..)
 #if !__GHCJS__
   , fileCachePathIO
-  , FileCacheT, runFileCacheT, evalFileCacheT, execFileCacheT
+  , FileCacheT, evalFileCacheT, execFileCacheT
   , cacheLook, cacheDelete, cacheMap
   , cachePut, cachePut_
   , collectGarbage
@@ -25,17 +25,10 @@ module Data.FileCache.FileCache
 import Control.Lens (at, ifoldlM, Lens', set)
 import Control.Lens ( _1, _2, view )
 import Control.Monad.Except (MonadError)
-import Control.Monad.Reader (ReaderT, runReaderT)
+-- import Control.Monad.Reader (ReaderT, runReaderT)
 import Control.Monad.RWS ( RWST(runRWST) )
 import Control.Monad.Reader (liftIO, MonadIO, MonadReader(ask))
-#if !__GHCJS__
-import Data.Acid (AcidState)
-import Data.Acid.Advanced (query', update')
-#endif
 import Data.FileCache.FileCacheTop
-#if !__GHCJS__
-import Data.FileCache.Acid
-#endif
 import Data.FileCache.CacheMap
 import Data.FileCache.File
 import Data.FileCache.FileError
@@ -53,11 +46,16 @@ import GHC.Generics (Generic)
 import GHC.Stack (callStack, HasCallStack)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath ( (</>), makeRelative, takeDirectory )
+import Web.Routes ( toPathInfo )
+
 #if !__GHCJS__
+import Data.Acid (AcidState)
+import Data.Acid.Advanced (query', update')
+import Data.FileCache.Monads (MonadFileCache)
+import Data.FileCache.Acid
 import System.FilePath.Find as Find ((==?), always, fileType, find)
 import qualified System.FilePath.Find as Find (FileType(RegularFile))
 #endif
-import Web.Routes ( toPathInfo )
 
 -- * FileCacheTop
 
@@ -117,7 +115,7 @@ fileCachePathIO file = do
 
 type FileCacheT r s e m = RWST r () s m
 
-runFileCacheT :: MonadError e m => r -> s -> FileCacheT r s e m a -> m (a, s, ())
+runFileCacheT :: {-MonadError e m =>-} r -> s -> FileCacheT r s e m a -> m (a, s, ())
 runFileCacheT r s0 action = runRWST action r s0
 
 evalFileCacheT :: MonadError e m => r -> s -> FileCacheT r s e m a -> m a

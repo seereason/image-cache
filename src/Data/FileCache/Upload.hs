@@ -16,12 +16,12 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File
 import Data.FileCache.FileCache ( fileCachePath, fileCachePathIO, cachePut_ )
-import Data.FileCache.FileCacheTop ( MonadFileCache )
 import Data.FileCache.FileError
 import Data.FileCache.FileInfo ({-instances-} fileInfoFromPath)
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageIO ( MakeByteString(..) )
 import Data.FileCache.ImageKey (HasImageShapeM, ImageKey(ImageOriginal), ImageShape(..), imageShapeM, FileType, imageType, originalKey)
+import Data.FileCache.Monads ( MonadFileCache )
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, insert )
 import Data.Maybe ( fromMaybe )

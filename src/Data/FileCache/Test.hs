@@ -18,7 +18,6 @@ import Data.Digest.Pure.MD5 ( md5 )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached, _imageCachedFile, _imageCachedKey) )
 import Data.FileCache.File
 import Data.FileCache.FileCache ( HasFilePath, fileCachePath, cacheLook )
-import Data.FileCache.FileCacheTop (MonadFileCache)
 import Data.FileCache.FileError
 import Data.FileCache.FileInfo ()
 import Data.FileCache.ImageCrop
@@ -27,6 +26,7 @@ import Data.FileCache.ImageIO ( validateJPG )
 import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect (makeImageRect)
 import Data.FileCache.ImageSize
+import Data.FileCache.Monads (MonadFileCache)
 import Data.FileCache.Rational ((%), approx)
 import Data.ListLike ( StringLike(show) )
 import Data.Map.Strict as Map ( Map, lookup, toList, fromList )

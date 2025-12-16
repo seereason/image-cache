@@ -27,7 +27,7 @@ import GHC.Stack (HasCallStack)
 import SeeReason.Errors (Member, OneOf, throwMember)
 import Prelude hiding (show)
 import SeeReason.LogServer (alog, alogDrop, Priority(DEBUG, ERROR))
-import System.Exit (ExitCode(ExitSuccess, ExitFailure))
+-- import System.Exit (ExitCode(ExitSuccess, ExitFailure))
 import qualified System.Process.ListLike as LL ( readProcessWithExitCode )
 import Text.Parsec as Parsec
     ( (<|>), char, choice, digit, many, many1, sepBy, spaces, try, parse, string, noneOf )

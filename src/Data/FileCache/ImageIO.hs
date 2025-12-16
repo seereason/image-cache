@@ -75,25 +75,16 @@ import Text.Parsec
 import Text.PrettyPrint.HughesPJClass ( text, Pretty(pPrint) )
 import SeeReason.Errors as Err ( throwMember, Member, OneOf)
 
--- * Orphan Instances
-
-instance Pretty CreateProcess where
-    pPrint p = pPrint (cmdspec p)
-
-instance Pretty CmdSpec where
-    pPrint (ShellCommand s) = text s
-    pPrint (RawCommand path args) = text (showCommandForUser path args)
-
 -- | Convert various things to byte strings
 class MakeByteString a where
   makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => a -> m BS.ByteString
 
 instance MakeByteString BS.ByteString where
-  makeByteString :: (Applicative m, HasCallStack) => BS.ByteString -> m BS.ByteString
+  -- makeByteString :: (Applicative m, HasCallStack) => BS.ByteString -> m BS.ByteString
   makeByteString = pure
 
 instance MakeByteString FilePath where
-  makeByteString :: (MonadIO m, HasCallStack) => FilePath -> m BS.ByteString
+  -- makeByteString :: (MonadIO m, HasCallStack) => FilePath -> m BS.ByteString
   makeByteString path = liftIO (BS.readFile path)
     where _ = callStack
 
@@ -101,13 +92,13 @@ instance MakeByteString CreateProcess where
   makeByteString cmd = makeByteString (cmd, BS.empty)
 
 instance MakeByteString (CreateProcess, InputOutput) where
-  makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, InputOutput) -> m BS.ByteString
+  -- makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, InputOutput) -> m BS.ByteString
   makeByteString (cmd, Bytes input) = makeByteString (cmd, input)
   makeByteString (cmd, Temporary path) =
     (makeByteString . (cmd,)) =<< makeByteString path
 
 instance MakeByteString (CreateProcess, BS.ByteString) where
-  makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, BS.ByteString) -> m BS.ByteString
+  -- makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, BS.ByteString) -> m BS.ByteString
   makeByteString (cmd, input) = do
     (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd input)
     case code of

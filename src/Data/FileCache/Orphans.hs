@@ -27,6 +27,7 @@ import GHC.IO.Exception (IOException(IOError), IOErrorType(..))
 import System.Exit (ExitCode)
 import System.Posix (CGid(..), CUid(..))
 import System.Process -- (CmdSpec(..), CreateProcess(..))
+import Text.PrettyPrint.HughesPJClass ( text, Pretty(pPrint) )
 
 instance SafeCopy IOException where
   putCopy (IOError _ t l d e p) = putCopy (t, l, d, e, p)
@@ -103,3 +104,10 @@ instance SafeCopy StdStream where
   getCopy = contain $ do f <- getSafeGet
                          (s :: StdStream') <- f
                          return $ stdStream' s
+
+instance Pretty CreateProcess where
+    pPrint p = pPrint (cmdspec p)
+
+instance Pretty CmdSpec where
+    pPrint (ShellCommand s) = text s
+    pPrint (RawCommand path args) = text (showCommandForUser path args)

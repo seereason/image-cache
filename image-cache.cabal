@@ -83,7 +83,6 @@ Library
   Exposed-Modules:
     Data.FileCache.Background
     Data.FileCache.FileCache
-  Other-Modules:
     Data.FileCache.FileCacheTop
     Data.FileCache.LogException
     Data.FileCache.Pipify
@@ -94,9 +93,9 @@ Library
       Data.FileCache.Acid
       Data.FileCache.Server
       Data.FileCache.FileInfo
+      Data.FileCache.Monads
       Data.FileCache.Test
       Data.FileCache.Upload
-    Other-Modules:
       Data.FileCache.ImageIO
       Data.FileCache.Process
     Build-Depends:
