@@ -27,7 +27,7 @@ module Data.FileCache.FileCacheTop
   ) where
 
 #if !__GHCJS__
-import Control.Exception (IOException)
+import Control.Exception (IOException, SomeException)
 import Control.Lens ( _1, view )
 import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (ExceptT, MonadError, MonadIO, runExceptT)
@@ -41,7 +41,7 @@ import Data.FileCache.FileError (FileError)
 import Data.FileCache.ImageKey (ImageKey)
 import Data.Set (Set)
 import Extra.Lens (HasLens)
-import SeeReason.Errors (Member, OneOf)
+import SeeReason.Errors (ConvertError, Member, OneOf)
 #endif
 
 newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
@@ -61,6 +61,7 @@ instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
 class (MonadIO m,
        MonadCatch m,
        MonadError (OneOf e) m,
+       ConvertError SomeException (Either SomeException (OneOf e)),
        Member IOException e,
        Member FileError e,
        MonadReader r m,
@@ -79,10 +80,16 @@ type MonadFileCacheBG r s e m task =
 -- | For code that can add things to the cache
 class MonadFileCache r e m => MonadFileCacheWriter r e m
 
-instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e,
+          ConvertError SomeException (Either SomeException (OneOf e)),
+          HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
-instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e,
+          ConvertError SomeException (Either SomeException (OneOf e)),
+          HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCacheWriter r e (ReaderT r (ExceptT (OneOf e) m))
-instance (Monoid w, MonadCatch m, MonadIO m, Member IOException e, Member FileError e, HasCacheAcid r, HasFileCacheTop r
+instance (Monoid w, MonadCatch m, MonadIO m, Member IOException e, Member FileError e,
+          ConvertError SomeException (Either SomeException (OneOf e)),
+          HasCacheAcid r, HasFileCacheTop r
          ) => MonadFileCache r e (RWST r w s (ExceptT (OneOf e) m))
 #endif

@@ -14,8 +14,9 @@ module Data.FileCache.ImageIO
 import Codec.Picture.Jpg (decodeJpegWithMetadata)
 import Codec.Picture.Metadata (Keys(Exif), lookup)
 import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
-import Control.Exception ( IOException )
+import Control.Exception ( IOException, SomeException )
 import Control.Lens (preview, _Right, _2, to, _Just)
+import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
@@ -45,7 +46,7 @@ import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
 import Prelude hiding (show)
-import SeeReason.Errors (tryError)
+import SeeReason.Errors (ConvertError, fromIO, tryError)
 import SeeReason.Log (alog, alogDrop)
 import System.Directory (createDirectoryIfMissing)
 import System.Exit ( ExitCode(..) )
@@ -337,7 +338,7 @@ vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) 
 -- moved to another position.
 scaleImage' ::
   forall e.
-  (Member FileError e, Member IOException e, HasCallStack)
+  (Member FileError e, Member IOException e, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
   => FilePath
   -> Double
   -> InputOutput
@@ -400,15 +401,18 @@ scaleImage' tmp sc input typ = do
             writeResult inpath
           Bytes bytes -> do
             withTempFile tmp "input.XXXXXXXXXX" $ \inpath inh -> do
-              liftIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
+              fromIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
+              let cmd = proc "ls" ["-l", tmp]
+              (code, out, err) <- fromIO $ readCreateProcessWithExitCode cmd ""
+              fromIO $ alog INFO (LL.showCreateProcessForUser cmd <> " -> " <> show out)
               writeResult inpath
   where
     writeResult :: FilePath -> ExceptT (OneOf e) IO (Maybe InputOutput)
     writeResult inpath = do
-      outpath <- liftIO $ emptyTempFile tmp "output.XXXXXXXXXX.jpg"
+      outpath <- fromIO $ emptyTempFile tmp "output.XXXXXXXXXX.jpg"
       let cmd = vips_resize sc inpath outpath
       alog DEBUG (LL.showCreateProcessForUser cmd)
-      (code, out, err) <- liftIO $ readCreateProcessWithExitCode cmd ""
+      (code, out, err) <- fromIO $ readCreateProcessWithExitCode cmd ""
       alog DEBUG ("code=" <> show code)
       alog DEBUG ("out=" <> show out)
       alog DEBUG ("err=" <> show err)
@@ -421,7 +425,7 @@ scaleImage' tmp sc input typ = do
           pure $ Just $ Temporary outpath
 
 editImage' ::
-    forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
+    forall e m. (MonadIO m, MonadCatch m, Member FileError e, Member IOException e, MonadError (OneOf e) m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
     => ImageCrop -> InputOutput -> FileType -> ImageShape -> m (Maybe InputOutput)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' crop input typ ImageShape{_imageShapeRect = Right rect} =
@@ -508,15 +512,15 @@ pathOrStdin cmd args (Bytes _) = proc cmd args
 pathOrStdin cmd args (Temporary path) = proc cmd (args <> [path])
 
 pipeline ::
-  forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
+  forall e m. (MonadIO m, MonadCatch m, Member FileError e, Member IOException e, MonadError (OneOf e) m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
   => [InputOutput -> CreateProcess]
   -> InputOutput
   -> m InputOutput
 pipeline [] input = return input
 pipeline (p : ps) input =
   case input of
-    Bytes bytes -> liftIO (LL.readCreateProcessWithExitCode (p input) bytes) >>= doResult
-    Temporary path -> liftIO (LL.readCreateProcessWithExitCode (p input) "") >>= doResult
+    Bytes bytes -> fromIO (LL.readCreateProcessWithExitCode (p input) bytes) >>= doResult
+    Temporary path -> fromIO (LL.readCreateProcessWithExitCode (p input) "") >>= doResult
   where
     doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m InputOutput
     -- doResult (Left e) = alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e) >> throwError e

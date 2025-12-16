@@ -39,10 +39,10 @@ import GHC.Generics ( Generic )
 import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
 
 #if !__GHCJS__
-import Control.Exception (IOException)
+import Control.Exception (fromException, IOException, SomeException)
 import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (ExceptT, foldM, liftEither, runExceptT)
+import Control.Monad.Except (ExceptT, foldM, liftEither, msum, runExceptT)
 import Control.Monad.Reader (ask, liftIO, ReaderT, runReaderT, unless, when)
 import Control.Monad.State (MonadState)
 import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
@@ -77,7 +77,7 @@ import Data.Text as T ( Text, pack )
 import Extra.Lens (HasLens)
 import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
-import SeeReason.Errors ( liftMember, Member, OneOf, throwMember, tryMember )
+import SeeReason.Errors ( ConvertError(convertError), liftMember, Member, OneOf, put1, throwMember, tryMember )
 import SeeReason.Log ( alog, alogDrop )
 import System.Directory ( createDirectoryIfMissing, doesFileExist, renameFile )
 import System.FilePath ((</>), takeDirectory)
@@ -326,7 +326,7 @@ buildImage _ i@(ImageFileReady _) = pure (Right i)
 -- | Look up the key in the cache, if a miss call 'buildImageFile' and
 -- cache the result.
 cacheImageFile ::
-  (MonadFileCacheWriter r e m, HasCallStack)
+  (MonadFileCacheWriter r e m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
   => ImageKey
   -> m (Either FileError ImageFile)
 cacheImageFile key = do
@@ -355,6 +355,12 @@ cacheImageFile key = do
 
 type E = '[FileError, IOException]
 
+instance ConvertError SomeException (Either SomeException (OneOf E)) where
+  convertError e =
+    maybe (Left e) Right $
+      msum @[] [fmap put1 (fromException e :: Maybe FileError),
+                fmap put1 (fromException e :: Maybe IOException)]
+
 -- | This is used to implement the image portion of doTask for
 -- whatever the ultimate 'DoTask' sum type is.
 cacheImageFileIO ::
@@ -370,7 +376,7 @@ cacheImageFileIO a key =
 -- 'ImageFile' and write the image file.  This can be used to repair
 -- missing cache files.
 buildImageFile ::
-  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
   alog DEBUG ("key=" <> show key)
@@ -440,7 +446,7 @@ hardLinkCanonicalImage path key' img bs = do
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
-  forall r e m. (MonadCatch m, MonadFileCache r e m, HasCallStack)
+  forall r e m. (MonadCatch m, MonadFileCache r e m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
   => Maybe FileSource -- ^ Where the original comes from
   -> ImageKey -- ^ Description of the derived image
   -> m (ImageKey, InputOutput) -- ^ The revised ImageKey and the final image
