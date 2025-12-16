@@ -401,10 +401,10 @@ installCacheFile ::
   forall r e m. ({-MonadCatch m,-} MonadFileCacheWriter r e m, HasCallStack)
   => FilePath -> InputOutput -> m ()
 installCacheFile path (Bytes bs) = liftIO $ do
-  alog INFO ("Writing new cache file: " <> show path)
+  alog DEBUG ("Writing new cache file: " <> show path)
   writeFileReadable path bs
 installCacheFile to (Temporary from) = liftIO $ do
-  alog INFO ("Moving new cache file: " <> show from <> " -> " <> show to)
+  alog DEBUG ("Moving new cache file: " <> show from <> " -> " <> show to)
   createDirectoryIfMissing True (takeDirectory to)
   renameFile from to
 

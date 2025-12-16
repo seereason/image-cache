@@ -320,7 +320,7 @@ instance MakeByteString InputOutput where
 --     > readCreateProcessWithExitCode (vips_resize 0.5 "/home/dsf/Downloads/005832283_00146.jpg" "/tmp/out.jpg") ""
 --     (ExitSuccess,"","")
 vips_resize :: Double -> FilePath -> FilePath -> CreateProcess
-vips_resize sc fin fout = proc "/run/current-system/sw/bin/vips" ["resize", fin, fout, showFFloat (Just 6) sc ""]
+vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) sc ""]
 
 -- | Build an image resized by decoding, applying pnmscale, and then
 -- re-encoding.  The new image inherits attributes of the old (other
@@ -395,7 +395,7 @@ scaleImage' tmp sc input typ = do
               fromIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
               let cmd = proc "ls" ["-l", tmp]
               (code, out, err) <- fromIO $ readCreateProcessWithExitCode cmd ""
-              fromIO $ alog INFO (LL.showCreateProcessForUser cmd <> " -> " <> show out)
+              -- fromIO $ alog INFO (LL.showCreateProcessForUser cmd <> " -> " <> show out)
               writeResult inpath
   where
     writeResult :: FilePath -> ExceptT (OneOf e) IO (Maybe InputOutput)
