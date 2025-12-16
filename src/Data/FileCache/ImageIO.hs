@@ -345,7 +345,7 @@ scaleImage' _ sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
 scaleImage' _ _ _ PDF = throwMember $ CannotScale PDF
 scaleImage' _ _ _ CSV = throwMember $ CannotScale CSV
 scaleImage' _ _ _ Unknown = throwMember $ CannotScale Unknown
-scaleImage' tmp sc input typ = do
+scaleImage' tmp sc input typ =
   if False
   then do
     let decoder = case typ of
@@ -379,9 +379,8 @@ scaleImage' tmp sc input typ = do
     -- if the bytestring argument was just read from a file?  Or the
     -- bytestring output is going to be immediately written to a file?
     case typ of
-#if 0
-      -- Not yet sure this works
-      HEIC ->
+      -- Not yet sure this HEIC code works
+      HEIC | False ->
         case input of
           -- Save the bytestring and convert from temporary file
           Bytes bytes -> do
@@ -393,7 +392,6 @@ scaleImage' tmp sc input typ = do
             withTempFile tmp "output.XXXXXXXXXX.jpg" $ \outpath _ -> do
               liftIO $ readCreateProcessWithExitCode (proc "heif-convert" [heicpath, outpath]) ""
               scaleImage' tmp sc (Temporary outpath) JPEG
-#endif
       _ ->
         case input of
           Temporary inpath -> do
@@ -407,7 +405,9 @@ scaleImage' tmp sc input typ = do
     writeResult inpath = do
       outpath <- liftIO $ emptyTempFile tmp "output.XXXXXXXXXX.jpg"
       let cmd = vips_resize sc inpath outpath
+      alog DEBUG (LL.showCreateProcessForUser cmd)
       (code, out, err) <- liftIO $ readCreateProcessWithExitCode cmd ""
+      alog DEBUG (show code)
       case code of
         ExitFailure n -> throwMember @_ @e $ CommandFailure [StartedFrom "scaleImage'",
                                                              CommandCreateProcess cmd,

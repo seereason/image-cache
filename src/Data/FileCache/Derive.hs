@@ -339,6 +339,7 @@ cacheImageFile key = do
                      liftIO (doesFileExist path) >>= \case
                        True -> pure (Right file) -- smooth sailing
                        False -> do
+                         alog INFO ("cache file missing: " <> show path)
                          -- Cache file is missing, rebuild it
                          tryMember @FileError (buildImageFile key _imageShape) >>= cachePut key
                          -- did that work?
