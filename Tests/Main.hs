@@ -15,9 +15,9 @@
 module Main (main, uploadTest) where
 
 import Data.FileCache
-import Control.Exception (bracket, IOException, SomeException)
+import Control.Exception (bracket, fromException, IOException, SomeException)
 import Control.Lens (itraverse, over, _Left)
-import Control.Monad.Except (ExceptT, MonadIO(liftIO), runExceptT)
+import Control.Monad.Except (ExceptT, MonadIO(liftIO), msum, runExceptT)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.RWS (RWST)
 import Data.Acid (AcidState, openLocalStateFrom, closeAcidState)
@@ -39,7 +39,7 @@ import Data.Set as Set (filter, size)
 import Debug.Trace
 import Extra.Exceptionless (Exceptionless, runExceptionless)
 import qualified LaTeX
-import SeeReason.Errors as Err (catchMember, throwMember, OneOf)
+import SeeReason.Errors as Err (catchMember, ConvertError(convertError), put1, throwMember, OneOf)
 import System.Exit (exitSuccess, exitFailure)
 import System.FilePath ((</>))
 import System.IO (Handle, hPutStr, hPutStrLn, stderr)
@@ -236,6 +236,13 @@ imageTests acid =
     -- handle e = undefined
 
 type ES = '[IOException, FileError, SomeException]
+
+instance ConvertError SomeException (Either SomeException (OneOf ES)) where
+  convertError e =
+    maybe (Left e) Right $
+      msum @[] [fmap put1 (fromException e :: Maybe IOException),
+                fmap put1 (fromException e :: Maybe FileError)]
+
 #if MIN_VERSION_sr_errors(1,19,0)
 type R = (AcidState CacheMap, FileCacheTop)
 #endif
