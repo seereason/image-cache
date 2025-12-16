@@ -28,7 +28,7 @@ import Data.Maybe ( fromMaybe )
 import Data.Text as T ( pack )
 import GHC.Stack ( HasCallStack )
 import Prelude hiding (show)
-import SeeReason.Log(alog)
+import SeeReason.Log(alog, alogDrop)
 import System.Directory ( doesFileExist )
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
@@ -51,7 +51,7 @@ cacheOriginalFiles ::
   (MakeByteString x, Ord x,
    MonadFileCache r e m,
    MonadState (Map x (Either FileError (ImageKey, ImageFile))) m,
-   HasCallStack)
+   HasCallStack, Show x)
   => [(FileSource, x)] -> m ()
 cacheOriginalFiles pairs =
   mapM_ doPair pairs
@@ -59,10 +59,11 @@ cacheOriginalFiles pairs =
     doPair :: (FileSource, x) -> m ()
     doPair (source, x) = tryMember @FileError (cacheOriginalFile (Just source) x) >>= modify . Map.insert x
 
--- | 'cacheOriginalFile' with the 'FileError' captured.
+-- | 'cacheOriginalFile' with the 'FileError' captured.  See
+-- uploadTest in Tests/Main.hs for standalone usage.
 cacheOriginalFile' ::
-  forall x e r m.
-  (MakeByteString x, MonadFileCache r e m, HasCallStack)
+  forall e m r x.
+  (MakeByteString x, MonadFileCache r e m, HasCallStack, Show x)
   => Maybe FileSource
   -> x
   -> m (Either FileError (ImageKey, ImageFile))
@@ -73,11 +74,12 @@ cacheOriginalFile' source x =
 -- ByteString, insert it into the cache, and return it.
 cacheOriginalFile ::
   forall x e r m.
-  (MakeByteString x, MonadFileCache r e m, HasCallStack)
+  (MakeByteString x, MonadFileCache r e m, HasCallStack, Show x)
   => Maybe FileSource
   -> x
   -> m (ImageKey, ImageFile)
 cacheOriginalFile source x = do
+  alogDrop id INFO ("source=" <> show source <> " x=" <> show x)
   img <- buildOriginalImage source x
   let key = originalKey img
       val = ImageFileReady img

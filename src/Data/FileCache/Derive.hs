@@ -266,7 +266,9 @@ cacheImageShape _ key (Just (Right (ImageFileReady img@ImageReady{..}))) = do
   liftIO (doesFileExist path) >>= \case
     False -> do
       alog WARNING ("missing cache file: " <> prettyShow key <> " -> " <> show path)
-      pure $ Left $ MissingDerivedEntry key
+      -- Return the shape so the system can regenerate this file
+      -- pure $ Left $ MissingDerivedEntry key
+      pure $ Right $ ImageFileShape _imageShape
     True -> do
       -- alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
       pure $ Right $ ImageFileReady img
@@ -339,7 +341,6 @@ cacheImageFile key = do
                      liftIO (doesFileExist path) >>= \case
                        True -> pure (Right file) -- smooth sailing
                        False -> do
-                         alog INFO ("cache file missing: " <> show path)
                          -- Cache file is missing, rebuild it
                          tryMember @FileError (buildImageFile key _imageShape) >>= cachePut key
                          -- did that work?
@@ -372,6 +373,7 @@ buildImageFile ::
   forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
+  alog DEBUG ("key=" <> show key)
   (key', result) <- buildImageBytes Nothing key
   bs <- makeByteString result
   -- key' may differ from key due to removal of no-ops.  If so we hard
@@ -383,25 +385,46 @@ buildImageFile key shape = do
   let img = ImageFileReady (ImageReady { _imageFile = file, _imageShape = shape })
   path <- fileCachePathIO (ImageCached key img) -- the rendered key
   liftIO (doesFileExist path) >>= \case
+    False -> installCacheFile path result
+    True -> repairDamagedCache path bs
+  hardLinkCanonicalImage path key' img bs
+  pure img
+
+installCacheFile ::
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  => FilePath -> InputOutput -> m ()
+installCacheFile path (Bytes bs) = liftIO $ do
+  alog INFO ("Writing new cache file: " <> show path)
+  writeFileReadable path bs
+installCacheFile to (Temporary from) = liftIO $ do
+  alog INFO ("Moving new cache file: " <> show from <> " -> " <> show to)
+  createDirectoryIfMissing True (takeDirectory to)
+  renameFile from to
+
+repairDamagedCache ::
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  => FilePath -> BS.ByteString -> m ()
+repairDamagedCache path bs = do
+  -- The cached file exists.
+  bs' <- liftIO $ BS.readFile path
+  case bs == bs' of
     False -> do
-      alog INFO ("Writing new cache file: " <> show path)
+      -- Do we have to worry that this file is in the process of
+      -- being written?  This needs review.  Assuming it is
+      -- damaged because the contents do not match.
+      alog WARNING ("Replacing damaged cache file: " <> show path <>
+                                   " length " <> show (BS.length bs') <>
+                                   " -> " <> show (BS.length bs))
       liftIO $ writeFileReadable path bs
-    True -> do
-      -- The cached file exists.
-      bs' <- liftIO $ BS.readFile path
-      case bs == bs' of
-        False -> do
-          -- Do we have to worry that this file is in the process of
-          -- being written?  This needs review.  Assuming it is
-          -- damaged because the contents do not match.
-          alog WARNING ("Replacing damaged cache file: " <> show path <>
-                                       " length " <> show (BS.length bs') <>
-                                       " -> " <> show (BS.length bs))
-          liftIO $ writeFileReadable path bs
-        True ->
-          -- The image file already exists and contains what we
-          -- expected.  Is this worth a warning?
-          alog WARNING ("Cache file for new key already exists: " <> show path)
+    True ->
+      -- The image file already exists and contains what we
+      -- expected.  Is this worth a warning?
+      alog WARNING ("Cache file for new key already exists: " <> show path)
+
+hardLinkCanonicalImage ::
+  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  => FilePath -> ImageKey -> ImageFile -> BS.ByteString -> m ()
+hardLinkCanonicalImage path key' img bs = do
   path' <- fileCachePathIO (ImageCached key' img) -- the equivalent file
   when (path /= path') $ do
     -- The key contained no-ops, so the returned key is different.
@@ -414,8 +437,6 @@ buildImageFile key shape = do
           liftIO (createLink path path')
       False -> do
         liftIO (createLink path path')
-  -- alog DEBUG ("added to cache: " <> prettyShow img)
-  return img
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::

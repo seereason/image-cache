@@ -16,7 +16,7 @@ import Codec.Picture.Metadata (Keys(Exif), lookup)
 import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
 import Control.Exception ( IOException )
 import Control.Lens (preview, _Right, _2, to, _Just)
-import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT, when)
+import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
 import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFile, toStrict )
@@ -332,22 +332,23 @@ vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) 
 
 -- | Build an image resized by decoding, applying pnmscale, and then
 -- re-encoding.  The new image inherits attributes of the old (other
--- than size.)
+-- than size.)  Note that this always returns a path, but the
+-- Temporary wrapper is added to indicate that it is available to be
+-- moved to another position.
 scaleImage' ::
-  forall e. (Member FileError e, Member IOException e, HasCallStack)
-  => FilePath -- ^ Directory for temporary files
+  forall e.
+  (Member FileError e, Member IOException e, HasCallStack)
+  => FilePath
   -> Double
   -> InputOutput
   -> FileType
   -> ExceptT (OneOf e) IO (Maybe InputOutput)
 -- | If the scale factor is within 1% of the original size don't resize.
 scaleImage' _ sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
-scaleImage' _ _ _ PDF = throwMember $ CannotScale PDF
-scaleImage' _ _ _ CSV = throwMember $ CannotScale CSV
-scaleImage' _ _ _ Unknown = throwMember $ CannotScale Unknown
-scaleImage' tmp sc input typ =
-  if False
-  then do
+scaleImage' _ _ _ PDF = throwMember @_ @e $ CannotScale PDF
+scaleImage' _ _ _ CSV = throwMember @_ @e $ CannotScale CSV
+scaleImage' _ _ _ Unknown = throwMember @_ @e $ CannotScale Unknown
+scaleImage' tmp sc input typ | False = do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
                     HEIC -> heifConvert
@@ -372,7 +373,8 @@ scaleImage' tmp sc input typ =
                     Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
     (Just . Bytes) <$> makeByteString (shell cmd, input)
-  else do
+scaleImage' tmp sc input typ = do
+  -- handle (\(e :: IOException) -> throwMember e) $ do
     liftIO $ createDirectoryIfMissing True tmp
     alogDrop id DEBUG ("sc=" <> show sc)
     -- Some, maybe a lot of unnecessary reading and writing here.  What
@@ -407,7 +409,9 @@ scaleImage' tmp sc input typ =
       let cmd = vips_resize sc inpath outpath
       alog DEBUG (LL.showCreateProcessForUser cmd)
       (code, out, err) <- liftIO $ readCreateProcessWithExitCode cmd ""
-      alog DEBUG (show code)
+      alog DEBUG ("code=" <> show code)
+      alog DEBUG ("out=" <> show out)
+      alog DEBUG ("err=" <> show err)
       case code of
         ExitFailure n -> throwMember @_ @e $ CommandFailure [StartedFrom "scaleImage'",
                                                              CommandCreateProcess cmd,
