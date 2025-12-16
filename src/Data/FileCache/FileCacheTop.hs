@@ -20,6 +20,7 @@ module Data.FileCache.FileCacheTop
 #if !__GHCJS__
   , HasCacheAcid(cacheAcid)
   , CacheAcid
+  , MonadFileCacheType
   , MonadFileCache
   , MonadFileCacheBG
   , MonadFileCacheWriter
@@ -58,16 +59,18 @@ instance  HasCacheAcid CacheAcid where cacheAcid = id
 instance  HasCacheAcid (CacheAcid, top) where cacheAcid = fst
 instance  HasCacheAcid (CacheAcid, a, b) where cacheAcid = view _1
 
-class (MonadIO m,
-       MonadCatch m,
-       MonadError (OneOf e) m,
-       ConvertError SomeException (Either SomeException (OneOf e)),
-       Member IOException e,
-       Member FileError e,
-       MonadReader r m,
-       HasCacheAcid r,
-       HasFileCacheTop r)
-      => MonadFileCache r e m
+type MonadFileCacheType r e m =
+  (MonadIO m,
+   MonadCatch m,
+   MonadError (OneOf e) m,
+   ConvertError SomeException (Either SomeException (OneOf e)),
+   Member IOException e,
+   Member FileError e,
+   MonadReader r m,
+   HasCacheAcid r,
+   HasFileCacheTop r)
+
+class MonadFileCacheType r e m => MonadFileCache r e m
 
 type MonadFileCacheBG r s e m task =
   (MonadFileCache r e m, ?task :: ImageKey -> task,
@@ -80,16 +83,7 @@ type MonadFileCacheBG r s e m task =
 -- | For code that can add things to the cache
 class MonadFileCache r e m => MonadFileCacheWriter r e m
 
-instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e,
-          ConvertError SomeException (Either SomeException (OneOf e)),
-          HasCacheAcid r, HasFileCacheTop r
-         ) => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
-instance (MonadCatch m, MonadIO m, Member IOException e, Member FileError e,
-          ConvertError SomeException (Either SomeException (OneOf e)),
-          HasCacheAcid r, HasFileCacheTop r
-         ) => MonadFileCacheWriter r e (ReaderT r (ExceptT (OneOf e) m))
-instance (Monoid w, MonadCatch m, MonadIO m, Member IOException e, Member FileError e,
-          ConvertError SomeException (Either SomeException (OneOf e)),
-          HasCacheAcid r, HasFileCacheTop r
-         ) => MonadFileCache r e (RWST r w s (ExceptT (OneOf e) m))
+instance MonadFileCacheType r e m => MonadFileCache r e (ReaderT r (ExceptT (OneOf e) m))
+instance MonadFileCacheType r e m => MonadFileCacheWriter r e (ReaderT r (ExceptT (OneOf e) m))
+instance (MonadFileCacheType r e m, Monoid w) => MonadFileCache r e (RWST r w s (ExceptT (OneOf e) m))
 #endif
