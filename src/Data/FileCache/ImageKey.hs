@@ -41,7 +41,7 @@ module Data.FileCache.ImageKey
 
 import Control.Lens ( Identity(runIdentity) )
 import Control.Lens.Path ( HopType(CtorType, RecType), Value(hops) )
-import Control.Lens.Path (ConstructorPosTuple(..), HOP(FIELDS), pathInstances, WithFieldOptic(..))
+import Control.Lens.Path ({-ConstructorPosTuple(..),-} HOP(FIELDS), pathInstances{-, WithFieldOptic(..)-})
 import Control.Lens.Path ()
 import Control.Monad ( ap )
 import Control.Monad.Except ( throwError )

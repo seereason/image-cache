@@ -215,11 +215,11 @@ getImageFileBackground task flags key = do
     Left e -> do
       -- alog DEBUG ("e=" <> show e)
       pure $ Left e
-    Right i@(ImageFileShape shape) -> do
+    Right i@(ImageFileShape _shape) -> do
       -- alog DEBUG ("shape=" <> show shape)
       queueImageTasks task [] [key]
       pure $ Right i
-    Right i@(ImageFileReady ready) -> do
+    Right i@(ImageFileReady _ready) -> do
       -- alog DEBUG ("ready=" <> show ready)
       pure $ Right i
 
@@ -256,7 +256,7 @@ cacheImageShape _ key Nothing = do
       buildAndCache :: m (Either FileError ImageFile)
       buildAndCache =
         tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
-cacheImageShape _ key (Just (Right (ImageFileShape shape))) = do
+cacheImageShape _ _ (Just (Right (ImageFileShape shape))) = do
   -- alog DEBUG ("key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
@@ -281,7 +281,7 @@ cacheImageShape flags key (Just (Left _))
           buildAndCache :: m (Either FileError ImageFile)
           buildAndCache =
             tryMember @FileError (buildImageShape key) >>= cachePut key . over _Right ImageFileShape
-cacheImageShape flag key (Just (Left e)) = do
+cacheImageShape flag key (Just (Left _e)) = do
   -- alog DEBUG ("key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
   cacheImageShape flag key Nothing
 

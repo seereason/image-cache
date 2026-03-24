@@ -52,8 +52,8 @@ import System.Directory (createDirectoryIfMissing)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
 import System.IO.Temp (emptyTempFile, withSystemTempFile, withTempFile)
-import System.Log.Logger ( Priority(DEBUG, INFO, ERROR) )
-import System.Process ( CmdSpec(RawCommand, ShellCommand), cmdspec, proc, shell, showCommandForUser, CreateProcess )
+import System.Log.Logger ( Priority(DEBUG, {-INFO,-} ERROR) )
+import System.Process ( {-CmdSpec(RawCommand, ShellCommand), cmdspec,-} proc, shell, showCommandForUser, CreateProcess )
 import System.Process.ByteString.Lazy as BS ( readCreateProcessWithExitCode )
 import qualified System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcess, readCreateProcessWithExitCode, showCreateProcessForUser )
 import Text.Parsec
@@ -72,7 +72,7 @@ import Text.Parsec
       string,
       many1,
       optionMaybe )
-import Text.PrettyPrint.HughesPJClass ( text, Pretty(pPrint) )
+-- import Text.PrettyPrint.HughesPJClass ( text, Pretty(pPrint) )
 import SeeReason.Errors as Err ( throwMember, Member, OneOf)
 
 -- | Convert various things to byte strings
@@ -340,7 +340,7 @@ scaleImage' _ sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
 scaleImage' _ _ _ PDF = throwMember @_ @e $ CannotScale PDF
 scaleImage' _ _ _ CSV = throwMember @_ @e $ CannotScale CSV
 scaleImage' _ _ _ Unknown = throwMember @_ @e $ CannotScale Unknown
-scaleImage' tmp sc input typ | False = do
+scaleImage' _tmp sc input typ | False = do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
                     HEIC -> heifConvert
@@ -394,7 +394,7 @@ scaleImage' tmp sc input typ = do
             withTempFile tmp "input.XXXXXXXXXX" $ \inpath inh -> do
               fromIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
               let cmd = proc "ls" ["-l", tmp]
-              (code, out, err) <- fromIO $ readCreateProcessWithExitCode cmd ""
+              (_code, _out, _err) <- fromIO $ readCreateProcessWithExitCode cmd ""
               -- fromIO $ alog INFO (LL.showCreateProcessForUser cmd <> " -> " <> show out)
               writeResult inpath
   where
@@ -408,7 +408,7 @@ scaleImage' tmp sc input typ = do
       alog DEBUG ("out=" <> show out)
       alog DEBUG ("err=" <> show err)
       case code of
-        ExitFailure n -> throwMember @_ @e $ CommandFailure [StartedFrom "scaleImage'",
+        ExitFailure _n -> throwMember @_ @e $ CommandFailure [StartedFrom "scaleImage'",
                                                              CommandCreateProcess cmd,
                                                              CommandExitCode code]
         ExitSuccess -> do
@@ -511,7 +511,7 @@ pipeline [] input = return input
 pipeline (p : ps) input =
   case input of
     Bytes bytes -> fromIO (LL.readCreateProcessWithExitCode (p input) bytes) >>= doResult
-    Temporary path -> fromIO (LL.readCreateProcessWithExitCode (p input) "") >>= doResult
+    Temporary _path -> fromIO (LL.readCreateProcessWithExitCode (p input) "") >>= doResult
   where
     doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m InputOutput
     -- doResult (Left e) = alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e) >> throwError e
