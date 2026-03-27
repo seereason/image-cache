@@ -48,6 +48,7 @@ import Data.Proxy (Proxy(Proxy))
 import Web.Routes (PathInfo(..), segment)
 #else
 import Extra.THIO (spliceModule)
+import Web.Routes (PathInfo(..), segment)
 #endif
 
 -- * ImageSize, Dimension, Units, SaneSize
