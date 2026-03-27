@@ -17,9 +17,10 @@ module Main (main, uploadTest) where
 import Data.FileCache
 import Control.Exception (bracket, IOException, SomeException)
 import Control.Lens (itraverse, over, _Left)
-import Control.Monad.Except (ExceptT, MonadIO(liftIO), runExceptT)
+import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.RWS (RWST)
+import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Acid (AcidState, openLocalStateFrom, closeAcidState)
 import Data.Acid.Abstract (query')
 import Data.FileCache.Acid (LookMap(LookMap))

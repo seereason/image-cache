@@ -7,7 +7,8 @@ module Data.FileCache.LogException
     , Loggable(logit)
     ) where
 
-import Control.Monad.Except (MonadIO(liftIO), MonadError(catchError, throwError))
+import Control.Monad.Except (MonadError(catchError, throwError))
+import Control.Monad.Trans (MonadIO(liftIO))
 import Language.Haskell.TH (ExpQ, Exp, Loc(..), location, pprint, Q)
 import Language.Haskell.TH.Instances ()
 import qualified Language.Haskell.TH.Lift as TH (Lift(lift))
