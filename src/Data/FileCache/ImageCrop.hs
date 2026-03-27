@@ -13,6 +13,7 @@ module Data.FileCache.ImageCrop
   , Rotation(..)
   ) where
 
+import Control.Applicative ((<|>))
 import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..) )
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
