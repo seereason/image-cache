@@ -20,8 +20,9 @@ module Data.FileCache.ImageSize
   , inches
   ) where
 
-import Control.Applicative ((<|>), ap)
+import Control.Applicative ((<|>))
 import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType, ViewType), pathInstances, Value(..) )
+import Control.Monad (ap)
 import Control.Monad.Except (throwError)
 import Control.Lens ( iso, _Show )
 import Control.Lens.Path ( Value(hops), View(..), viewIso )
