@@ -3,6 +3,7 @@
 module Data.FileCache.ImageIO
   ( -- * Image IO
     MakeByteString(makeByteString)
+  , InputOutput(Bytes, Temporary)
   , validateJPG
   , uprightImage'
   , scaleImage'
@@ -13,14 +14,13 @@ module Data.FileCache.ImageIO
 import Codec.Picture.Jpg (decodeJpegWithMetadata)
 import Codec.Picture.Metadata (Keys(Exif), lookup)
 import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
-import Control.Exception ( IOException )
+import Control.Exception ( IOException, SomeException )
 import Control.Lens (preview, _Right, _2, to, _Just)
+import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
 import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFile, toStrict )
---import Data.ByteString.Lazy ( fromStrict, toStrict )
---import qualified Data.ByteString.Lazy as LBS ( ByteString, unpack, pack, take, drop, concat )
 import Data.Char ( isSpace )
 import Data.Default ( def )
 import Data.FileCache.CommandError ( CommandInfo(..) )
@@ -46,13 +46,14 @@ import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
 import Prelude hiding (show)
-import SeeReason.Errors (tryError)
+import SeeReason.Errors (ConvertError, fromIO, tryError)
 import SeeReason.Log (alog, alogDrop)
+import System.Directory (createDirectoryIfMissing)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
 import System.IO.Temp (emptyTempFile, withSystemTempFile, withTempFile)
-import System.Log.Logger ( Priority(DEBUG, INFO, ERROR) )
-import System.Process ( CmdSpec(RawCommand, ShellCommand), cmdspec, proc, shell, showCommandForUser, CreateProcess )
+import System.Log.Logger ( Priority(DEBUG, {-INFO,-} ERROR) )
+import System.Process ( {-CmdSpec(RawCommand, ShellCommand), cmdspec,-} proc, shell, showCommandForUser, CreateProcess )
 import System.Process.ByteString.Lazy as BS ( readCreateProcessWithExitCode )
 import qualified System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcess, readCreateProcessWithExitCode, showCreateProcessForUser )
 import Text.Parsec
@@ -71,25 +72,33 @@ import Text.Parsec
       string,
       many1,
       optionMaybe )
+-- import Text.PrettyPrint.HughesPJClass ( text, Pretty(pPrint) )
 import SeeReason.Errors as Err ( throwMember, Member, OneOf)
-
+
+-- | Convert various things to byte strings
 class MakeByteString a where
-  makeByteString :: (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m) => a -> m BS.ByteString
+  makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => a -> m BS.ByteString
 
 instance MakeByteString BS.ByteString where
-  makeByteString :: (Applicative m, HasCallStack) => BS.ByteString -> m BS.ByteString
+  -- makeByteString :: (Applicative m, HasCallStack) => BS.ByteString -> m BS.ByteString
   makeByteString = pure
 
 instance MakeByteString FilePath where
-  makeByteString :: (MonadIO m, HasCallStack) => FilePath -> m BS.ByteString
+  -- makeByteString :: (MonadIO m, HasCallStack) => FilePath -> m BS.ByteString
   makeByteString path = liftIO (BS.readFile path)
     where _ = callStack
 
 instance MakeByteString CreateProcess where
   makeByteString cmd = makeByteString (cmd, BS.empty)
 
+instance MakeByteString (CreateProcess, InputOutput) where
+  -- makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, InputOutput) -> m BS.ByteString
+  makeByteString (cmd, Bytes input) = makeByteString (cmd, input)
+  makeByteString (cmd, Temporary path) =
+    (makeByteString . (cmd,)) =<< makeByteString path
+
 instance MakeByteString (CreateProcess, BS.ByteString) where
-  makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, BS.ByteString) -> m BS.ByteString
+  -- makeByteString :: (MonadIO m, Member FileError e, MonadError (OneOf e) m, HasCallStack) => (CreateProcess, BS.ByteString) -> m BS.ByteString
   makeByteString (cmd, input) = do
     (code, bytes, _err) <- liftIO (readCreateProcessWithExitCode' cmd input)
     case code of
@@ -122,10 +131,12 @@ instance MakeByteString URI where
 -- (OneOf e) m", but in fact its not redundant.
 uprightImage' ::
   forall m. (MonadIO m)
-  => BS.ByteString
-  -> m (Maybe BS.ByteString)
-uprightImage' bs =
-  liftIO $ either (\(_ :: FileError) -> Nothing) Just <$> runExceptT (normalizeOrientationCode bs)
+  => InputOutput
+  -> m (Maybe InputOutput)
+uprightImage' (Bytes bs) =
+  liftIO $ either (\(_ :: FileError) -> Nothing) (Just . Bytes) <$> runExceptT (normalizeOrientationCode bs)
+uprightImage' (Temporary path) =
+  liftIO $ BS.readFile path >>= uprightImage' . Bytes
 
 deriving instance Generic ExifData
 
@@ -225,8 +236,10 @@ parsePnmfileOutput = do
 data ExtractBB =
     ExtractBB (Integer, Integer, Integer, Integer)
               (Hires, Hires, Hires, Hires)
+deriving instance Show ExtractBB
 
 data Hires = Inf | Rational Rational
+deriving instance Show Hires
 
 -- | Parse the output of extractbb (based on trial and error.)
 parseExtractBBOutput :: Parsec Text () ExtractBB
@@ -279,8 +292,20 @@ readCreateProcessWithExitCode' :: LL.ListLikeProcessIO a c => CreateProcess -> a
 readCreateProcessWithExitCode' p s =
     $logException ERROR (LL.readCreateProcessWithExitCode p s)
 
-deriving instance Show ExtractBB
-deriving instance Show Hires
+logIOError' :: (MonadIO m, MonadError e m) => m a -> m a
+logIOError' io =
+  tryError io >>= either (\e -> liftIO ($logException ERROR (pure e)) >> throwError e) return
+-- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
+
+-- | File processing operations used to only produce a bytestring, now
+-- they might also produce a temporary file.
+data InputOutput
+  = Bytes BS.ByteString
+  | Temporary FilePath
+
+instance MakeByteString InputOutput where
+  makeByteString (Bytes bs) = makeByteString bs
+  makeByteString (Temporary path) = makeByteString path
 
 -- | use vips resize to scale an image.
 -- Unfortunately, vips shell bindings do not understand filepath "-", so this is going to have to be rejiggered.
@@ -299,19 +324,23 @@ vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) 
 
 -- | Build an image resized by decoding, applying pnmscale, and then
 -- re-encoding.  The new image inherits attributes of the old (other
--- than size.)
+-- than size.)  Note that this always returns a path, but the
+-- Temporary wrapper is added to indicate that it is available to be
+-- moved to another position.
 scaleImage' ::
-  (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
-  => Double
-  -> BS.ByteString
+  forall e.
+  (Member FileError e, Member IOException e, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
+  => FilePath
+  -> Double
+  -> InputOutput
   -> FileType
-  -> m (Maybe BS.ByteString)
+  -> ExceptT (OneOf e) IO (Maybe InputOutput)
 -- | If the scale factor is within 1% of the original size don't resize.
-scaleImage' sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
-scaleImage' _ _ PDF = throwMember $ CannotScale PDF
-scaleImage' _ _ CSV = throwMember $ CannotScale CSV
-scaleImage' _ _ Unknown = throwMember $ CannotScale Unknown
-scaleImage' sc bytes typ = do
+scaleImage' _ sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
+scaleImage' _ _ _ PDF = throwMember @_ @e $ CannotScale PDF
+scaleImage' _ _ _ CSV = throwMember @_ @e $ CannotScale CSV
+scaleImage' _ _ _ Unknown = throwMember @_ @e $ CannotScale Unknown
+scaleImage' _tmp sc input typ | False = do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
                     HEIC -> heifConvert
@@ -335,16 +364,60 @@ scaleImage' sc bytes typ = do
                     TIFF -> showCommandForUser "cjpeg" []
                     Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
-    Just <$> makeByteString (shell cmd, bytes)
-
-logIOError' :: (MonadIO m, MonadError e m) => m a -> m a
-logIOError' io =
-  tryError io >>= either (\e -> liftIO ($logException ERROR (pure e)) >> throwError e) return
--- logIOError' = handleError (\e -> liftIO ($logException ERROR (pure e)) >> throwError e)
+    (Just . Bytes) <$> makeByteString (shell cmd, input)
+scaleImage' tmp sc input typ = do
+  -- handle (\(e :: IOException) -> throwMember e) $ do
+    liftIO $ createDirectoryIfMissing True tmp
+    alogDrop id DEBUG ("sc=" <> show sc)
+    -- Some, maybe a lot of unnecessary reading and writing here.  What
+    -- if the bytestring argument was just read from a file?  Or the
+    -- bytestring output is going to be immediately written to a file?
+    case typ of
+      -- Not yet sure this HEIC code works
+      HEIC | False ->
+        case input of
+          -- Save the bytestring and convert from temporary file
+          Bytes bytes -> do
+            withTempFile tmp "heic.XXXXXXXXXX" $ \heicpath inh -> do
+              liftIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
+              scaleImage' tmp sc (Temporary heicpath) typ
+          -- Convert the heic file to a jpg and then scale that
+          Temporary heicpath -> do
+            withTempFile tmp "output.XXXXXXXXXX.jpg" $ \outpath _ -> do
+              liftIO $ readCreateProcessWithExitCode (proc "heif-convert" [heicpath, outpath]) ""
+              scaleImage' tmp sc (Temporary outpath) JPEG
+      _ ->
+        case input of
+          Temporary inpath -> do
+            writeResult inpath
+          Bytes bytes -> do
+            withTempFile tmp "input.XXXXXXXXXX" $ \inpath inh -> do
+              fromIO $ BS.hPutStr inh bytes >> hFlush inh >> hClose inh
+              let cmd = proc "ls" ["-l", tmp]
+              (_code, _out, _err) <- fromIO $ readCreateProcessWithExitCode cmd ""
+              -- fromIO $ alog INFO (LL.showCreateProcessForUser cmd <> " -> " <> show out)
+              writeResult inpath
+  where
+    writeResult :: FilePath -> ExceptT (OneOf e) IO (Maybe InputOutput)
+    writeResult inpath = do
+      outpath <- fromIO $ emptyTempFile tmp "output.XXXXXXXXXX.jpg"
+      let cmd = vips_resize sc inpath outpath
+      alog DEBUG (LL.showCreateProcessForUser cmd)
+      (code, out, err) <- fromIO $ readCreateProcessWithExitCode cmd ""
+      alog DEBUG ("code=" <> show code)
+      alog DEBUG ("out=" <> show out)
+      alog DEBUG ("err=" <> show err)
+      case code of
+        ExitFailure _n -> throwMember @_ @e $ CommandFailure [StartedFrom "scaleImage'",
+                                                             CommandCreateProcess cmd,
+                                                             CommandExitCode code]
+        ExitSuccess -> do
+          -- outbytes <- BS.readFile outpath
+          pure $ Just $ Temporary outpath
 
 editImage' ::
-    forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m)
-    => ImageCrop -> BS.ByteString -> FileType -> ImageShape -> m (Maybe BS.ByteString)
+    forall e m. (MonadIO m, MonadCatch m, Member FileError e, Member IOException e, MonadError (OneOf e) m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
+    => ImageCrop -> InputOutput -> FileType -> ImageShape -> m (Maybe InputOutput)
 editImage' crop _ _ _ | crop == def = return Nothing
 editImage' crop input typ ImageShape{_imageShapeRect = Right rect} =
   logIOError' $
@@ -369,7 +442,7 @@ editImage' _ _ typ _ = throwMember $ CannotCrop typ
 data FileOperation =
   FileOperation
   { startType :: FileType
-  , operation :: CreateProcess
+  , operation :: InputOutput -> CreateProcess
   , endType :: FileType
   }
 
@@ -380,18 +453,19 @@ cut rect crop =
     (l, r, t, b) -> Just (FileOperation
                           { startType = PPM
                           , operation =
-                              proc "pnmcut" ["-left", show l,
-                                             "-right", show (_imageRectWidth rect - r - 1),
-                                             "-top", show t,
-                                             "-bottom", show (_imageRectHeight rect - b - 1)]
+                              pathOrStdin "pamcut"
+                                ["-left", show l,
+                                 "-right", show (_imageRectWidth rect - r - 1),
+                                 "-top", show t,
+                                 "-bottom", show (_imageRectHeight rect - b - 1)]
                           , endType = PPM })
 
 rotate :: ImageCrop -> Maybe FileOperation
 rotate crop =
   case rotation crop of
-    ThreeHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "90"], endType = JPEG})
-    SixHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "180"], endType = JPEG})
-    NineHr -> Just (FileOperation {startType = JPEG, operation = proc "jpegtran" ["-rotate", "270"], endType = JPEG})
+    ThreeHr -> Just (FileOperation {startType = JPEG, operation = pathOrStdin "jpegtran" ["-rotate", "90"], endType = JPEG})
+    SixHr -> Just (FileOperation {startType = JPEG, operation = pathOrStdin "jpegtran" ["-rotate", "180"], endType = JPEG})
+    NineHr -> Just (FileOperation {startType = JPEG, operation = pathOrStdin "jpegtran" ["-rotate", "270"], endType = JPEG})
     ZeroHr -> Nothing
 
 -- | A "typed" pipeline of file operations, the input of each
@@ -402,40 +476,48 @@ buildPipeline ::
      FileType -- ^ Pipeline start type
   -> [Maybe FileOperation]
   -> FileType -- ^ Pipeline result type
-  -> [CreateProcess]
+  -> [InputOutput -> CreateProcess]
 buildPipeline start [] end = convert start end
 buildPipeline start (Nothing : ops) end = buildPipeline start ops end
 buildPipeline start (Just op@(FileOperation a cmd b) : ops) end
-  | start == a = cmd : buildPipeline b ops end
-buildPipeline start (Just op@(FileOperation a cmd b) : ops) end =
-  convert start a ++ buildPipeline a (Just op : ops) end
+  | start /= a =
+      convert start a ++ buildPipeline a (Just op : ops) end
+  | otherwise =
+      cmd : buildPipeline b ops end
 
 -- | Return a pipeline that converts one file type to another
-convert JPEG PPM = [proc "jpegtopnm" []]
-convert GIF PPM = [proc "giftpnm" []]
-convert PNG PPM = [proc "pngtopnm" []]
-convert PPM JPEG = [proc "cjpeg" []]
-convert PPM GIF = [proc "ppmtogif" []]
-convert PPM PNG = [proc "pnmtopng" []]
-convert PNG x = proc "pngtopnm" [] : convert PPM x
-convert GIF x = proc "giftopnm" [] : convert PPM x
+convert :: FileType -> FileType -> [InputOutput -> CreateProcess]
+convert JPEG PPM = [pathOrStdin "jpegtopnm" []]
+convert GIF PPM = [pathOrStdin "giftpnm" []]
+convert PNG PPM = [pathOrStdin "pngtopnm" []]
+convert PPM JPEG = [pathOrStdin "cjpeg" []]
+convert PPM GIF = [pathOrStdin "ppmtogif" []]
+convert PPM PNG = [pathOrStdin "pnmtopng" []]
+convert PNG x = pathOrStdin "pngtopnm" [] : convert PPM x
+convert GIF x = pathOrStdin "giftopnm" [] : convert PPM x
 convert a b | a == b = []
 convert a b = error $ "Unknown conversion: " ++ show a ++ " -> " ++ show b
 
+pathOrStdin :: String -> [String] -> InputOutput -> CreateProcess
+pathOrStdin cmd args (Bytes _) = proc cmd args
+pathOrStdin cmd args (Temporary path) = proc cmd (args <> [path])
+
 pipeline ::
-  forall e m. (MonadIO m, Member FileError e, Member IOException e, MonadError (OneOf e) m, HasCallStack)
-  => [CreateProcess]
-  -> BS.ByteString
-  -> m BS.ByteString
+  forall e m. (MonadIO m, MonadCatch m, Member FileError e, Member IOException e, MonadError (OneOf e) m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
+  => [InputOutput -> CreateProcess]
+  -> InputOutput
+  -> m InputOutput
 pipeline [] input = return input
 pipeline (p : ps) input =
-  liftIO (LL.readCreateProcessWithExitCode p input) >>= doResult
+  case input of
+    Bytes bytes -> fromIO (LL.readCreateProcessWithExitCode (p input) bytes) >>= doResult
+    Temporary _path -> fromIO (LL.readCreateProcessWithExitCode (p input) "") >>= doResult
   where
-    doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m BS.ByteString
+    doResult :: (ExitCode, BS.ByteString, BS.ByteString) -> m InputOutput
     -- doResult (Left e) = alog ERROR (LL.showCreateProcessForUser p ++ " -> " ++ show e) >> throwError e
-    doResult (ExitSuccess, out, _) = pipeline ps out
+    doResult (ExitSuccess, out, _) = pipeline ps (Bytes out)
     doResult (code, _, err) =
-      let message = (LL.showCreateProcessForUser p ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
+      let message = (LL.showCreateProcessForUser (p input) ++ " -> " ++ show code ++ " (" ++ show err ++ ")") in
         alog ERROR message >>
         -- Not actually an IOExeption, this is a process error exit
         throwMember (fromString message :: FileError)

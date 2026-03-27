@@ -38,7 +38,7 @@ module Data.FileCache
     FileType(..), -- GIF, HEIC, JPEG, PDF, PNG, PPM, TIFF, CSV, Unknown
     HasFileType(imageType), supportedFileTypes, supportedMimeTypes,
     ImageShape(ImageShape, _imageShapeType, _imageShapeRect),
-    shapeFromKey, omitTIFF, omitHEICAndTIFF,
+    shapeFromKey, omitTIFF, omitHEICAndTIFF, omitUnknown,
     HasImageShapeM(imageShapeM), HasImageShape, imageShape,
     HasOriginalShape(originalShape),
 
@@ -92,6 +92,8 @@ import Data.FileCache.CacheMap
 import Data.FileCache.CommandError
 import Data.FileCache.Derive
 import Data.FileCache.File
+import Data.FileCache.FileCache
+import Data.FileCache.FileCacheTop
 import Data.FileCache.FileError
 import Data.FileCache.Happstack
 import Data.FileCache.ImageCrop
@@ -100,10 +102,9 @@ import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect
 import Data.FileCache.ImageSize
 import Data.FileCache.Rational
-import Data.FileCache.FileCache
-import Data.FileCache.FileCacheTop
 
 #if !__GHCJS__
 import Data.FileCache.Acid
+import Data.FileCache.Monads
 import Data.FileCache.Upload
 #endif

@@ -12,16 +12,15 @@ module Data.FileCache.FileError
   , CacheFlag(RetryErrors)
   ) where
 
-import Control.Exception as E ( Exception, ErrorCall, IOException )
+import Control.Exception as E ( Exception, ErrorCall )
 import Control.Lens.Path ( Value(..) )
 import Data.FileCache.CommandError ( CommandError )
 import Data.FileCache.ImageFile (ImageReady)
 import Data.FileCache.ImageKey (FileType, ImageKey)
-import Data.SafeCopy ( base, extension, Migrate(..), safeGet, safePut, SafeCopy(version, kind) )
+import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
 import Data.String ( IsString(fromString) )
 import Data.Text ( Text )
-import SeeReason.Errors as Errors ( Member, OneOf(..), put1)
 import GHC.Generics ( Generic )
 
 -- * FileError, CommandInfo
@@ -119,6 +118,7 @@ deriving instance Show FileError
 
 instance Value FileError where hops _ = []
 
+{-
 -- | A minimal set of errors to run FileIOT
 type E = '[FileError, IOException]
 
@@ -127,6 +127,7 @@ fromE :: forall e. (Member FileError e, Member IOException e) => OneOf E -> OneO
 fromE (Val e) = Errors.put1 (e :: FileError)
 fromE (NoVal (Val e)) = Errors.put1 (e :: IOException)
 fromE _ = error "Impossible"
+-}
 
 data CacheFlag
   = RetryErrors -- ^ If the cache contains a FileError try the operation again

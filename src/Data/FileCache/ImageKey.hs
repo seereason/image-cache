@@ -28,7 +28,7 @@ module Data.FileCache.ImageKey
   , HasFileType(imageType)
   , supportedFileTypes
   , allSupported
-  , omitHEICAndTIFF, omitTIFF
+  , omitHEICAndTIFF, omitTIFF, omitUnknown
 
   , supportedMimeTypes
   , MimeType
@@ -40,7 +40,8 @@ module Data.FileCache.ImageKey
   ) where
 
 import Control.Lens ( Identity(runIdentity) )
-import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops) )
+import Control.Lens.Path ( HopType(CtorType, RecType), Value(hops) )
+import Control.Lens.Path ({-ConstructorPosTuple(..),-} HOP(FIELDS), pathInstances{-, WithFieldOptic(..)-})
 import Control.Lens.Path ()
 import Control.Monad ( ap )
 import Control.Monad.Except ( throwError )
@@ -64,19 +65,19 @@ import Language.Haskell.TH.Lift as TH ()
 import Prelude hiding (span)
 import Text.Parsec ( (<|>) )
 import Text.PrettyPrint.HughesPJClass ( Doc, comma, hsep, punctuate, Pretty(pPrint), text )
-import Web.Routes ( PathInfo(..), segment )
+import Web.Routes (PathInfo(..), segment)
 import Web.Routes.TH ( derivePathInfo )
 
 #if __GHCJS__
 import Control.Lens (ReifiedLens(Lens), ReifiedPrism(Prism), ReifiedTraversal(Traversal))
-import Control.Lens.Path (ConstructorPosTuple(..), WithFieldOptic(..))
+import Control.Lens.Path ( HopType(CtorType, RecType), Value(hops) )
+import Control.Lens.Path (ConstructorPosTuple(..), HOP(FIELDS), pathInstances, WithFieldOptic(..))
 import Control.Lens.Path.Error (PathError(PathError))
 import Control.Lens.Path.PathTypes
 import Control.Lens.Path.ReifiedOptic (ReifiedOptic(..))
 import Data.Generics.Product
 import Data.Generics.Sum
 import Data.Proxy (Proxy(Proxy))
-import Web.Routes (PathInfo(..), segment)
 #else
 import Extra.THIO (spliceModule)
 #endif
@@ -187,6 +188,9 @@ omitHEICAndTIFF typ = elem typ [HEIC, TIFF, Unknown]
 
 omitTIFF :: FileType -> Bool
 omitTIFF typ = elem typ [TIFF, Unknown]
+
+omitUnknown :: FileType -> Bool
+omitUnknown typ = elem typ [Unknown]
 
 -- | A Pretty comma-separated list of FileTypes supported by this library.
 supportedFileTypes :: (FileType -> Bool) -> Doc
