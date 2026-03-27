@@ -1,6 +1,6 @@
 Name:           image-cache
 Version:        0.46
-License:        AllRightsReserved
+License:        BSD3
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
 Maintainer:     David Fox <dsf@seereason.com>
