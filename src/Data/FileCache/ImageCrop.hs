@@ -23,6 +23,7 @@ import Data.Serialize ( Serialize(..) )
 import Data.Typeable (Typeable, typeRep)
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
+import Language.Haskell.TH.Lift (Lift)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Web.Routes.TH ( derivePathInfo )
 
@@ -64,7 +65,7 @@ instance Pretty ImageCrop where
 -- * Rotation
 
 data Rotation = ZeroHr | ThreeHr | SixHr | NineHr
-  deriving (Generic, Eq, Ord, Show, Read, Data, Typeable)
+  deriving (Generic, Eq, Ord, Show, Read, Data, Typeable, Lift)
 
 instance Default Rotation where def = ZeroHr
 instance SafeCopy Rotation where version = 0

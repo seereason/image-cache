@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, TemplateHaskell #-}
-{-# LANGUAGE NoOverloadedLists #-}
+{-# LANGUAGE NoOverloadedLists, DeriveLift #-}
 
 module Data.FileCache.ImageRect
   ( ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation)
@@ -30,6 +30,7 @@ import Data.Serialize ( Serialize(..) )
 import Data.Typeable ( Typeable, typeRep )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack, HasCallStack)
+import Language.Haskell.TH.Lift (Lift)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 -- * ImageRect
@@ -39,7 +40,7 @@ data ImageRect
     { _imageRectWidth :: Int
     , _imageRectHeight :: Int
     , _imageFileOrientation :: Rotation
-    } deriving (Generic, Eq, Ord, Data, Typeable, Read)
+    } deriving (Generic, Eq, Ord, Data, Typeable, Read, Lift)
 
 instance Show ImageRect where
   show ImageRect{..} = "(makeImageRect " <> show _imageRectWidth <> " " <> show _imageRectHeight <> " " <> show _imageFileOrientation <> ")"
