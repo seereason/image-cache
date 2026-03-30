@@ -1,8 +1,8 @@
 {
   description = "image-cache";
   inputs = {
-    sr-pkgs.url   = "git+ssh://git@github.com/cliffordbeshers/cbgit?dir=nix-config/sr-flake/sr-nixpkgs&ref=main";
-    sr-libs.url   = "git+ssh://git@github.com/cliffordbeshers/cbgit?dir=nix-config/sr-flake/sr-libs&ref=main";
+    sr-pkgs.url   = "git+ssh://git@github.com/seereason/sr-flake?dir=sr-nixpkgs&ref=main";
+    sr-libs.url   = "git+ssh://git@github.com/seereason/sr-flake?dir=sr-libs&ref=main";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -19,6 +19,7 @@
           "-Wall"
           "-Wunused-imports"
           "-ddump-minimal-imports"  # uncomment to inspect Core
+          "-ddump-splices"  # uncomment to inspect Core
           # "-O2"          # uncomment for benchmarks
         ];
 

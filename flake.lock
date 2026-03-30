@@ -249,11 +249,11 @@
       },
       "locked": {
         "dir": "nix-config/sr-flake/sr-nixpkgs",
-        "lastModified": 1774651994,
-        "narHash": "sha256-JSCE/Zap/ZiyBAqFn9NgsKS1Soye+JPunPWdSQP6JS4=",
+        "lastModified": 1774656778,
+        "narHash": "sha256-6xW32+xhR4UOoZ0jIyEVq+mrEdxPF1arR1hRuxkgKX0=",
         "ref": "main",
-        "rev": "e05bd8421a6a4c0df8db0eddd0eb3cd557534809",
-        "revCount": 20,
+        "rev": "c11506e11a4ec2fdbd46912b5ddc26e9e77e1c7a",
+        "revCount": 23,
         "type": "git",
         "url": "ssh://git@github.com/cliffordbeshers/cbgit"
       },
@@ -341,20 +341,20 @@
         "sr-utils": "sr-utils"
       },
       "locked": {
-        "dir": "nix-config/sr-flake/sr-libs",
-        "lastModified": 1774882780,
-        "narHash": "sha256-aJ+ctf8Td731unDN/vpwoKAmX1hjfbcTf60Kqb4Yk9A=",
+        "dir": "sr-libs",
+        "lastModified": 1774909237,
+        "narHash": "sha256-dHjNya2AqSMcgeJht1izOlPB1yGO+NOzVh6gDg6/wTE=",
         "ref": "main",
-        "rev": "c841375b3549787249bc4eb6683215ff9af0d739",
-        "revCount": 24,
+        "rev": "31dbd2c069dcdfdfa2f9f991e9b694abc7677d1f",
+        "revCount": 1,
         "type": "git",
-        "url": "ssh://git@github.com/cliffordbeshers/cbgit"
+        "url": "ssh://git@github.com/seereason/sr-flake"
       },
       "original": {
-        "dir": "nix-config/sr-flake/sr-libs",
+        "dir": "sr-libs",
         "ref": "main",
         "type": "git",
-        "url": "ssh://git@github.com/cliffordbeshers/cbgit"
+        "url": "ssh://git@github.com/seereason/sr-flake"
       }
     },
     "sr-log": {
@@ -395,20 +395,20 @@
         "nixpkgs-ghcjs": "nixpkgs-ghcjs_3"
       },
       "locked": {
-        "dir": "nix-config/sr-flake/sr-nixpkgs",
-        "lastModified": 1774882780,
-        "narHash": "sha256-aJ+ctf8Td731unDN/vpwoKAmX1hjfbcTf60Kqb4Yk9A=",
+        "dir": "sr-nixpkgs",
+        "lastModified": 1774909237,
+        "narHash": "sha256-dHjNya2AqSMcgeJht1izOlPB1yGO+NOzVh6gDg6/wTE=",
         "ref": "main",
-        "rev": "c841375b3549787249bc4eb6683215ff9af0d739",
-        "revCount": 24,
+        "rev": "31dbd2c069dcdfdfa2f9f991e9b694abc7677d1f",
+        "revCount": 1,
         "type": "git",
-        "url": "ssh://git@github.com/cliffordbeshers/cbgit"
+        "url": "ssh://git@github.com/seereason/sr-flake"
       },
       "original": {
-        "dir": "nix-config/sr-flake/sr-nixpkgs",
+        "dir": "sr-nixpkgs",
         "ref": "main",
         "type": "git",
-        "url": "ssh://git@github.com/cliffordbeshers/cbgit"
+        "url": "ssh://git@github.com/seereason/sr-flake"
       }
     },
     "sr-utils": {
