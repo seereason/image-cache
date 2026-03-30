@@ -20,6 +20,7 @@ flag pretty-112
 Library
   Default-Language: Haskell2010
   GHC-Options: -Wall -Wredundant-constraints -Werror=incomplete-patterns -fno-warn-name-shadowing -O
+  GHC-Options: -ddump-splices
   -- CPP-Options: -DLAZYIMAGES
   Default-Extensions: ConstraintKinds, CPP, DataKinds, DeriveDataTypeable, DeriveFunctor, DeriveGeneric
   Default-Extensions: FlexibleInstances, FlexibleContexts, MultiParamTypeClasses, RankNTypes
