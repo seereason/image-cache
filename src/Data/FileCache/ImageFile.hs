@@ -64,7 +64,6 @@ instance View (Maybe ImageFile) where
 instance HasImageShapeM Identity ImageFile where
   imageShapeM (ImageFileReady f) = imageShapeM f
   imageShapeM (ImageFileShape f) = imageShapeM f
-instance Value ImageFile where hops _ = [RecType, CtorType]
 
 -- * ImageReady
 
@@ -103,10 +102,12 @@ instance UprightKey ImageReady where
   uprightKey img = ImageUpright (originalKey img)
 instance HasImageShapeM Identity ImageReady where
   imageShapeM = imageShapeM . _imageShape
-instance Value ImageReady where hops _ = [RecType, CtorType]
 
 $(concat <$>
   sequence
   [ pathInstances [FIELDS] =<< [t|ImageFile|]
   , pathInstances [FIELDS] =<< [t|ImageReady|]
   ])
+
+instance Value ImageReady where hops _ = [RecType, CtorType]
+instance Value ImageFile where hops _ = [RecType, CtorType]

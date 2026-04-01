@@ -138,8 +138,6 @@ uprightImage' (Bytes bs) =
 uprightImage' (Temporary path) =
   liftIO $ BS.readFile path >>= uprightImage' . Bytes
 
-deriving instance Generic ExifData
-
 -- | Given a bytestring containing a JPEG file, examine the EXIF
 -- orientation flag and if it is something other than 1 transform the
 -- image into the "normal" orientation and change the orientation flag

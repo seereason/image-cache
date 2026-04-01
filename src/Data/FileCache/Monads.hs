@@ -10,7 +10,8 @@ module Data.FileCache.Monads
 
 import Control.Exception (IOException, SomeException)
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (ExceptT, MonadError, MonadIO)
+import Control.Monad.Except (ExceptT, MonadError)
+import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)
 import Control.Monad.State.Class (MonadState)
 import Control.Monad.RWS.Strict (RWST)
