@@ -3,6 +3,8 @@ instance PathInfo ImagePath
     where toPathSegments inp = case inp of
                                    ImagePath arg -> (++) [pack "image-path"] (toPathSegments arg)
           fromPathSegments = ap (segment (pack "image-path") >> return ImagePath) fromPathSegments
+instance Value ImageKey
+    where hops _ = [RecType]
 instance WithFieldOptic ImageKey
     where withFieldOptic f (Field 1 1) = f (RTraversal (Traversal (_Ctor @"ImageOriginal" . position @1)))
           withFieldOptic f (Field 1 2) = f (RTraversal (Traversal (_Ctor @"ImageOriginal" . position @2)))
@@ -19,6 +21,8 @@ instance ConstructorPosTuple ImageKey
           withConstructorTuple f (Ctor 3) = f (RPrism (Prism (_Ctor @"ImageScaled")))
           withConstructorTuple f (Ctor 4) = f (RPrism (Prism (_Ctor @"ImageUpright")))
           withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageKey))))) callStack)
+instance Value ImageShape
+    where hops _ = [RecType]
 instance WithFieldOptic ImageShape
     where withFieldOptic f (Field 1 1) = f (RLens (Lens (field @"_imageShapeType")))
           withFieldOptic f (Field 1 2) = f (RLens (Lens (field @"_imageShapeRect")))

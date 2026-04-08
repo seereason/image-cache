@@ -40,7 +40,7 @@ module Data.FileCache.ImageKey
   ) where
 
 import Control.Lens ( Identity(runIdentity) )
-import Control.Lens.Path ( HopType(CtorType, RecType), Value(hops) )
+import Control.Lens.Path ( Value(hops) )
 import Control.Lens.Path ({-ConstructorPosTuple(..),-} HOP(FIELDS), pathInstances{-, WithFieldOptic(..)-})
 import Control.Lens.Path ()
 import Control.Monad ( ap )
@@ -58,7 +58,7 @@ import Data.Monoid ( (<>) )
 import Data.SafeCopy ( SafeCopy(kind), base, extension, Migrate(..), safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( pack, span, Text, unpack )
-import Data.Typeable ( Typeable, typeRep )
+import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack, HasCallStack)
 import Language.Haskell.TH.Lift as TH ()
@@ -78,6 +78,7 @@ import Control.Lens.Path.ReifiedOptic (ReifiedOptic(..))
 import Data.Generics.Product
 import Data.Generics.Sum
 import Data.Proxy (Proxy(Proxy))
+import Data.Typeable ( typeRep )
 #else
 import Extra.THIO (spliceModule)
 #endif
@@ -223,7 +224,6 @@ data ImageShape
 
 instance Serialize ImageShape where get = safeGet; put = safePut
 instance SafeCopy ImageShape where version = 3; kind = extension
-instance Value ImageShape where hops _ = [RecType, CtorType]
 
 instance Pretty ImageShape where
   pPrint (ImageShape typ mrect) =
@@ -320,8 +320,6 @@ instance Serialize ImageKey where get = safeGet; put = safePut
 -- This is not an extension of ImageKey_2, it is a new type
 -- created by the migration of ImageCache.
 instance SafeCopy ImageKey where version = 4
-
-instance Value ImageKey where hops _ = [RecType, CtorType]
 
 instance Pretty ImageKey where
     pPrint (ImageOriginal csum typ) = text (take 7 (unpack csum)) <> text (unpack (fileExtension typ))

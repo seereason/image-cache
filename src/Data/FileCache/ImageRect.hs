@@ -15,7 +15,7 @@ module Data.FileCache.ImageRect
   , uprightImageRect
   ) where
 
-import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops))
+import Control.Lens.Path (HOP(FIELDS), pathInstances)
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
@@ -27,7 +27,7 @@ import Data.Generics.Labels ()
 import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, safeGet, safePut, SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
-import Data.Typeable ( Typeable, typeRep )
+import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack, HasCallStack)
 import Language.Haskell.TH.Lift (Lift)
@@ -47,7 +47,6 @@ instance Show ImageRect where
 
 instance Serialize ImageRect where get = safeGet; put = safePut
 instance SafeCopy ImageRect where version = 1; kind = base
-instance Value ImageRect where hops _ = [RecType, CtorType]
 
 instance Pretty ImageRect where
   pPrint (ImageRect w h rot) =

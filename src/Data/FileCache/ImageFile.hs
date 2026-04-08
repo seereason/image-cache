@@ -16,7 +16,7 @@ module Data.FileCache.ImageFile
   ) where
 
 import Control.Lens ( Identity, iso )
-import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops), View(_View, ViewType))
+import Control.Lens.Path (HOP(FIELDS), pathInstances, View(_View, ViewType))
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.FileCache.File (File, HasFileExtension(..))
@@ -30,7 +30,7 @@ import Data.FileCache.Happstack ()
 import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
-import Data.Typeable ( Typeable, typeRep )
+import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
 import Language.Haskell.TH.Lift as TH ()
@@ -64,7 +64,6 @@ instance View (Maybe ImageFile) where
 instance HasImageShapeM Identity ImageFile where
   imageShapeM (ImageFileReady f) = imageShapeM f
   imageShapeM (ImageFileShape f) = imageShapeM f
-instance Value ImageFile where hops _ = [RecType, CtorType]
 
 -- * ImageReady
 
@@ -103,7 +102,6 @@ instance UprightKey ImageReady where
   uprightKey img = ImageUpright (originalKey img)
 instance HasImageShapeM Identity ImageReady where
   imageShapeM = imageShapeM . _imageShape
-instance Value ImageReady where hops _ = [RecType, CtorType]
 
 $(concat <$>
   sequence
