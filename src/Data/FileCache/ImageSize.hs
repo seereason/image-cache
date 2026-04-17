@@ -32,7 +32,7 @@ import Data.Monoid ( (<>) )
 import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( Text, pack, unpack )
-import Data.Typeable ( Typeable, typeRep )
+import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
@@ -40,13 +40,14 @@ import Web.Routes.TH ( derivePathInfo )
 
 #if __GHCJS__
 import Control.Lens (ReifiedLens(Lens), ReifiedPrism(Prism))
-import Control.Lens.Path (ConstructorPosTuple(..), WithFieldOptic(..))
+import Control.Lens.Path (ConstructorPosTuple(..), HopType(RecType), WithFieldOptic(..))
 import Control.Lens.Path.Error (PathError(PathError))
 import Control.Lens.Path.PathTypes
 import Control.Lens.Path.ReifiedOptic (ReifiedOptic(..))
 import Data.Generics.Product
 import Data.Generics.Sum
 import Data.Proxy (Proxy(Proxy))
+import Data.Typeable ( typeRep )
 import Web.Routes (PathInfo(..), segment)
 #else
 import Extra.THIO (spliceModule)

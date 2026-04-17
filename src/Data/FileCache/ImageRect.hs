@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, TemplateHaskell #-}
-{-# LANGUAGE NoOverloadedLists #-}
+{-# LANGUAGE NoOverloadedLists, DeriveLift #-}
 
 module Data.FileCache.ImageRect
   ( ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation)
@@ -15,7 +15,7 @@ module Data.FileCache.ImageRect
   , uprightImageRect
   ) where
 
-import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops))
+import Control.Lens.Path (HOP(FIELDS), pathInstances)
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
@@ -27,9 +27,10 @@ import Data.Generics.Labels ()
 import Data.Monoid ( (<>) )
 import Data.SafeCopy (base, safeGet, safePut, SafeCopy(version, kind) )
 import Data.Serialize ( Serialize(..) )
-import Data.Typeable ( Typeable, typeRep )
+import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack, HasCallStack)
+import Language.Haskell.TH.Lift (Lift)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 -- * ImageRect
@@ -39,7 +40,7 @@ data ImageRect
     { _imageRectWidth :: Int
     , _imageRectHeight :: Int
     , _imageFileOrientation :: Rotation
-    } deriving (Generic, Eq, Ord, Data, Typeable, Read)
+    } deriving (Generic, Eq, Ord, Data, Typeable, Read, Lift)
 
 instance Show ImageRect where
   show ImageRect{..} = "(makeImageRect " <> show _imageRectWidth <> " " <> show _imageRectHeight <> " " <> show _imageFileOrientation <> ")"

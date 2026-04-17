@@ -15,12 +15,11 @@ module Data.FileCache.Happstack
   , showContentType
   ) where
 
-import Control.Lens.Path (HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(hops))
+import Control.Lens.Path (HOP(FIELDS, CTOR), pathInstances)
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.SafeCopy ( SafeCopy )
 import Data.Serialize ( Serialize(..) )
-import Data.Typeable (typeRep)
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
 import Language.Haskell.TH.Lift as TH ( Lift )
@@ -69,10 +68,9 @@ showParameters = concatMap f
 
 $(concat <$>
   sequence
-  [ pathInstances [FIELDS] =<< [t|ContentType|]
+  [ pathInstances [FIELDS, CTOR] =<< [t|ContentType|]
   ])
 
 deriving instance Data ContentType
 deriving instance Lift ContentType
 instance SafeCopy ContentType
-instance Value ContentType where hops _ = [RecType, CtorType]

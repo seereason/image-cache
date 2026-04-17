@@ -26,18 +26,20 @@ import Data.Text (pack)
 import Data.Typeable (Typeable, typeRep)
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
+import Language.Haskell.TH.Lift (Lift)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Web.Routes.TH ( derivePathInfo )
 
 #if __GHCJS__
 import Control.Lens (ReifiedLens(Lens), ReifiedPrism(Prism))
-import Control.Lens.Path (ConstructorPosTuple(..), WithFieldOptic(..))
+import Control.Lens.Path (ConstructorPosTuple(..), HopType(RecType), WithFieldOptic(..))
 import Control.Lens.Path.Error (PathError(PathError))
 import Control.Lens.Path.PathTypes
 import Control.Lens.Path.ReifiedOptic (ReifiedOptic(..))
 import Data.Generics.Product
 import Data.Generics.Sum
 import Data.Proxy (Proxy(Proxy))
+import Data.Typeable ( typeRep )
 import Web.Routes (PathInfo(..), segment)
 #else
 import Extra.THIO (spliceModule)
@@ -67,7 +69,7 @@ instance Pretty ImageCrop where
 -- * Rotation
 
 data Rotation = ZeroHr | ThreeHr | SixHr | NineHr
-  deriving (Generic, Eq, Ord, Show, Read, Data, Typeable)
+  deriving (Generic, Eq, Ord, Show, Read, Data, Typeable, Lift)
 
 instance Default Rotation where def = ZeroHr
 instance SafeCopy Rotation where version = 0
