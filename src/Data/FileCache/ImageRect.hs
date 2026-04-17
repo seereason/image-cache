@@ -163,5 +163,3 @@ $(concat <$>
   sequence
   [pathInstances [FIELDS] =<< [t|ImageRect|]
   ])
-
-instance Value ImageRect where hops _ = [RecType, CtorType]

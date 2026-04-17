@@ -108,6 +108,3 @@ $(concat <$>
   [ pathInstances [FIELDS] =<< [t|ImageFile|]
   , pathInstances [FIELDS] =<< [t|ImageReady|]
   ])
-
-instance Value ImageReady where hops _ = [RecType, CtorType]
-instance Value ImageFile where hops _ = [RecType, CtorType]
