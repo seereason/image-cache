@@ -104,15 +104,10 @@ Library
       filemanip-extra,
       happstack-server,
       JuicyPixels,
-      ListLike,
       process >= 1.4.3,
       process-extras >= 0.7,
       QuickCheck,
-      regex-tdfa,
-      regex-compat-tdfa,
       temporary,
-      unix,
-      Unixutils,
       utf8-string
     build-tools:
       fbida
