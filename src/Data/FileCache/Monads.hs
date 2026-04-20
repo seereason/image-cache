@@ -1,4 +1,4 @@
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 {-# LANGUAGE ImplicitParams #-}
 
 module Data.FileCache.Monads

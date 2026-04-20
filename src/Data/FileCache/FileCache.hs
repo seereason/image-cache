@@ -12,7 +12,7 @@ module Data.FileCache.FileCache
   ( HasFilePath(toFilePath)
   , fileCachePath
   , Classified(..)
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
   , fileCachePathIO
   , FileCacheT, evalFileCacheT, execFileCacheT
   , cacheLook, cacheDelete, cacheMap
@@ -48,7 +48,7 @@ import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath ( (</>), makeRelative, takeDirectory )
 import Web.Routes ( toPathInfo )
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 import Data.Acid (AcidState)
 import Data.Acid.Advanced (query', update')
 import Data.FileCache.Monads (MonadFileCache)
@@ -98,7 +98,7 @@ fileCachePath file = do
   return $ top </> makeRelative "/" path
   where _ = callStack
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 -- | Create any missing directories and evaluate 'fileCachePath'
 fileCachePathIO ::
   (MonadFileCache r e m, HasFilePath a, HasCallStack)
@@ -123,7 +123,7 @@ evalFileCacheT r s0 action = view _1 <$> runFileCacheT r s0 action
 execFileCacheT :: MonadError e m => r -> s -> FileCacheT r s e m a-> m s
 execFileCacheT r s0 action = view _2 <$> runFileCacheT r s0 action
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 askCacheAcid :: (MonadReader r m, HasCacheAcid r, HasCallStack) => m CacheAcid
 askCacheAcid = cacheAcid <$> ask
   where _ = callStack
@@ -186,7 +186,7 @@ isDerived top path = do
   -- top="/home/dsf/appraisalscribe3-development/images"
   elem '/' $ drop 4 $ fromMaybe (error "Unexpected prefix: " <> show path) $ stripPrefix top path
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 collectGarbage ::
   forall r m. (MonadIO m, MonadReader r m, HasFileCacheTop r)
   => Map ImageKey (Either FileError ImageFile)

@@ -59,7 +59,7 @@ module Data.FileCache
     -- * Image directory structure
     fileCachePath, HasFilePath(toFilePath),
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
     -- * Image cache acid-state operations
     MonadFileCache, MonadFileCacheBG, MonadFileCacheWriter, HasCacheAcid(cacheAcid),
     initCacheMap, openCache, PutValue(..), PutValues(..),
@@ -103,7 +103,7 @@ import Data.FileCache.ImageRect
 import Data.FileCache.ImageSize
 import Data.FileCache.Rational
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 import Data.FileCache.Acid
 import Data.FileCache.Monads
 import Data.FileCache.Upload
