@@ -17,7 +17,7 @@ module Data.FileCache.Derive
   ( ImageStats(..)
   , imageStatsDefault
   , imageStatsError
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
   , testImageKeys
   , foregroundOrBackground
 
@@ -38,7 +38,7 @@ import Data.Serialize ( Serialize(..) )
 import GHC.Generics ( Generic )
 import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 import Control.Exception (fromException, IOException, SomeException)
 import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
 import Control.Monad.Catch (MonadCatch)
@@ -126,7 +126,7 @@ imageStatsDefault = ImageStats 0 0 0 [] emptyCallStack
 imageStatsError :: (Show e, HasCallStack) => e -> ImageStats
 imageStatsError e = ImageStats 0 0 0 [show e] callStack
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 -- | Throw an exception if there are more than 20 unavailable
 -- images.  This sends the images to the background image
 -- generator thread, aborts whatever we are doing, and puts up a

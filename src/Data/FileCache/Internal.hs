@@ -11,7 +11,7 @@ module Data.FileCache.Internal
   , module Data.FileCache.ImageSize
   -- , module Data.FileCache.Orphans
   , module Data.FileCache.Rational
-#ifndef __GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
   , module Data.FileCache.Acid
   , module Data.FileCache.Derive
   , module Data.FileCache.FileCache
@@ -38,7 +38,7 @@ import Data.FileCache.ImageRect
 import Data.FileCache.ImageSize
 import Data.FileCache.Orphans ()
 import Data.FileCache.Rational
-#ifndef __GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 import Data.FileCache.Acid
 import Data.FileCache.Derive
 import Data.FileCache.FileCache

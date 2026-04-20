@@ -17,13 +17,13 @@
 module Data.FileCache.FileCacheTop
   ( FileCacheTop(..)
   , HasFileCacheTop(fileCacheTop)
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
   , HasCacheAcid(cacheAcid)
   , CacheAcid
 #endif
   ) where
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 import Control.Exception (IOException, SomeException)
 import Control.Lens ( _1, view )
 import Control.Monad.Catch (MonadCatch)
@@ -48,7 +48,7 @@ newtype FileCacheTop = FileCacheTop {_unFileCacheTop :: FilePath} deriving Show
 class HasFileCacheTop a where fileCacheTop :: a -> FileCacheTop
 instance HasFileCacheTop FileCacheTop where fileCacheTop = id
 
-#if !__GHCJS__
+#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 type CacheAcid = AcidState CacheMap
 class HasCacheAcid a where cacheAcid :: a -> AcidState CacheMap
 instance  HasCacheAcid CacheAcid where cacheAcid = id
