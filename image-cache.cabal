@@ -86,7 +86,7 @@ Library
     Data.FileCache.FileCacheTop
     Data.FileCache.LogException
     Data.FileCache.Pipify
-  if impl(ghcjs)
+  if impl(ghcjs) || arch(javascript)
     Build-Depends: Cabal
   else
     Exposed-Modules:
@@ -114,7 +114,7 @@ Library
 
 test-suite image-cache-tests
   Default-Language: Haskell2010
-  if impl(ghcjs)
+  if impl(ghcjs) || arch(javascript)
     Buildable: False
   else
     Buildable: True
