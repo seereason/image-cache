@@ -24,6 +24,7 @@ Library
   Default-Extensions: ConstraintKinds, CPP, DataKinds, DeriveDataTypeable, DeriveFunctor, DeriveGeneric
   Default-Extensions: FlexibleInstances, FlexibleContexts, MultiParamTypeClasses, RankNTypes
   Default-Extensions: ScopedTypeVariables, StandaloneDeriving, TypeApplications, TypeFamilies
+  Hs-Source-Dirs: src
   Exposed-Modules:
     Data.FileCache
     Data.FileCache.Internal
@@ -49,12 +50,9 @@ Library
     cereal,
     containers,
     data-default,
-    directory,
     exceptions,
-    filepath,
     generic-data,
     generic-lens,
-    hslogger,
     HUnit,
     lens,
     lens-path >= 3.43,
@@ -76,72 +74,16 @@ Library
     th-orphans >= 0.9,
     threads,
     transformers,
-    unix,
     web-routes,
     web-routes-th
-  Hs-Source-Dirs: src
-  Exposed-Modules:
-    Data.FileCache.Background
-    Data.FileCache.FileCache
-    Data.FileCache.FileCacheTop
-    Data.FileCache.LogException
-    Data.FileCache.Pipify
-  if impl(ghcjs) || arch(javascript)
-    Build-Depends: Cabal
-  else
-    Exposed-Modules:
-      Data.FileCache.Acid
-      Data.FileCache.Server
-      Data.FileCache.FileInfo
-      Data.FileCache.Monads
-      Data.FileCache.Test
-      Data.FileCache.Upload
-      Data.FileCache.ImageIO
-      Data.FileCache.Process
-    Build-Depends:
-      acid-state >= 0.16,
-      filemanip,
-      filemanip-extra,
-      happstack-server,
-      JuicyPixels,
-      process >= 1.4.3,
-      process-extras >= 0.7,
-      QuickCheck,
-      temporary,
-      utf8-string
-    build-tools:
-      fbida
+  -- Exposed-Modules:
+  --   Data.FileCache.Background
+  --   Data.FileCache.FileCache
+  --   Data.FileCache.FileCacheTop
+  --   Data.FileCache.LogException
+  --   Data.FileCache.Pipify
+  --   directory,
+  --   filepath,
+  --   hslogger,
+  --   unix,
 
-test-suite image-cache-tests
-  Default-Language: Haskell2010
-  if impl(ghcjs) || arch(javascript)
-    Buildable: False
-  else
-    Buildable: True
-  type: exitcode-stdio-1.0
-  Hs-Source-Dirs: Tests
-  Main-Is: Main.hs
-  Other-Modules: LaTeX
-  Build-Depends:
-    acid-state,
-    base >= 4,
-    binary,
-    bytestring,
-    containers,
-    directory,
-    either,
-    exceptions,
-    filemanip,
-    filemanip-extra,
-    filepath,
-    HaTeX,
-    hslogger,
-    HUnit,
-    image-cache >= 0.19,
-    lens,
-    mtl,
-    sr-errors,
-    sr-utils,
-    text
-  build-tools:
-    fbida
