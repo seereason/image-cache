@@ -49,12 +49,9 @@ Library
     cereal,
     containers,
     data-default,
-    directory,
     exceptions,
-    filepath,
     generic-data,
     generic-lens,
-    hslogger,
     HUnit,
     lens,
     lens-path >= 3.43,
@@ -63,7 +60,6 @@ Library
     network-uri,
     parsec,
     pretty >= 1.1.2,
-    process,
     pureMD5,
     safecopy >= 0.9.4.4,
     sr-errors >= 1.19,
@@ -76,7 +72,6 @@ Library
     th-orphans >= 0.9,
     threads,
     transformers,
-    unix,
     web-routes,
     web-routes-th
   Hs-Source-Dirs: src
@@ -100,14 +95,17 @@ Library
       Data.FileCache.Process
     Build-Depends:
       acid-state >= 0.16,
+      directory,
       filemanip,
       filemanip-extra,
       happstack-server,
+      hslogger,
       JuicyPixels,
       process >= 1.4.3,
       process-extras >= 0.7,
       QuickCheck,
       temporary,
+      unix,
       utf8-string
     build-tools:
       fbida
