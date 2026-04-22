@@ -5,15 +5,3 @@ instance WithFieldOptic ImageSize
     where {withFieldOptic f (Field 1 1) = f (RLens (Lens (field @"_dim"))); withFieldOptic f (Field 1 2) = f (RLens (Lens (field @"_size"))); withFieldOptic f (Field 1 3) = f (RLens (Lens (field @"_units"))); withFieldOptic _ _fhop = throwError (PathError ("WithFieldOptic - unexpected field position " ++ (show _fhop ++ (" for " ++ show (typeRep (Proxy @ImageSize))))) callStack)}
 instance ConstructorPosTuple ImageSize
     where {withConstructorTuple f (Ctor 1) = f (RPrism (Prism (_Ctor @"ImageSize"))); withConstructorTuple _ _chop = throwError (PathError ("WithConstructorTuple - unexpected constructor position " ++ (show _chop ++ (" for " ++ show (typeRep (Proxy @ImageSize))))) callStack)}
-instance PathInfo ImageSize
-    where {toPathSegments inp = case inp of
-                                {ImageSize arg arg arg -> (++) [pack "image-size"] ((++) (toPathSegments arg) ((++) (toPathSegments arg) (toPathSegments arg)))};
-           fromPathSegments = ap (ap (ap (segment (pack "image-size") >> return ImageSize) fromPathSegments) fromPathSegments) fromPathSegments}
-instance PathInfo Dimension
-    where {toPathSegments inp = case inp of
-                                {TheHeight -> [pack "the-height"]; TheWidth -> [pack "the-width"]; TheArea -> [pack "the-area"]};
-           fromPathSegments = (<|>) ((<|>) (segment (pack "the-height") >> return TheHeight) (segment (pack "the-width") >> return TheWidth)) (segment (pack "the-area") >> return TheArea)}
-instance PathInfo Units
-    where {toPathSegments inp = case inp of
-                                {Inches -> [pack "inches"]; Cm -> [pack "cm"]; Points -> [pack "points"]};
-           fromPathSegments = (<|>) ((<|>) (segment (pack "inches") >> return Inches) (segment (pack "cm") >> return Cm)) (segment (pack "points") >> return Points)}
