@@ -1,7 +1,7 @@
 module Data.FileCache.Pipify (heifConvert, pipify) where
 
 import Data.List (intercalate)
-import System.Process (showCommandForUser)
+import System.Process.Types (showCommandForUser)
 
 -- | The heif-convert program in nix package libheif does not accept "-" in place of a filename, to indicate either stdin or stdout.
 -- The scale function in ImageIO expects shell commands that it builds into a pipeline.

@@ -73,6 +73,7 @@ Library
     th-orphans >= 0.9,
     threads,
     transformers,
+    unix,
     web-routes,
     web-routes-th
   Hs-Source-Dirs: src
@@ -105,7 +106,6 @@ Library
       process-extras >= 0.7,
       QuickCheck,
       temporary,
-      unix,
       utf8-string
     build-tools:
       fbida
