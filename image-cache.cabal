@@ -82,7 +82,7 @@ Library
     Data.FileCache.FileCacheTop
     Data.FileCache.LogException
     Data.FileCache.Pipify
-  if!arch(javascript)
+  if !arch(javascript)
     Exposed-Modules:
       Data.FileCache.Acid
       Data.FileCache.Server
@@ -92,11 +92,13 @@ Library
       Data.FileCache.Upload
       Data.FileCache.ImageIO
       Data.FileCache.Process
+  if !arch(javascript)
     Build-Depends:
       acid-state >= 0.16,
       directory,
       filemanip,
-      -- filemanip-extra,
+      filemanip-extra,
+      filepath,
       happstack-server,
       JuicyPixels,
       process >= 1.4.3,
