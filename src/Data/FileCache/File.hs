@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoOverloadedLists #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
@@ -30,7 +31,7 @@ import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
 import Language.Haskell.TH.Instances ()
-import Language.Haskell.TH.Lift as TH ( Lift )
+import "th-lift" Language.Haskell.TH.Lift as TH ( Lift )
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 -- * File

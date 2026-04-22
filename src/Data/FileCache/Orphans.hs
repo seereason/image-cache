@@ -26,7 +26,7 @@ import GHC.Generics (Generic)
 import GHC.IO.Exception (IOException(IOError), IOErrorType(..))
 import System.Exit (ExitCode)
 import System.Posix (CGid(..), CUid(..))
-import System.Process.Types -- (CmdSpec(..), CreateProcess(..))
+import System.Process -- (CmdSpec(..), CreateProcess(..))
 import Text.PrettyPrint.HughesPJClass ( text, Pretty(pPrint) )
 
 instance SafeCopy IOException where

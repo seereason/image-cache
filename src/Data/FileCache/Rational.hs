@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
@@ -30,7 +31,7 @@ import qualified Data.Ratio ((%))
 import Data.Text (pack, Text, strip)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
-import Language.Haskell.TH.Lift as TH ()
+import "th-lift" Language.Haskell.TH.Lift as TH ()
 import Numeric (readSigned, readFloat, showSigned, showFFloat)
 import qualified Numeric (fromRat)
 import SeeReason.Log (compactStack, getStack)

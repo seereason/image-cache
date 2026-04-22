@@ -1,3 +1,4 @@
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Data.FileCache.LogException
@@ -10,8 +11,11 @@ module Data.FileCache.LogException
 import Control.Monad.Except (MonadError(catchError, throwError))
 import Control.Monad.Trans (MonadIO(liftIO))
 import Language.Haskell.TH (ExpQ, Exp, Loc(..), location, pprint, Q)
+-- There is a new package template-haskell-lift with the same module
+-- name, I assume it is intended as a replacement, but I'm not ready
+-- to investigate atm.
 import Language.Haskell.TH.Instances ()
-import qualified Language.Haskell.TH.Lift as TH (Lift(lift))
+import qualified "th-lift" Language.Haskell.TH.Lift as TH (Lift(lift))
 import System.Log.Logger (Priority, logM)
 
 __LOC__ :: Q Exp

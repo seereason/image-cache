@@ -6,6 +6,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoOverloadedLists #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
@@ -22,7 +23,7 @@ import Data.SafeCopy ( SafeCopy )
 import Data.Serialize ( Serialize(..) )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
-import Language.Haskell.TH.Lift as TH ( Lift )
+import "th-lift" Language.Haskell.TH.Lift as TH ( Lift )
 
 #ifdef MIN_VERSION_happstack_server
 import Happstack.Server as Real (ContentType(..))

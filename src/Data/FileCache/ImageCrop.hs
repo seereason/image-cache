@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoOverloadedLists #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
@@ -26,7 +27,7 @@ import Data.Text (pack)
 import Data.Typeable (Typeable, typeRep)
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
-import Language.Haskell.TH.Lift (Lift)
+import "th-lift" Language.Haskell.TH.Lift (Lift)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 import Web.Routes.TH ( derivePathInfo )
 

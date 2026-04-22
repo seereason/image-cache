@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards, TemplateHaskell #-}
 {-# LANGUAGE NoOverloadedLists, DeriveLift #-}
+{-# LANGUAGE PackageImports #-}
 
 module Data.FileCache.ImageRect
   ( ImageRect(_imageRectWidth, _imageRectHeight, _imageFileOrientation)
@@ -30,7 +31,7 @@ import Data.Serialize ( Serialize(..) )
 import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack, HasCallStack)
-import Language.Haskell.TH.Lift (Lift)
+import "th-lift" Language.Haskell.TH.Lift (Lift)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
 
 -- * ImageRect

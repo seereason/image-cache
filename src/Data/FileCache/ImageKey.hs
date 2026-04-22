@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoOverloadedLists #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
@@ -61,7 +62,7 @@ import Data.Text ( pack, span, Text, unpack )
 import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack, HasCallStack)
-import Language.Haskell.TH.Lift as TH ()
+import "th-lift" Language.Haskell.TH.Lift as TH ()
 import Prelude hiding (span)
 import Text.Parsec ( (<|>) )
 import Text.PrettyPrint.HughesPJClass ( Doc, comma, hsep, punctuate, Pretty(pPrint), text )
