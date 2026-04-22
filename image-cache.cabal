@@ -52,6 +52,7 @@ Library
     exceptions,
     generic-data,
     generic-lens,
+    hslogger,
     HUnit,
     lens,
     lens-path >= 3.43,
@@ -81,7 +82,7 @@ Library
     Data.FileCache.FileCacheTop
     Data.FileCache.LogException
     Data.FileCache.Pipify
-  if !impl(ghcjs) && !arch(javascript)
+  if!arch(javascript)
     Exposed-Modules:
       Data.FileCache.Acid
       Data.FileCache.Server
@@ -95,9 +96,8 @@ Library
       acid-state >= 0.16,
       directory,
       filemanip,
-      filemanip-extra,
+      -- filemanip-extra,
       happstack-server,
-      hslogger,
       JuicyPixels,
       process >= 1.4.3,
       process-extras >= 0.7,
@@ -110,13 +110,13 @@ Library
 
 test-suite image-cache-tests
   Default-Language: Haskell2010
+  type: exitcode-stdio-1.0
+  Hs-Source-Dirs: Tests
+  Main-Is: Main.hs
   if arch(javascript)
     Buildable: False
   else
     Buildable: True
-    type: exitcode-stdio-1.0
-    Hs-Source-Dirs: Tests
-    Main-Is: Main.hs
     Other-Modules: LaTeX
     Build-Depends:
       acid-state,
@@ -128,7 +128,7 @@ test-suite image-cache-tests
       either,
       exceptions,
       filemanip,
-      filemanip-extra,
+      -- filemanip-extra,
       filepath,
       HaTeX,
       hslogger,
