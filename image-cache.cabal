@@ -13,6 +13,16 @@ source-repository head
   type:     git
   location: https://github.com/seereason/image-cache
 
+flag ghc9
+  description: Native ghc 9.xx, where the version supports the js backend. This flag is set in the cabalProjectLocal of the calling flake.
+  default: False
+  manual: True
+
+flag ghc9-js
+  description: ghc 9.xx, JS backend.  This flag is set in the cabalProjectLocal of the calling flake.
+  default: False
+  manual: True
+
 flag pretty-112
   Description: The prettyclass package is included in pretty-1.1.2
   Default: True
@@ -87,7 +97,7 @@ Library
     Data.FileCache.FileCacheTop
     Data.FileCache.LogException
     Data.FileCache.Pipify
-  if !arch(javascript)
+  if !flag(ghc9-js)
     Exposed-Modules:
       Data.FileCache.Acid
       Data.FileCache.Server
@@ -97,7 +107,6 @@ Library
       Data.FileCache.Upload
       Data.FileCache.ImageIO
       Data.FileCache.Process
-  if !arch(javascript)
     Build-Depends:
       acid-state >= 0.16,
       filemanip,
@@ -115,7 +124,7 @@ test-suite image-cache-tests
   type: exitcode-stdio-1.0
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs
-  if arch(javascript)
+  if flag(ghc9-js)
     Buildable: False
   else
     Buildable: True
