@@ -13,13 +13,8 @@ source-repository head
   type:     git
   location: https://github.com/seereason/image-cache
 
-flag ghc9
-  description: Native ghc 9.xx, where the version supports the js backend. This flag is set in the cabalProjectLocal of the calling flake.
-  default: False
-  manual: True
-
-flag ghc9-js
-  description: ghc 9.xx, JS backend.  This flag is set in the cabalProjectLocal of the calling flake.
+flag arch_javascript
+  description: Stand-in for arch(javascript). Remove if not using haskell.nix.
   default: False
   manual: True
 
@@ -97,7 +92,8 @@ Library
     Data.FileCache.FileCacheTop
     Data.FileCache.LogException
     Data.FileCache.Pipify
-  if !flag(ghc9-js)
+  -- flag(arch_javascript): stand-in for arch(javascript); remove if not using haskell.nix.
+  if !flag(arch_javascript)
     Exposed-Modules:
       Data.FileCache.Acid
       Data.FileCache.Server
@@ -124,7 +120,8 @@ test-suite image-cache-tests
   type: exitcode-stdio-1.0
   Hs-Source-Dirs: Tests
   Main-Is: Main.hs
-  if flag(ghc9-js)
+  -- flag(arch_javascript): stand-in for arch(javascript); remove if not using haskell.nix.
+  if flag(arch_javascript)
     Buildable: False
   else
     Buildable: True
