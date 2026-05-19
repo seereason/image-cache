@@ -67,7 +67,7 @@ Library
     pureMD5,
     safecopy >= 0.9.4.4,
     sr-errors >= 1.19,
-    sr-utils >= 1.111,
+    sr-utils >= 1.115,
     sr-log >= 1.20,
     syb,
     template-haskell,
