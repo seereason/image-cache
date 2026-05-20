@@ -34,7 +34,7 @@ import Language.Haskell.TH.Instances ()
 import "th-lift" Language.Haskell.TH.Lift as TH ()
 import Numeric (readSigned, readFloat, showSigned, showFFloat)
 import qualified Numeric (fromRat)
-import SeeReason.Log (compactStack, getStack)
+import Extra.SrcLoc (compactStack, getStack)
 import Web.Routes (PathInfo(..))
 
 -- * Rational
