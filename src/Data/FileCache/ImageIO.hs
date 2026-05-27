@@ -40,6 +40,7 @@ import Data.Text as T ( Text )
 import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Encoding ( decodeUtf8 )
 import qualified SeeReason.Errors as Errors ()
+import Extra.Process.Document (asdtPath)
 import GHC.Generics (Generic)
 import GHC.Stack (callStack, HasCallStack)
 import Language.Haskell.TH.Instances ()
@@ -318,7 +319,11 @@ instance MakeByteString InputOutput where
 --     > readCreateProcessWithExitCode (vips_resize 0.5 "/home/dsf/Downloads/005832283_00146.jpg" "/tmp/out.jpg") ""
 --     (ExitSuccess,"","")
 vips_resize :: Double -> FilePath -> FilePath -> CreateProcess
-vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) sc ""]
+vips_resize sc fin fout =
+  -- Route through asdt so the asdt store path (and thus as-document-tools'
+  -- closure, which provides vips) is referenced in this binary's .o files
+  -- and Nix infers the runtime dependency automatically.
+  proc asdtPath ["run", "vips", "resize", fin, fout, showFFloat (Just 6) sc ""]
 
 -- | Build an image resized by decoding, applying pnmscale, and then
 -- re-encoding.  The new image inherits attributes of the old (other
