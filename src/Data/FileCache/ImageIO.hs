@@ -47,7 +47,7 @@ import Network.URI ( URI(..), uriToString )
 import Numeric ( showFFloat )
 import Prelude hiding (show)
 import SeeReason.Errors (ConvertError, fromIO, tryError)
-import SeeReason.Log (alog, alogDrop)
+import SeeReason.Log (alog, alogDrop, Priority(INFO))
 import System.Directory (createDirectoryIfMissing)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
@@ -402,7 +402,7 @@ scaleImage' tmp sc input typ = do
     writeResult inpath = do
       outpath <- fromIO $ emptyTempFile tmp "output.XXXXXXXXXX.jpg"
       let cmd = vips_resize sc inpath outpath
-      alog DEBUG (LL.showCreateProcessForUser cmd)
+      alog INFO (LL.showCreateProcessForUser cmd)
       (code, out, err) <- fromIO $ readCreateProcessWithExitCode cmd ""
       alog DEBUG ("code=" <> show code)
       alog DEBUG ("out=" <> show out)

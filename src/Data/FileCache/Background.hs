@@ -39,7 +39,6 @@ class (Ord key, Show key) => HasTaskQueue key a where
   taskQueue :: a -> Maybe (TaskQueue key)
 instance (Ord key, Show key) => HasTaskQueue key (TaskQueue key) where taskQueue = Just
 instance (Ord key, Show key) => HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
--- instance HasFileCacheTop top => HasFileCacheTop (CacheAcid, top) where fileCacheTop = fileCacheTop . snd
 
 -- | We need to be able to determine whether a task has successfully
 -- completed so we can abandon further effort to perform it.
