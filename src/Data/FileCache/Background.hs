@@ -18,7 +18,7 @@ import Control.Concurrent as IO (ThreadId{-, threadDelay-}, newChan, readChan, w
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.Thread (forkIO, Result)
 import Control.Lens
-import Control.Monad (forever, when)
+import Control.Monad (forever)
 import Control.Monad.Except (liftIO, {-MonadError,-} MonadIO)
 import Control.Monad.Reader (ask, MonadReader)
 import Control.Monad.State (MonadState)
@@ -69,19 +69,10 @@ startTaskQueue queue = do
   alog DEBUG "Starting background task queue"
   TaskQueue <$> pure chan <*> forkIO (task chan)
   where
+    -- This is the background task
     task :: TaskChan key -> IO ()
     task chan = forever $
-      readChan chan >>= doTasks @key queue
-
--- | This is the background task.
-doTasks ::
-  forall key queue result. (DoTask key queue result, HasCallStack)
-  => queue
-  -> [key]
-  -> IO ()
-doTasks queue tasks = do
-  when (length tasks > 0) $ alog DEBUG ("performing " ++ show (length tasks) ++ " tasks")
-  mapM_ (doTask queue) tasks
+      readChan chan >>= mapM_ (doTask @key queue)
 
 queueTasks ::
   forall m s r key.
