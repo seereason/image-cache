@@ -8,9 +8,9 @@ module Data.FileCache.Background
   , TaskQueue(TaskQueue)
   , HasTaskQueue(taskQueue)
   , startTaskQueue
-  , DoTask(doTaskInternal, pollTask)
+  , DoTask(doTask, pollTask)
   , TaskStatus(Incomplete, Complete)
-  , doTask
+  , checkTask
   , queueTasks
   ) where
 
@@ -35,8 +35,8 @@ type TaskChan key = Chan [key]
 data TaskQueue key = TaskQueue (TaskChan key) (ThreadId, IO (Result ()))
 
 -- | Find the field containing the task queue
-class (Ord key, Show key) => HasTaskQueue key a where
-  taskQueue :: a -> Maybe (TaskQueue key)
+class (Ord key, Show key) => HasTaskQueue key queue where
+  taskQueue :: queue -> Maybe (TaskQueue key)
 instance (Ord key, Show key) => HasTaskQueue key (TaskQueue key) where taskQueue = Just
 instance (Ord key, Show key) => HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
 
@@ -45,56 +45,56 @@ instance (Ord key, Show key) => HasTaskQueue key (a, b, TaskQueue key) where tas
 data TaskStatus result = Incomplete | Complete result deriving Show
 
 -- | Class of types that represent tasks.
-class DoTask key a result | key -> result where
-  doTaskInternal :: HasCallStack => a -> key -> IO result
-  pollTask :: HasCallStack => a -> key -> IO (TaskStatus result)
+class DoTask key queue result | key -> result where
+  doTask :: HasCallStack => queue -> key -> IO result
+  pollTask :: HasCallStack => queue -> key -> IO (TaskStatus result)
   pollTask _ _ = pure Incomplete
 
 -- | Check whether the task still needs to be done and if so do it.
-doTask :: (DoTask key a result, HasCallStack) => a -> key -> IO result
-doTask a key =
-  pollTask a key >>= \case
-    Incomplete -> doTaskInternal a key
+checkTask :: (DoTask key queue result, HasCallStack) => queue -> key -> IO result
+checkTask queue key =
+  pollTask queue key >>= \case
+    Incomplete -> doTask queue key
     Complete result -> pure result
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startTaskQueue ::
-  forall key a result. (DoTask key a result, HasCallStack)
-  => a
+  forall key queue result. (DoTask key queue result, HasCallStack)
+  => queue
   -> IO (TaskQueue key)
-startTaskQueue a = do
+startTaskQueue queue = do
   (chan :: TaskChan key) <- newChan
   alog DEBUG "Starting background task queue"
   TaskQueue <$> pure chan <*> forkIO (task chan)
   where
     task :: TaskChan key -> IO ()
     task chan = forever $
-      readChan chan >>= doTasks @key a
+      readChan chan >>= doTasks @key queue
 
 -- | This is the background task.
 doTasks ::
-  forall key a result. (DoTask key a result, HasCallStack)
-  => a
+  forall key queue result. (DoTask key queue result, HasCallStack)
+  => queue
   -> [key]
   -> IO ()
-doTasks a tasks = do
+doTasks queue tasks = do
   when (length tasks > 0) $ alog DEBUG ("performing " ++ show (length tasks) ++ " tasks")
-  mapM_ (doTask a) tasks
+  mapM_ (doTask queue) tasks
 
 queueTasks ::
-  forall m s r task.
+  forall m s r key.
   (MonadIO m,
    MonadReader r m,
    MonadState s m,
-   HasLens s (Set task),
-   HasTaskQueue task r,
+   HasLens s (Set key),
+   HasTaskQueue key r,
    HasCallStack)
-  => [task]
+  => [key]
   -> m ()
 queueTasks tasks = do
   TaskQueue chan _ <- maybe (error "Chan Is Missing") pure =<< (taskQueue <$> ask)
   liftIO (writeChan chan tasks)
-  hasLens @_ @(Set task) %= Set.union (Set.fromList tasks)
+  hasLens @_ @(Set key) %= Set.union (Set.fromList tasks)
   alog DEBUG ("enqueuing " ++ show (length tasks) ++ " tasks")
