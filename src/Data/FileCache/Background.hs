@@ -18,12 +18,12 @@ import Control.Concurrent as IO (ThreadId{-, threadDelay-}, newChan, readChan, w
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.Thread (forkIO, Result)
 import Control.Lens
-import Control.Monad (forever)
+import Control.Monad (forever, unless)
 import Control.Monad.Except (liftIO, {-MonadError,-} MonadIO)
 import Control.Monad.Reader (ask, MonadReader)
 import Control.Monad.State (MonadState)
-import Data.ListLike ( length, show )
-import Data.Set as Set (fromList, Set, union)
+import Data.ListLike ( show )
+import Data.Set as Set (difference, fromList, Set, size, toList, union)
 import Extra.Lens (HasLens(hasLens))
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
@@ -86,6 +86,14 @@ queueTasks ::
   -> m ()
 queueTasks tasks = do
   TaskQueue chan _ <- maybe (error "Chan Is Missing") pure =<< (taskQueue <$> ask)
-  liftIO (writeChan chan tasks)
-  hasLens @_ @(Set key) %= Set.union (Set.fromList tasks)
-  alog DEBUG ("enqueuing " ++ show (length tasks) ++ " tasks")
+  oldTasks <- use taskLens
+  let newTasks = Set.difference taskSet oldTasks
+  unless (null newTasks) $ do
+    alog INFO ("Adding " ++ show (Set.size newTasks) ++ " tasks to queue of size " <> show (Set.size oldTasks))
+    liftIO (writeChan chan (Set.toList newTasks))
+    taskLens %= Set.union newTasks
+  where
+    taskSet :: Set key
+    taskSet = Set.fromList tasks
+    taskLens :: Lens' s (Set key)
+    taskLens = hasLens @_ @(Set key)
