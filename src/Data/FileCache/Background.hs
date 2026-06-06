@@ -6,6 +6,7 @@
 module Data.FileCache.Background
   ( TaskChan
   , TaskQueue(TaskQueue)
+  , HasTaskSet(lookTasks, overTasks)
   , HasTaskQueue(taskQueue)
   , startTaskQueue
   , DoTask(doTask, pollTask)
@@ -21,10 +22,8 @@ import Control.Lens
 import Control.Monad (forever, unless)
 import Control.Monad.Except (liftIO, {-MonadError,-} MonadIO)
 import Control.Monad.Reader (ask, MonadReader)
-import Control.Monad.State (MonadState)
 import Data.ListLike ( show )
-import Data.Set as Set (difference, fromList, Set, size, toList, union)
-import Extra.Lens (HasLens(hasLens))
+import Data.Set as Set (delete, difference, fromList, Set, size, toList, union)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
@@ -40,6 +39,11 @@ class (Ord key, Show key) => HasTaskQueue key queue where
 instance (Ord key, Show key) => HasTaskQueue key (TaskQueue key) where taskQueue = Just
 instance (Ord key, Show key) => HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
 
+-- Can we merge this with HasTaskQueue?
+class HasTaskSet key m where
+  lookTasks :: m (Set key)
+  overTasks :: (Set key -> Set key) -> m ()
+
 -- | We need to be able to determine whether a task has successfully
 -- completed so we can abandon further effort to perform it.
 data TaskStatus result = Incomplete | Complete result deriving Show
@@ -51,23 +55,27 @@ class DoTask key queue result | key -> result where
   pollTask _ _ = pure Incomplete
 
 -- | Check whether the task still needs to be done and if so do it.
-checkTask :: (DoTask key queue result, HasCallStack) => queue -> key -> IO result
+checkTask :: forall key queue result m. (DoTask key queue result, Ord key, HasTaskSet key m, MonadIO m, HasCallStack) => queue -> key -> m result
 checkTask queue key =
-  pollTask queue key >>= \case
-    Incomplete -> doTask queue key
-    Complete result -> pure result
+  liftIO (pollTask queue key) >>= \case
+    Incomplete -> liftIO (doTask queue key)
+    Complete result -> do
+      overTasks (Set.delete key)
+      count <- Set.size <$> lookTasks @key
+      alog INFO ("Remaining tasks: " <> show count)
+      pure result
 
 -- | Fork a thread into the background that loops forever reading
 -- (key, shape) pairs from the channel and building the corresponding
 -- image file.
 startTaskQueue ::
-  forall key queue result. (DoTask key queue result, HasCallStack)
+  forall key queue result m. (DoTask key queue result, MonadIO m, HasCallStack)
   => queue
-  -> IO (TaskQueue key)
+  -> m (TaskQueue key)
 startTaskQueue queue = do
-  (chan :: TaskChan key) <- newChan
+  (chan :: TaskChan key) <- liftIO newChan
   alog DEBUG "Starting background task queue"
-  TaskQueue <$> pure chan <*> forkIO (task chan)
+  TaskQueue <$> pure chan <*> liftIO (forkIO (task chan))
   where
     -- This is the background task
     task :: TaskChan key -> IO ()
@@ -75,25 +83,24 @@ startTaskQueue queue = do
       readChan chan >>= mapM_ (doTask @key queue)
 
 queueTasks ::
-  forall m s r key.
+  forall m r key.
   (MonadIO m,
    MonadReader r m,
-   MonadState s m,
-   HasLens s (Set key),
+   HasTaskSet key m,
    HasTaskQueue key r,
    HasCallStack)
   => [key]
   -> m ()
 queueTasks tasks = do
   TaskQueue chan _ <- maybe (error "Chan Is Missing") pure =<< (taskQueue <$> ask)
-  oldTasks <- use taskLens
+  oldTasks <- lookTasks
   let newTasks = Set.difference taskSet oldTasks
   unless (null newTasks) $ do
     alog INFO ("Adding " ++ show (Set.size newTasks) ++ " tasks to queue of size " <> show (Set.size oldTasks))
     liftIO (writeChan chan (Set.toList newTasks))
-    taskLens %= Set.union newTasks
+    overTasks (Set.union newTasks)
   where
     taskSet :: Set key
     taskSet = Set.fromList tasks
-    taskLens :: Lens' s (Set key)
-    taskLens = hasLens @_ @(Set key)
+    -- taskLens :: Lens' s (Set key)
+    -- taskLens = hasLens @_ @(Set key)

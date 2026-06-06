@@ -44,11 +44,10 @@ import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
 import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except (ExceptT, foldM, liftEither, msum, runExceptT)
 import Control.Monad.Reader (ask, liftIO, ReaderT, runReaderT, unless, when)
-import Control.Monad.State (MonadState)
 import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
-import Data.FileCache.Background ( HasTaskQueue(taskQueue), queueTasks )
+import Data.FileCache.Background ( HasTaskQueue(taskQueue), HasTaskSet, queueTasks )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
@@ -75,7 +74,6 @@ import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set, toList )
 import Data.Text as T ( Text, pack )
-import Extra.Lens (HasLens)
 -- import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
 import SeeReason.Errors ( ConvertError(convertError), Member, OneOf, put1, throwMember, tryMember )
@@ -205,7 +203,7 @@ getImageFile flags key = do
 
 -- No MonadFileCacheWriter constraint.
 getImageFileBackground ::
-  forall r s e m task. (MonadFileCache r e m, HasTaskQueue task r, MonadState s m, HasLens s (Set task), HasCallStack)
+  forall r e m task. (MonadFileCache r e m, HasTaskQueue task r, HasTaskSet task m, HasCallStack)
   => (ImageKey -> task)
   -> Set CacheFlag
   -> ImageKey
@@ -553,7 +551,7 @@ buildImageBytesFromFile source key csum _typ = do
 -- | Enqueue 'ImageFile' builds for any of the 'ImageKey's that have a
 -- 'ImageShape' but are not 'ImageReady'.
 queueImageTasks ::
-  forall a e s m task. (MonadFileCache a e m, HasTaskQueue task a, MonadState s m, HasLens s (Set task), HasCallStack)
+  forall a e m task. (MonadFileCache a e m, HasTaskQueue task a, HasTaskSet task m, HasCallStack)
   => (ImageKey -> task)
   -> Set CacheFlag
   -> [ImageKey]
