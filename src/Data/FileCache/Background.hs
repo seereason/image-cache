@@ -8,11 +8,13 @@ module Data.FileCache.Background
   , TaskQueue(TaskQueue)
   , HasTaskSet(lookTasks, overTasks)
   , HasTaskQueue(taskQueue)
+  , HasTasks
   , startTaskQueue
-  , DoTask(doTask, pollTask)
+  , DoTask(doTask, pollTask, TaskResult)
   , TaskStatus(Incomplete, Complete)
   , checkTask
   , queueTasks
+  , MonadFromIO
   ) where
 
 import Control.Concurrent as IO (ThreadId{-, threadDelay-}, newChan, readChan, writeChan)
@@ -20,74 +22,93 @@ import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.Thread (forkIO, Result)
 import Control.Lens
 import Control.Monad (forever, unless)
-import Control.Monad.Except (liftIO, {-MonadError,-} MonadIO)
+import Control.Monad.Catch (MonadCatch, SomeException)
+import Control.Monad.Except (liftIO, MonadError, MonadIO)
 import Control.Monad.Reader (ask, MonadReader)
 import Data.ListLike ( show )
 import Data.Set as Set (delete, difference, fromList, Set, size, toList, union)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Prelude hiding (length, show)
+import SeeReason.Errors (ConvertError, fromIO)
 import SeeReason.Log (alog)
 import System.Log.Logger (Priority(..))
 
 type TaskChan key = Chan [key]
 data TaskQueue key = TaskQueue (TaskChan key) (ThreadId, IO (Result ()))
 
--- | Find the field containing the task queue
-class (Ord key, Show key) => HasTaskQueue key queue where
-  taskQueue :: queue -> Maybe (TaskQueue key)
-instance (Ord key, Show key) => HasTaskQueue key (TaskQueue key) where taskQueue = Just
-instance (Ord key, Show key) => HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
-
--- Can we merge this with HasTaskQueue?
-class HasTaskSet key m where
-  lookTasks :: m (Set key)
-  overTasks :: (Set key -> Set key) -> m ()
-
 -- | We need to be able to determine whether a task has successfully
 -- completed so we can abandon further effort to perform it.
 data TaskStatus result = Incomplete | Complete result deriving Show
 
--- | Class of types that represent tasks.
-class DoTask key queue result | key -> result where
-  doTask :: HasCallStack => queue -> key -> IO result
-  pollTask :: HasCallStack => queue -> key -> IO (TaskStatus result)
-  pollTask _ _ = pure Incomplete
+-- | Find the field containing the task queue
+class (Ord key, Show key) => HasTaskQueue key queue | queue -> key where
+  taskQueue :: queue -> Maybe (TaskQueue key)
+instance (Ord key, Show key) => HasTaskQueue key (TaskQueue key) where taskQueue = Just
+instance (Ord key, Show key) => HasTaskQueue key (a, b, TaskQueue key) where taskQueue = Just . view _3
+
+-- | Class of types that represent tasks.  The task monad is limited
+-- to IO because it occurs inside of 'forkIO'.
+class DoTask key queue | queue -> key where
+  type TaskResult key
+  doTask :: HasCallStack => queue -> key -> IO (TaskResult key)
+  pollTask :: HasCallStack => queue -> key -> IO (TaskStatus (TaskResult key))
+
+-- | Fork a thread into the background that loops forever reading task
+-- keys from the channel and running the corresponding task.
+startTaskQueue ::
+  forall key queue. (DoTask key queue, HasCallStack)
+  => queue
+  -> IO (TaskQueue key)
+startTaskQueue queue = do
+  (chan :: TaskChan key) <- newChan
+  alog DEBUG "Starting background task queue"
+  TaskQueue <$> pure chan <*> forkIO (task chan)
+  where
+    -- This is the background task.  It is limited to IO by forkIO.
+    task :: TaskChan key -> IO ()
+    task chan = forever $
+      readChan chan >>= mapM_ (doTask @key queue)
+
+-- | An enhanced MonadIO that catches synchronous exceptions and adds
+-- them to the error monad.
+type MonadFromIO e m =
+  (MonadIO m,
+   MonadCatch m,
+   MonadError e m,
+   ConvertError SomeException (Either SomeException e))
+
+-- | Maintain and monitor a task queue.
+class MonadFromIO e m => HasTaskSet key e m where
+  lookTasks :: m (Set key)
+  overTasks :: (Set key -> Set key) -> m ()
+
+type HasTasks key queue e m =
+  (HasTaskSet key e m,
+   HasTaskQueue key queue,
+   DoTask key queue)
 
 -- | Check whether the task still needs to be done and if so do it.
-checkTask :: forall key queue result m. (DoTask key queue result, Ord key, HasTaskSet key m, MonadIO m, HasCallStack) => queue -> key -> m result
+checkTask ::
+  forall key queue e m.
+  (DoTask key queue, Ord key,
+   HasTaskSet key e m,
+   HasCallStack) => queue -> key -> m (TaskResult key)
 checkTask queue key =
-  liftIO (pollTask queue key) >>= \case
-    Incomplete -> liftIO (doTask queue key)
+  fromIO (pollTask queue key) >>= \case
+    Incomplete -> fromIO (doTask queue key)
     Complete result -> do
       overTasks (Set.delete key)
       count <- Set.size <$> lookTasks @key
       alog INFO ("Remaining tasks: " <> show count)
       pure result
 
--- | Fork a thread into the background that loops forever reading
--- (key, shape) pairs from the channel and building the corresponding
--- image file.
-startTaskQueue ::
-  forall key queue result m. (DoTask key queue result, MonadIO m, HasCallStack)
-  => queue
-  -> m (TaskQueue key)
-startTaskQueue queue = do
-  (chan :: TaskChan key) <- liftIO newChan
-  alog DEBUG "Starting background task queue"
-  TaskQueue <$> pure chan <*> liftIO (forkIO (task chan))
-  where
-    -- This is the background task
-    task :: TaskChan key -> IO ()
-    task chan = forever $
-      readChan chan >>= mapM_ (doTask @key queue)
-
+-- | Add some tasks to the task queue.
 queueTasks ::
-  forall m r key.
-  (MonadIO m,
+  forall key r e m.
+  (MonadFromIO e m,
    MonadReader r m,
-   HasTaskSet key m,
-   HasTaskQueue key r,
+   HasTasks key r e m,
    HasCallStack)
   => [key]
   -> m ()

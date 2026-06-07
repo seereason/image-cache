@@ -8,15 +8,12 @@ module Data.FileCache.WaitFor
   ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Monad.Catch (MonadCatch, SomeException)
-import Control.Monad.Except (MonadError)
-import Control.Monad.Trans (MonadIO(liftIO))
-import Data.FileCache.Background (DoTask(pollTask), HasTaskQueue, TaskStatus(Incomplete))
+import Data.FileCache.Background (DoTask(pollTask, TaskResult), HasTasks, TaskStatus(Incomplete), MonadFromIO)
 import Data.Foldable (foldlM)
 import Data.Map as Map (filter, insert, keysSet, Map)
 import Data.Set as Set (null, Set, size)
 import GHC.Stack (HasCallStack)
-import SeeReason.Errors (ConvertError, fromIO)
+import SeeReason.Errors (fromIO)
 import SeeReason.Log (alog, {-alogDrop,-} Priority(DEBUG, INFO))
 
 data TaskKeyResult = TaskKeyResult
@@ -25,13 +22,20 @@ data WaitResult =
     NumberIncomplete Int -- ^ n is guaranteed to be more than 0
   | Completed [Int] -- ^ Argument is the remaining timeout schedule
 
+data WaitFor m result =
+  WaitFor
+  { ready :: m Bool -- ^ completion test
+  , nth :: Int -> m () -- ^ Something to do right after the nth wait
+  , done :: [Int] -> m result -- ^ Signal completion, argument is remaining ticks
+  , timeout :: m result -- ^ Signal timeout
+  , ticks :: [Int] -- ^ Timeout schedule (list of microsecond wait times)
+  }
+
 -- | Returns either the number of remaining incomplete tasks after
 -- timeout or the remaining timeout schedule after completion.
 waitForTasks ::
   forall task queue e m.
-  (HasTaskQueue task queue, DoTask task queue TaskKeyResult,
-    MonadIO m, MonadCatch m,
-    MonadError e m, ConvertError SomeException (Either SomeException e),
+  (HasTasks task queue e m,
     HasCallStack)
   => queue -- ^ The queue the tasks have already been added to
   -> [Int] -- ^ Timeout schedule (a list of microsecond wait times)
@@ -55,16 +59,7 @@ waitForTasks queue ticks tasks =
   , ticks = ticks
   }
 
-data WaitFor m result =
-  WaitFor
-  { ready :: m Bool -- ^ completion test
-  , nth :: Int -> m () -- ^ Something to do right after the nth wait
-  , done :: [Int] -> m result -- ^ Signal completion, argument is remaining ticks
-  , timeout :: m result -- ^ Signal timeout
-  , ticks :: [Int] -- ^ Timeout schedule (list of microsecond wait times)
-  }
-
-waitFor :: MonadIO m => WaitFor m WaitResult -> m WaitResult
+waitFor :: (MonadFromIO e m, HasCallStack) => WaitFor m WaitResult -> m WaitResult
 waitFor WaitFor{..} =
   go (zip [1..] ticks)
   where
@@ -72,19 +67,18 @@ waitFor WaitFor{..} =
     go ((n, tick) : more) =
       ifM ready
         (alog INFO "Tasks finished: " >> done (fmap snd more))
-        (alog DEBUG ("tick " <> show n) >> liftIO (threadDelay tick) >> nth n >> go more)
+        (alog DEBUG ("tick " <> show n) >> fromIO (threadDelay tick) >> nth n >> go more)
 
 incomplete ::
   forall task queue e m.
-  (DoTask task queue TaskKeyResult, Ord task,
-   MonadIO m, MonadCatch m,
-   MonadError e m, ConvertError SomeException (Either SomeException e),
+  (DoTask task queue, Ord task,
+   MonadFromIO e m,
    HasCallStack)
   => queue
   -> Set task
   -> m (Set task)
 incomplete queue tasks = do
-  statuses :: Map task (TaskStatus TaskKeyResult) <- setMapM (fromIO . pollTask queue) tasks
+  statuses :: Map task (TaskStatus (TaskResult task)) <- setMapM (fromIO . pollTask queue) tasks
   pure $ Map.keysSet $ Map.filter (\case Incomplete -> True; _ -> False) statuses
 
 -- | 'foldlM' for sets.  Belongs in some Extra module.

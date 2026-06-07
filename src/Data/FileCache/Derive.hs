@@ -47,7 +47,7 @@ import Control.Monad.Reader (ask, liftIO, ReaderT, runReaderT, unless, when)
 import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
-import Data.FileCache.Background ( HasTaskQueue(taskQueue), HasTaskSet, queueTasks )
+import Data.FileCache.Background ( taskQueue, HasTasks, queueTasks )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
@@ -160,7 +160,7 @@ testImageKeys ks = do
 foregroundOrBackground ::
   forall key a e m.
   (MonadFileCacheWriter a e m,
-   HasTaskQueue key a,
+   HasTasks key a (OneOf e) m,
    Member ImageStats e,
    HasCallStack)
   => ([ImageKey] -> m ())
@@ -203,7 +203,7 @@ getImageFile flags key = do
 
 -- No MonadFileCacheWriter constraint.
 getImageFileBackground ::
-  forall r e m task. (MonadFileCache r e m, HasTaskQueue task r, HasTaskSet task m, HasCallStack)
+  forall r e m task. (MonadFileCache r e m, HasTasks task r (OneOf e) m, HasCallStack)
   => (ImageKey -> task)
   -> Set CacheFlag
   -> ImageKey
@@ -551,7 +551,7 @@ buildImageBytesFromFile source key csum _typ = do
 -- | Enqueue 'ImageFile' builds for any of the 'ImageKey's that have a
 -- 'ImageShape' but are not 'ImageReady'.
 queueImageTasks ::
-  forall a e m task. (MonadFileCache a e m, HasTaskQueue task a, HasTaskSet task m, HasCallStack)
+  forall a e m task. (MonadFileCache a e m, HasTasks task a (OneOf e) m, HasCallStack)
   => (ImageKey -> task)
   -> Set CacheFlag
   -> [ImageKey]
