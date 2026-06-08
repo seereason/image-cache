@@ -20,6 +20,7 @@ module Data.FileCache.Background
 import Control.Concurrent as IO (ThreadId{-, threadDelay-}, newChan, readChan, writeChan)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.Thread (forkIO, Result)
+import Control.Exception (AsyncException(ThreadKilled), catch, throwIO)
 import Control.Lens
 import Control.Monad (forever, unless)
 import Control.Monad.Catch (MonadCatch, SomeException)
@@ -81,13 +82,16 @@ startTaskQueue ::
   -> IO (TaskQueue key)
 startTaskQueue queue = do
   (chan :: TaskChan key) <- newChan
-  alog DEBUG "Starting background task queue"
-  TaskQueue <$> pure chan <*> forkIO (task chan)
+  alog INFO "Starting background task queue"
+  TaskQueue <$> pure chan <*> forkIO (task chan `catch` handler)
   where
     -- This is the background task.  It is limited to IO by forkIO.
     task :: TaskChan key -> IO ()
     task chan = forever $
       readChan chan >>= mapM_ (doTask @key queue)
+    handler :: AsyncException -> IO ()
+    handler ThreadKilled = alog INFO "task queue exiting"
+    handler e = throwIO e
 
 -- | Check whether the task still needs to be done and if so do it.
 checkTask ::
