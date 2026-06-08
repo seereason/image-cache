@@ -83,7 +83,6 @@ startTaskQueue queue = do
   (chan :: TaskChan key) <- newChan
   alog INFO "Background task queue starting"
   TaskQueue <$> pure chan <*> forkIO (task chan `catch` handler)
-  alog INFO "Background task queue exiting"
   where
     -- This is the background task.  It is limited to IO by forkIO.
     task :: TaskChan key -> IO ()
