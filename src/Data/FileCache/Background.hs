@@ -1,7 +1,6 @@
 -- Unused code that once did image builds in the background
 
 {-# LANGUAGE DeriveAnyClass, DeriveLift, FunctionalDependencies, GADTs, LambdaCase, OverloadedStrings, PackageImports, RecordWildCards, TemplateHaskell, TupleSections, TypeOperators #-}
-{-# OPTIONS -Werror=unused-imports #-}
 
 module Data.FileCache.Background
   ( TaskChan
@@ -82,16 +81,24 @@ startTaskQueue ::
   -> IO (TaskQueue key)
 startTaskQueue queue = do
   (chan :: TaskChan key) <- newChan
-  alog INFO "Starting background task queue"
+  alog INFO "Background task queue starting"
   TaskQueue <$> pure chan <*> forkIO (task chan `catch` handler)
+  alog INFO "Background task queue exiting"
   where
     -- This is the background task.  It is limited to IO by forkIO.
     task :: TaskChan key -> IO ()
     task chan = forever $
       readChan chan >>= mapM_ (doTask @key queue)
+#if 1
+    handler :: SomeException -> IO ()
+    handler e = do
+      alog INFO ("task queue: e=" <> show e)
+      throwIO e
+#else
     handler :: AsyncException -> IO ()
     handler ThreadKilled = alog INFO "task queue exiting"
     handler e = throwIO e
+#endif
 
 -- | Check whether the task still needs to be done and if so do it.
 checkTask ::
