@@ -19,7 +19,7 @@ module Data.FileCache.Background
 import Control.Concurrent as IO (ThreadId{-, threadDelay-}, newChan, readChan, writeChan)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.Thread (forkIO, Result)
-import Control.Exception (AsyncException(ThreadKilled), catch, throwIO)
+import Control.Exception ({-AsyncException(ThreadKilled),-} catch, throwIO)
 import Control.Lens
 import Control.Monad (forever, unless)
 import Control.Monad.Catch (MonadCatch, SomeException)
@@ -94,6 +94,9 @@ startTaskQueue queue = do
       alog INFO ("task queue: e=" <> show e)
       throwIO e
 #else
+    -- This doesn't help, we need the parent process to catch the kill
+    -- signal and send it to the background queue to make the
+    -- ThreadKilled exception happen.
     handler :: AsyncException -> IO ()
     handler ThreadKilled = alog INFO "task queue exiting"
     handler e = throwIO e
