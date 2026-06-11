@@ -15,12 +15,9 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)
 import Control.Monad.State.Class (MonadState)
 import Control.Monad.RWS.Strict (RWST)
-import Data.FileCache.Background (HasTaskQueue)
+import Data.FileCache.Background (HasTasks)
 import Data.FileCache.FileCacheTop (HasFileCacheTop)
 import Data.FileCache.FileError (FileError)
-import Data.FileCache.ImageKey (ImageKey)
-import Data.Set (Set)
-import Extra.Lens (HasLens)
 import SeeReason.Errors (ConvertError, Member, OneOf)
 
 import Data.FileCache.FileCacheTop (HasCacheAcid)
@@ -39,12 +36,9 @@ type MonadFileCacheType r e m =
 class MonadFileCacheType r e m => MonadFileCache r e m
 
 type MonadFileCacheBG r s e m task =
-  (MonadFileCache r e m, ?task :: ImageKey -> task,
+  (MonadFileCache r e m,
    MonadState s m,
-   HasLens s (Set task),
-    -- Storage where this server thread can record the status of tasks
-    -- we are interested in.
-   HasTaskQueue task r)
+   HasTasks task r (OneOf e) m)
 
 -- | For code that can add things to the cache
 class MonadFileCache r e m => MonadFileCacheWriter r e m

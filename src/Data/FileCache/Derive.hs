@@ -40,16 +40,14 @@ import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
 
 #if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 import Control.Exception (fromException, IOException, SomeException)
-import Control.Lens ( Field1(_1), has, to, view, _Left, _Right, over )
-import Control.Monad (foldM, msum, unless, when)
+import Control.Lens ( Field1(_1), has, _Left, _Right, over )
 import Control.Monad.Catch (MonadCatch)
-import Control.Monad.Except (ExceptT, liftEither, runExceptT)
-import Control.Monad.Reader (ask, liftIO, ReaderT, runReaderT)
-import Control.Monad.State (MonadState)
+import Control.Monad.Except (ExceptT, foldM, liftEither, msum, runExceptT)
+import Control.Monad.Reader (ask, liftIO, ReaderT, runReaderT, unless, when)
 import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
 import Data.ByteString.UTF8 as UTF8 ()
 import Data.Digest.Pure.MD5 ( md5 )
-import Data.FileCache.Background ( HasTaskQueue(taskQueue), queueTasks )
+import Data.FileCache.Background ( HasTasks, queueTasks )
 import Data.FileCache.CacheMap ( ImageCached(ImageCached) )
 import Data.FileCache.File ( File(File, _fileExt, _fileMessages, _fileChksum, _fileSource), FileSource(Derived, ThePath), HasFileExtension(..) )
 import Data.FileCache.FileCache ( cacheLook, cachePut, cachePut_, fileCachePath, fileCachePathIO, HasFilePath )
@@ -76,7 +74,6 @@ import Data.Maybe (mapMaybe)
 import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set, toList )
 import Data.Text as T ( Text, pack )
-import Extra.Lens (HasLens)
 -- import GHC.Stack (callStack, HasCallStack)
 import Prelude hiding (length)
 import SeeReason.Errors ( ConvertError(convertError), Member, OneOf, put1, throwMember, tryMember )
@@ -161,9 +158,9 @@ testImageKeys ks = do
 -- | Decide whether there are enough images to be built that we
 -- need to do them in the background
 foregroundOrBackground ::
-  forall key a e m.
+  forall a e m.
   (MonadFileCacheWriter a e m,
-   HasTaskQueue key a,
+   -- HasTasks key a (OneOf e) m,
    Member ImageStats e,
    HasCallStack)
   => ([ImageKey] -> m ())
@@ -173,10 +170,20 @@ foregroundOrBackground enq ks = do
   alogDrop id INFO ("#ks=" <> show (Foldable.length ks))
   (needed, stats) <- over _1 Map.keysSet <$> testImageKeys ks
   -- let needed = Map.keysSet mp
+  case _shapes stats + Foldable.length (_errors stats) > 20 of
+    True -> do
+      alog DEBUG ("needed=" <> show needed)
+      enq (Set.toList needed)
+      throwMember stats
+    False -> do
+      _ <- getImageFiles mempty needed
+      alog DEBUG ("getImageFiles " <> show needed)
+      pure ()
+#if 0
   view (to (taskQueue @key)) >>= \case
     -- Number of errors does not seem to be a useful heuristic - can
     -- these errors be corrected by waiting?
-    Just _ | _shapes stats + Foldable.length (_errors stats) > 20 -> do
+    _ | _shapes stats + Foldable.length (_errors stats) > 20 -> do
       alog DEBUG ("needed=" <> show needed)
       enq (Set.toList needed)
       throwMember stats
@@ -184,6 +191,7 @@ foregroundOrBackground enq ks = do
       _ <- getImageFiles mempty needed
       alog DEBUG ("getImageFiles " <> show needed)
       pure ()
+#endif
 
 getImageShape ::
   forall r e m. (MonadFileCache r e m, HasCallStack)
@@ -206,7 +214,7 @@ getImageFile flags key = do
 
 -- No MonadFileCacheWriter constraint.
 getImageFileBackground ::
-  forall r s e m task. (MonadFileCache r e m, HasTaskQueue task r, MonadState s m, HasLens s (Set task), HasCallStack)
+  forall r e m task. (MonadFileCache r e m, HasTasks task r (OneOf e) m, HasCallStack)
   => (ImageKey -> task)
   -> Set CacheFlag
   -> ImageKey
@@ -363,6 +371,7 @@ instance ConvertError SomeException (Either SomeException (OneOf E)) where
       msum @[] [fmap put1 (fromException e :: Maybe FileError),
                 fmap put1 (fromException e :: Maybe IOException)]
 
+#if 0
 -- | This is used to implement the image portion of doTask for
 -- whatever the ultimate 'DoTask' sum type is.
 cacheImageFileIO ::
@@ -373,6 +382,7 @@ cacheImageFileIO a key =
     Left e -> alog ERROR ("error building " <> show key <> ": " ++ show e)
     Right (Left e) -> alog ERROR ("error building " <> show key <> ": " ++ show e)
     Right (Right _file) -> alog INFO ("completed " <> show key)
+#endif
 
 -- | Given an 'ImageKey' and 'ImageShape', build the corresponding
 -- 'ImageFile' and write the image file.  This can be used to repair
@@ -554,7 +564,7 @@ buildImageBytesFromFile source key csum _typ = do
 -- | Enqueue 'ImageFile' builds for any of the 'ImageKey's that have a
 -- 'ImageShape' but are not 'ImageReady'.
 queueImageTasks ::
-  forall a e s m task. (MonadFileCache a e m, HasTaskQueue task a, MonadState s m, HasLens s (Set task), HasCallStack)
+  forall a e m task. (MonadFileCache a e m, HasTasks task a (OneOf e) m, HasCallStack)
   => (ImageKey -> task)
   -> Set CacheFlag
   -> [ImageKey]
