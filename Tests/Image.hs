@@ -1,4 +1,5 @@
-{-# LANGUAGE FlexibleInstances, LambdaCase, OverloadedLists, OverloadedStrings, RankNTypes, RecordWildCards, TupleSections, TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances, LambdaCase, OverloadedLists, OverloadedStrings, RankNTypes #-}
+{-# LANGUAGE RecordWildCards, ScopedTypeVariables, TupleSections, TypeFamilies #-}
 
 module Image where
 
@@ -124,10 +125,6 @@ imageTests top acid =
                                    Set.size (FileCache.errors r))) -}
     ]
 
-#if MIN_VERSION_sr_errors(1,19,0)
-type R = (AcidState CacheMap, FileCacheTop)
-#endif
-
 test1 :: FilePath -> Test
 test1 top = TestCase $ do
   (shape :: Either String ImageShape) <- over _Left show <$> runExceptT action2
@@ -139,20 +136,3 @@ test1 top = TestCase $ do
     action = catchMember (makeByteString pdf) (\(Proxy :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
     pdf :: FilePath
     pdf = top </> "data/fbddca395b0912cdfa710f84ab09f317.pdf"
-
--- instance MonadFileCache (AcidState CacheMap, FileCacheTop) ES (RWST R () () (ExceptT (OneOf ES) IO))
-
-{-
-uploadTest :: IO ()
-uploadTest = do
-  -- withLogging DEBUG $
-    withTestCache (run action) >>= \case
-      Left e -> putStrLn ("e=" <> show e)
-      Right ((key, file), (), ()) -> do
-        putStrLn ("key=" <> show key)
-        putStrLn ("file=" <> show file)
-  where
-    action :: FileCacheT R () () (ExceptT (OneOf ES) IO) (ImageKey, ImageFile)
-    action = cacheOriginalFile @FilePath Nothing "sample2.heic"
-    run action acid = runExceptT @(OneOf ES) (runFileCacheT acid () action)
--}
