@@ -111,7 +111,7 @@ imageTests top acid =
         assertEqual "map size" 2 (Map.size _unCacheMap)
     , TestCase $ do
         CacheMap{..} <- query' acid LookMap
-        r <- runReaderT (collectGarbage _unCacheMap) (FileCacheTop "/home/dsf/appraisalscribe3-development/images")
+        r <- runReaderT (collectGarbage _unCacheMap) (FileCacheTop "Tests/cache")
         writeFile "/tmp/gc" (show r)
         let originalIsPNG :: (FilePath, ImageKey) -> Bool
             originalIsPNG (_, key) = case originalKey key of

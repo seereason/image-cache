@@ -34,13 +34,6 @@ import qualified Image
 import Types
 -- import Speed ()
 
-top :: FilePath
-top = "Tests"
-
-cache = top </> "cache"
-files = top </> "data"
-state = cache </> "_state"
-
 main :: IO ()
 main = do
   removePathForcibly cache
