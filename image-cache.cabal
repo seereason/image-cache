@@ -1,5 +1,5 @@
 Name:           image-cache
-Version:        0.49
+Version:        0.50
 License:        AllRightsReserved
 Copyright:      (c) 2014, SeeReason Partners LLC
 Author:         David Fox <dsf@seereason.com>
@@ -126,7 +126,7 @@ test-suite image-cache-tests
     Buildable: False
   else
     Buildable: True
-    Other-Modules: LaTeX
+    Other-Modules: LaTeX, Image, Types
     Build-Depends:
       acid-state,
       base >= 4,

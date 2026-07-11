@@ -12,63 +12,49 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
-module Main (main, uploadTest) where
+module Main (main) where
 
 import Data.FileCache
-import Control.Exception (bracket, fromException, IOException, SomeException)
-import Control.Lens (itraverse, over, _Left)
-import Control.Monad (msum)
-import Control.Monad.Except (ExceptT, runExceptT)
-import Control.Monad.Reader (runReaderT)
-import Control.Monad.RWS (RWST)
+import Control.Exception (bracket)
+import Control.Lens (itraverse)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Acid (AcidState, openLocalStateFrom, closeAcidState)
 import Data.Acid.Abstract (query')
 import Data.FileCache.Acid (LookMap(LookMap))
 import Data.FileCache.CacheMap (CacheMap(CacheMap, _unCacheMap, _requested))
-import Data.FileCache.FileCache as FileCache (collectGarbage, Classified(..), runFileCacheT, FileCacheT)
-import Data.FileCache.FileInfo (fileInfoFromBytes)
-import Data.FileCache.ImageKey (ImageShape)
 import Data.FileCache.Test (tests)
-import Data.FileCache.Upload (cacheOriginalFile)
-import Data.Map as Map (size)
-#if MIN_VERSION_sr_errors(1,19,0)
-import Data.Proxy (Proxy(Proxy))
-#else
-import Data.Proxy (Proxy)
-#endif
-import Data.Set as Set (filter, size)
 import Debug.Trace
-import Extra.Exceptionless (Exceptionless, runExceptionless)
-import qualified LaTeX
-import SeeReason.Errors as Err (catchMember, ConvertError(convertError), put1, throwMember, OneOf)
+import System.Directory (removePathForcibly)
 import System.Exit (exitSuccess, exitFailure)
 import System.FilePath ((</>))
-import System.IO (Handle, hPutStr, hPutStrLn, stderr)
-import System.Log.Handler.Simple (streamHandler)
-import System.Log.Logger (Priority(DEBUG), rootLoggerName, setHandlers, setLevel, updateGlobalLogger)
-import Test.HUnit (assertEqual, Test(TestList, TestCase), runTestTT, Counts(errors, failures))
-import Data.FileCache.Server (makeByteString)
+import Test.HUnit (Test(TestList), runTestTT, Counts(errors, failures))
+
+import qualified LaTeX
+import qualified Image
+import Types
+-- import Speed ()
+
+top :: FilePath
+top = "Tests"
+
+cache = top </> "cache"
+files = top </> "data"
+state = cache </> "_state"
 
 main :: IO ()
-main =
-#if 0
-  withImageCache (\acid -> runTestTTAndExit $
-                   TestList [ LaTeX.tests
-                            , Data.FileCache.Test.tests
-                            -- Need to include test data for this
-                            -- , imageTests acid
-                            ])
-#else
-  runTestTTAndExit $
-    TestList [ LaTeX.tests
-             , Data.FileCache.Test.tests
-             ]
-#endif
+main = do
+  removePathForcibly cache
+  withImageCache cache $ \r@(acid, state) ->
+    runTestTTAndExit $
+      TestList [ LaTeX.tests
+               , Image.tests r
+               , Image.imageTests top acid
+               , Data.FileCache.Test.tests
+               ]
 
 dump :: IO ()
 dump =
-  withImageCache $ \(acid, top) -> do
+  withImageCache cache $ \(acid, state) -> do
     CacheMap{..} <- query' acid LookMap
     itraverse (\key file ->
                   case key of
@@ -77,34 +63,6 @@ dump =
                            ImageOriginal _ PNG -> trace ("key=" <> show key <> " file=" <> show file) (pure file)
                            _ -> pure file) _unCacheMap
     pure ()
-
-withImageCache :: ((AcidState CacheMap, FileCacheTop) -> IO r) -> IO r
-withImageCache f =
-  bracket
-    (openLocalStateFrom
-      (top </> "imageCache")
-      (error $ "Could not open " <> top </> "imageCache"))
-    closeAcidState
-    (f . (, FileCacheTop top))
-  where
-    top = "/home/dsf/appraisalscribe3-development/_state"
-
-withTestCache :: ((AcidState CacheMap, FileCacheTop) -> IO r) -> IO r
-withTestCache f =
-  bracket
-    (openLocalStateFrom top (error $ "Could not open " <> top))
-    closeAcidState
-    (f . (, FileCacheTop top))
-  where
-    top = "_state/imageCache"
-
--- | Set up logging so it writes to stderr.  Note that logging messes
--- up HUnit, do not turn this on while running the test suite.
-withLogging :: MonadIO m => Priority -> m a -> m a
-withLogging lvl io = do
-  applog <- liftIO $ streamHandler stderr lvl
-  liftIO $ updateGlobalLogger rootLoggerName (setLevel lvl . setHandlers [applog])
-  io
 
 runTestTTAndExit :: Test -> IO ()
 runTestTTAndExit test = do
@@ -208,75 +166,8 @@ file1 = TestCase $ do
                     "\t-> Sequent \"universe\" support added (may also help on Pyramids)",
                     "\t-> null pw_shell is dealt with now; default is /bin/sh"]))
 -}
-
-imageTests :: AcidState CacheMap -> Test
-imageTests acid =
-  TestList
-    [ test1
-    , TestCase $ do
-        CacheMap{..} <- query' acid LookMap
-        assertEqual "map size" 81877 (Map.size _unCacheMap)
-    , TestCase $ do
-        CacheMap{..} <- query' acid LookMap
-        r <- runReaderT (collectGarbage _unCacheMap) (FileCacheTop "/home/dsf/appraisalscribe3-development/images")
-        writeFile "/tmp/gc" (show r)
-        let originalIsPNG :: (FilePath, ImageKey) -> Bool
-            originalIsPNG (_, key) = case originalKey key of
-                               ImageOriginal _ PNG -> True
-                               _ -> False
-        assertEqual "gc" "" (show (Set.filter originalIsPNG (knownDerived r)))
-{-      assertEqual "gc" "" (show (Set.size (orphans r),
-                                   Set.size (orphansDerived r),
-                                   Set.size (known r),
-                                   Set.size (knownDerived r),
-                                   Set.size (FileCache.errors r))) -}
-    ]
   where
     -- foo :: Either SomeException (Either SomeException ImageShape) -> Either SomeException ImageShape
     -- foo = either Left (either Left Right)
     -- handle :: SomeException -> IO (Either SomeException ImageShape)
     -- handle e = undefined
-
-type ES = '[IOException, FileError, SomeException]
-
-instance ConvertError SomeException (Either SomeException (OneOf ES)) where
-  convertError e =
-    maybe (Left e) Right $
-      msum @[] [fmap put1 (fromException e :: Maybe IOException),
-                fmap put1 (fromException e :: Maybe FileError)]
-
-#if MIN_VERSION_sr_errors(1,19,0)
-type R = (AcidState CacheMap, FileCacheTop)
-#endif
-
-test1 :: Test
-test1 = TestCase $ do
-  (shape :: Either String ImageShape) <- over _Left show <$> runExceptT action2
-  assertEqual "fileInfoFromBytes" (Right (ImageShape PDF (Left "PDF"))) shape
-  where
-    action2 :: ExceptT (OneOf ES) IO ImageShape
-    action2 = runExceptionless throwMember action
-    action :: Exceptionless (ExceptT (OneOf ES) IO) ImageShape
-#if MIN_VERSION_sr_errors(1,19,0)
-    action = catchMember (makeByteString pdf) (\(Proxy :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
-#else
-    action = catchMember (makeByteString pdf) (\(_ :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
-#endif
-    pdf :: FilePath
-    pdf = "/home/dsf/git/happstack-ghcjs.alpha/happstack-ghcjs-server/test-top/images/fb/fbddca395b0912cdfa710f84ab09f317.pdf"
-
-instance HasFileCacheTop (AcidState CacheMap, FileCacheTop) where fileCacheTop = snd
-instance MonadFileCache (AcidState CacheMap, FileCacheTop) ES (RWST R () () (ExceptT (OneOf ES) IO))
-
-uploadTest :: IO ()
-uploadTest = do
-  withLogging DEBUG $
-    withTestCache (run action) >>= \case
-      Left e -> putStrLn ("e=" <> show e)
-      Right ((key, file), (), ()) -> do
-        putStrLn ("key=" <> show key)
-        putStrLn ("file=" <> show file)
-  where
-    action :: FileCacheT R () () (ExceptT (OneOf ES) IO) (ImageKey, ImageFile)
-    action = cacheOriginalFile @FilePath Nothing "sample2.heic"
-    run action acid = runExceptT @(OneOf ES) (runFileCacheT acid () action)

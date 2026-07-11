@@ -1,17 +1,20 @@
--- | Test the speed of the File creation function.
+-- | Test the speed of the File creation function.  This is bitrotted.
 
 {-# LANGUAGE BangPatterns, ScopedTypeVariables #-}
 {-# OPTIONS -Wall #-}
 
-import Appraisal.AcidCache
-import Appraisal.FileCache
-import Appraisal.Image
+module Speed where
+
+-- import Appraisal.AcidCache
+-- import Appraisal.FileCache
+-- import Appraisal.Image
 import Control.Exception (bracket)
 import Control.Lens (view)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Acid (AcidState, closeAcidState, openLocalStateFrom)
 import Data.Acid.Advanced (query', {-update',-} groupUpdates)
 import Data.Acid.Local (createCheckpointAndClose)
+import Data.FileCache
 import Data.Map as Map (Map, toList)
 import System.Exit (exitWith, ExitCode(ExitSuccess))
 import Data.Time (getCurrentTime, diffUTCTime, getCurrentTime, NominalDiffTime)
