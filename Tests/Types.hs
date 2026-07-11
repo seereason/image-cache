@@ -3,8 +3,9 @@
 module Types where
 
 import Control.Exception ( fromException, IOException, SomeException )
+import Control.Monad (msum)
 import Control.Monad.Catch ( bracket )
-import Control.Monad.Except ( msum, ExceptT, runExceptT )
+import Control.Monad.Except ( ExceptT, runExceptT )
 import Control.Monad.Reader ( ReaderT(runReaderT) )
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Acid ( AcidState, openLocalStateFrom, closeAcidState )
@@ -14,7 +15,7 @@ import SeeReason.Errors as Err ( ConvertError(..), OneOf, Put1(put1) )
 import System.FilePath ( (</>) )
 import System.IO (stderr)
 import System.Log.Handler.Simple (streamHandler)
-import System.Log.Logger (rootLoggerName, setHandlers, setLevel, Priority(DEBUG), updateGlobalLogger)
+import System.Log.Logger (rootLoggerName, setHandlers, setLevel, Priority, updateGlobalLogger)
 
 type ES = '[IOException, FileError, SomeException]
 
