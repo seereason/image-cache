@@ -112,7 +112,7 @@ imageTests top acid =
     , TestCase $ do
         CacheMap{..} <- query' acid LookMap
         r <- runReaderT (collectGarbage _unCacheMap) (FileCacheTop "Tests/cache")
-        writeFile "/tmp/gc" (show r)
+        -- writeFile "/tmp/gc" (show r)
         let originalIsPNG :: (FilePath, ImageKey) -> Bool
             originalIsPNG (_, key) = case originalKey key of
                                ImageOriginal _ PNG -> True
