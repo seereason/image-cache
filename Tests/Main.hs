@@ -27,9 +27,6 @@ import Debug.Trace
 import System.Directory (removePathForcibly)
 import System.Exit (exitSuccess, exitFailure)
 import System.FilePath ((</>))
-import System.IO (stderr)
-import System.Log.Handler.Simple (streamHandler)
-import System.Log.Logger (Priority, rootLoggerName, setHandlers, setLevel, updateGlobalLogger)
 import Test.HUnit (Test(TestList), runTestTT, Counts(errors, failures))
 
 import qualified LaTeX
@@ -66,14 +63,6 @@ dump =
                            ImageOriginal _ PNG -> trace ("key=" <> show key <> " file=" <> show file) (pure file)
                            _ -> pure file) _unCacheMap
     pure ()
-
--- | Set up logging so it writes to stderr.  Note that logging messes
--- up HUnit, do not turn this on while running the test suite.
-withLogging :: MonadIO m => Priority -> m a -> m a
-withLogging lvl io = do
-  applog <- liftIO $ streamHandler stderr lvl
-  liftIO $ updateGlobalLogger rootLoggerName (setLevel lvl . setHandlers [applog])
-  io
 
 runTestTTAndExit :: Test -> IO ()
 runTestTTAndExit test = do

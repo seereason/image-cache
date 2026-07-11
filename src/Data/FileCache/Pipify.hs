@@ -1,4 +1,4 @@
-module Data.FileCache.Pipify (heifConvert, pipify) where
+module Data.FileCache.Pipify ({-heifConvert,-} pipify) where
 
 import Data.List (intercalate)
 import System.Process (showCommandForUser)
@@ -7,9 +7,9 @@ import System.Process (showCommandForUser)
 -- The scale function in ImageIO expects shell commands that it builds into a pipeline.
 -- pipify fills the gap.
 
-heifConvert :: String
-heifConvert = pipify ".heic" ".jpg" hc
-  where hc i o = showCommandForUser "heif-convert"  [i, o]
+-- heifConvert :: String
+-- heifConvert = pipify ".heic" ".jpg" hc
+--   where hc i o = showCommandForUser "heif-convert"  [i, o]
 
 -- | pipify wraps a shell command that only accepts filenames as input/output arguments and constructs
 -- a shell pipeline that reads from stdin, writes to stdout, using tempfiles to construct arguments

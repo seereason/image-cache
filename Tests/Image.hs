@@ -37,13 +37,17 @@ import Extra.Exceptionless (Exceptionless, runExceptionless)
 import GHC.Stack (HasCallStack)
 import SeeReason.Errors (catchMember, ConvertError, Member, OneOf, liftMember, throwMember)
 import System.FilePath ((</>))
+import System.Log.Logger (Priority(DEBUG))
 import Test.HUnit
 
-import Types (ES, AcidT, runAcidT_)
+import Types (ES, AcidT, runAcidT_, withLogging)
 
 tests :: (AcidState CacheMap, FileCacheTop) -> Test
 tests r@(acid, top) =
-  TestCase $ runAcidT_ r (upload "Tests/data/APR_Logo_Symbol_Black.png")
+  TestCase $
+    runAcidT_ r $
+      withLogging DEBUG $
+        upload "Tests/data/APR_Logo_Symbol_Black.png"
 
 instance HasFileCacheTop (AcidState CacheMap, FileCacheTop) where
   fileCacheTop = snd
@@ -76,9 +80,11 @@ upload path = do
       (ImageReady
         {_imageFile =
             File {_fileSource = Derived,
-                  _fileChksum = "e2c15e8791a3136ef418091f920786f0",
-                  _fileMessages = [], _fileExt = ".jpg"},
-         _imageShape = ImageShape {_imageShapeType = JPEG,
+                  _fileChksum = "5353b35ca554264eea56f57e3bf1930b",
+                  _fileMessages = [],
+                  _fileExt = ".jpg" -- wrong
+                 },
+         _imageShape = ImageShape {_imageShapeType = JPEG, -- wrong
                                    _imageShapeRect = Right (makeImageRect 100 100 ZeroHr)}}))
     (key, file, img)
   pure ()

@@ -16,7 +16,7 @@ import Codec.Picture.Metadata (Keys(Exif), lookup)
 import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
 import Control.Exception ( IOException, SomeException )
 import Control.Lens (preview, _Right, _2, to, _Just)
-import Control.Monad.Catch (MonadCatch)
+import Control.Monad.Catch (MonadCatch{-, MonadMask-})
 import Control.Monad.Except (ExceptT, MonadError(throwError), runExceptT)
 import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Generics.Sum (_Ctor)
@@ -24,19 +24,18 @@ import qualified Data.ByteString.Lazy as BS ( ByteString, empty, hPutStr, readFi
 import Data.Char ( isSpace )
 import Data.Default ( def )
 import Data.FileCache.CommandError ( CommandInfo(..) )
+import Data.FileCache.File (fileExtension)
 import Data.FileCache.FileError (FileError(..))
 import Data.FileCache.ImageCrop ( ImageCrop(..), Rotation(..) )
 import Data.FileCache.ImageKey ( ImageShape(..), FileType(..) )
 import Data.FileCache.ImageRect (ImageRect (_imageRectWidth, _imageRectHeight))
 import Data.FileCache.LogException ( logException )
-import Data.FileCache.Pipify ( heifConvert )
 import Data.FileCache.Rational (readRationalMaybe)
-import Data.List ( intercalate )
 import Data.ListLike ( StringLike(show) )
 import Data.Monoid ( (<>) )
 import Data.Ratio (approxRational)
 import Data.String ( fromString )
-import Data.Text as T ( Text )
+import Data.Text as T ( Text, unpack )
 import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Encoding ( decodeUtf8 )
 import qualified SeeReason.Errors as Errors ()
@@ -51,9 +50,9 @@ import SeeReason.Log (alog, alogDrop, Priority(INFO))
 import System.Directory (createDirectoryIfMissing)
 import System.Exit ( ExitCode(..) )
 import System.IO (Handle, hFlush, hClose)
-import System.IO.Temp (emptyTempFile, withSystemTempFile, withTempFile)
+import System.IO.Temp (emptyTempFile, withSystemTempFile, openTempFile, withTempFile{-, writeTempFile-})
 import System.Log.Logger ( Priority(DEBUG, {-INFO,-} ERROR) )
-import System.Process ( {-CmdSpec(RawCommand, ShellCommand), cmdspec,-} proc, shell, showCommandForUser, CreateProcess )
+import System.Process ( {-CmdSpec(RawCommand, ShellCommand), cmdspec,-} proc, {-shell, showCommandForUser,-} CreateProcess )
 import System.Process.ByteString.Lazy as BS ( readCreateProcessWithExitCode )
 import qualified System.Process.ListLike as LL ( ListLikeProcessIO, readCreateProcess, readCreateProcessWithExitCode, showCreateProcessForUser )
 import Text.Parsec
@@ -340,6 +339,7 @@ scaleImage' _ sc _ _ | approxRational (toRational sc) 0.01 == 1 = pure Nothing
 scaleImage' _ _ _ PDF = throwMember @_ @e $ CannotScale PDF
 scaleImage' _ _ _ CSV = throwMember @_ @e $ CannotScale CSV
 scaleImage' _ _ _ Unknown = throwMember @_ @e $ CannotScale Unknown
+{-
 scaleImage' _tmp sc input typ | False = do
     let decoder = case typ of
                     GIF -> showCommandForUser "giftopnm" ["-"]
@@ -365,6 +365,7 @@ scaleImage' _tmp sc input typ | False = do
                     Unknown -> error "scaleImage' - Unexpected file type"
         cmd = intercalate " | " [decoder, scaler, encoder]
     (Just . Bytes) <$> makeByteString (shell cmd, input)
+-}
 scaleImage' tmp sc input typ = do
   -- handle (\(e :: IOException) -> throwMember e) $ do
     liftIO $ createDirectoryIfMissing True tmp
@@ -374,6 +375,7 @@ scaleImage' tmp sc input typ = do
     -- bytestring output is going to be immediately written to a file?
     case typ of
       -- Not yet sure this HEIC code works
+{-
       HEIC | False ->
         case input of
           -- Save the bytestring and convert from temporary file
@@ -384,11 +386,16 @@ scaleImage' tmp sc input typ = do
           -- Convert the heic file to a jpg and then scale that
           Temporary heicpath -> do
             withTempFile tmp "output.XXXXXXXXXX.jpg" $ \outpath _ -> do
-              liftIO $ readCreateProcessWithExitCode (proc "heif-convert" [heicpath, outpath]) ""
+              let cmd = proc "heif-convert" [heicpath, outpath]
+              liftIO (readCreateProcessWithExitCode cmd "") >>= \case
+                (ExitFailure n, _, _) -> error (showCommandForUser cmd <> " -> " <> show n <> "\n  out=" <> show out <> "\n  err=" <> show err)
+                (ExitSuccess, _, _) -> pure ()
               scaleImage' tmp sc (Temporary outpath) JPEG
+-}
       _ ->
         case input of
           Temporary inpath -> do
+            alog DEBUG ("writeResult " <> show inpath)
             writeResult inpath
           Bytes bytes -> do
             withTempFile tmp "input.XXXXXXXXXX" $ \inpath inh -> do
@@ -396,11 +403,12 @@ scaleImage' tmp sc input typ = do
               let cmd = proc "ls" ["-l", tmp]
               (_code, _out, _err) <- fromIO $ readCreateProcessWithExitCode cmd ""
               -- fromIO $ alog INFO (LL.showCreateProcessForUser cmd <> " -> " <> show out)
+              alog DEBUG ("writeResult " <> show inpath)
               writeResult inpath
   where
     writeResult :: FilePath -> ExceptT (OneOf e) IO (Maybe InputOutput)
     writeResult inpath = do
-      outpath <- fromIO $ emptyTempFile tmp "output.XXXXXXXXXX.jpg"
+      outpath <- fromIO $ emptyTempFile tmp ("output.XXXXXXXXXX" <> unpack (fileExtension typ))
       let cmd = vips_resize sc inpath outpath
       alog INFO (LL.showCreateProcessForUser cmd)
       (code, out, err) <- fromIO $ readCreateProcessWithExitCode cmd ""
@@ -414,6 +422,10 @@ scaleImage' tmp sc input typ = do
         ExitSuccess -> do
           -- outbytes <- BS.readFile outpath
           pure $ Just $ Temporary outpath
+
+-- | Version of 'withTempFile' that doesn't delete the temporary.
+_withTempFile :: (MonadIO m{-, MonadMask m-}) => FilePath -> String -> (FilePath -> Handle -> m a) -> m a
+_withTempFile path content f = liftIO (openTempFile path content) >>= \(path', handle) -> f path' handle
 
 editImage' ::
     forall e m. (MonadIO m, MonadCatch m, Member FileError e, Member IOException e, MonadError (OneOf e) m, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)

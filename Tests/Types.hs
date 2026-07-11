@@ -6,11 +6,15 @@ import Control.Exception ( fromException, IOException, SomeException )
 import Control.Monad.Catch ( bracket )
 import Control.Monad.Except ( msum, ExceptT, runExceptT )
 import Control.Monad.Reader ( ReaderT(runReaderT) )
+import Control.Monad.Trans (MonadIO(liftIO))
 import Data.Acid ( AcidState, openLocalStateFrom, closeAcidState )
 import Data.FileCache ( CacheMap(CacheMap), FileCacheTop(FileCacheTop), FileError )
 import Data.Typeable (typeOf)
 import SeeReason.Errors as Err ( ConvertError(..), OneOf, Put1(put1) )
 import System.FilePath ( (</>) )
+import System.IO (stderr)
+import System.Log.Handler.Simple (streamHandler)
+import System.Log.Logger (rootLoggerName, setHandlers, setLevel, Priority(DEBUG), updateGlobalLogger)
 
 type ES = '[IOException, FileError, SomeException]
 
@@ -38,3 +42,10 @@ withImageCache cache f =
       (CacheMap mempty mempty))
     closeAcidState
     (f . (, FileCacheTop cache))
+
+-- | Set up logging so it writes to stderr.
+withLogging :: MonadIO m => Priority -> m a -> m a
+withLogging lvl io = do
+  applog <- liftIO $ streamHandler stderr lvl
+  liftIO $ updateGlobalLogger rootLoggerName (setLevel lvl . setHandlers [applog])
+  io
