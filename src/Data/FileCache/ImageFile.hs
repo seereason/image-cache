@@ -23,7 +23,7 @@ import Data.FileCache.File (File, HasFileExtension(..))
 import Data.FileCache.ImageKey
   (ScaledKey(..), EditedKey(..), UprightKey(..), OriginalKey(..),
    ImageKey(ImageUpright, ImageScaled), shapeFromKey,
-   imageShape, HasFileType(..), HasImageShapeM(..), ImageShape(_imageShapeRect))
+   imageShape, HasFileType(..), HasImageShapeM(..), ImageShape(_imageShapeRect), printerDPI)
 import Data.FileCache.ImageRect (HasImageRect(imageRect))
 import Data.FileCache.ImageSize ( HasImageSize(imageSize), ImageSize, SaneSize(SaneSize) )
 import Data.FileCache.Happstack ()
@@ -81,9 +81,6 @@ instance HasImageRect (ImageSize, ImageReady) where
 instance HasImageShapeM Identity (ImageSize, ImageReady) where
   imageShapeM (size, ready@ImageReady{..}) =
     pure $ shapeFromKey _imageShape (scaledKey size printerDPI ready)
-
-printerDPI :: Rational
-printerDPI = 600.0
 
 instance HasFileExtension ImageReady where
   fileExtension = fileExtension . _imageFile

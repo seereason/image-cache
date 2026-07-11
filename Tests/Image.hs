@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, LambdaCase, OverloadedStrings, RankNTypes, RecordWildCards, TupleSections, TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances, LambdaCase, OverloadedLists, OverloadedStrings, RankNTypes, RecordWildCards, TupleSections, TypeFamilies #-}
 
 module Image where
 
@@ -12,8 +12,8 @@ import Data.Acid.Abstract (query')
 import Data.FileCache (CacheMap(CacheMap),
                        File(..),
                        FileCacheTop(FileCacheTop),
-                       FileSource(ThePath),
-                       FileType(PNG, PDF),
+                       FileSource(Derived, ThePath),
+                       FileType(PNG, PDF, JPEG),
                        HasCacheAcid,
                        HasFileCacheTop(fileCacheTop),
                        ImageFile(ImageFileReady),
@@ -27,14 +27,15 @@ import Data.FileCache.CacheMap (CacheMap(CacheMap, _unCacheMap, _requested))
 import Data.FileCache.FileCache (cachePut, collectGarbage, FileCacheT, knownDerived, runFileCacheT)
 import Data.FileCache.FileCacheTop (CacheAcid)
 import Data.FileCache.FileInfo (fileInfoFromBytes)
-import Data.FileCache.Server (makeByteString, LookMap(LookMap), originalKey)
+import Data.FileCache.ImageKey (thumbKey)
+import Data.FileCache.Server (makeByteString, LookMap(LookMap), originalKey, getImageFile)
 import Data.FileCache.Upload (cacheOriginalFile)
 import Data.Map as Map (size)
 import Data.Proxy (Proxy(Proxy))
 import Data.Set as Set (filter)
 import Extra.Exceptionless (Exceptionless, runExceptionless)
 import GHC.Stack (HasCallStack)
-import SeeReason.Errors (catchMember, ConvertError, Member, OneOf, throwMember)
+import SeeReason.Errors (catchMember, ConvertError, Member, OneOf, liftMember, throwMember)
 import System.FilePath ((</>))
 import Test.HUnit
 
@@ -42,8 +43,7 @@ import Types (ES, AcidT, runAcidT_)
 
 tests :: (AcidState CacheMap, FileCacheTop) -> Test
 tests r@(acid, top) =
-  TestCase $ do
-    runAcidT_ r (upload "Tests/data/APR_Logo_Symbol_Black.png")
+  TestCase $ runAcidT_ r (upload "Tests/data/APR_Logo_Symbol_Black.png")
 
 instance HasFileCacheTop (AcidState CacheMap, FileCacheTop) where
   fileCacheTop = snd
@@ -61,6 +61,7 @@ upload ::
 upload path = do
   (key, file) <- cacheOriginalFile (Just (ThePath path)) path
   cachePut key (Right file)
+  img <- derive (thumbKey key)
   liftIO $ assertEqual "cache 1"
     (ImageOriginal "a5bf499452b0dcdb203dd67ae0e0cf6e" PNG,
      ImageFileReady
@@ -70,13 +71,29 @@ upload path = do
                   _fileChksum = "a5bf499452b0dcdb203dd67ae0e0cf6e",
                   _fileMessages = [], _fileExt = ".png"},
          _imageShape = ImageShape {_imageShapeType = PNG,
-                                   _imageShapeRect = Right (makeImageRect 240 240 ZeroHr)}}))
-    (key, file)
+                                   _imageShapeRect = Right (makeImageRect 240 240 ZeroHr)}}),
+     ImageFileReady
+      (ImageReady
+        {_imageFile =
+            File {_fileSource = Derived,
+                  _fileChksum = "e2c15e8791a3136ef418091f920786f0",
+                  _fileMessages = [], _fileExt = ".jpg"},
+         _imageShape = ImageShape {_imageShapeType = JPEG,
+                                   _imageShapeRect = Right (makeImageRect 100 100 ZeroHr)}}))
+    (key, file, img)
   pure ()
-{-
-    path :: FilePath
-    path = "Tests/data/APR_Logo_Symbol_Black (1).png"
--}
+
+derive ::
+  forall r m.
+  (r ~ (AcidState CacheMap, FileCacheTop),
+   -- HasCacheAcid r,
+   -- HasFileCacheTop r,
+   MonadIO m,
+   MonadCatch m,
+   -- ConvertError SomeException (Either SomeException (OneOf ES))
+   HasCallStack)
+  => ImageKey -> ReaderT r (ExceptT (OneOf ES) m) ImageFile
+derive key = getImageFile [] key >>= either throwMember pure
 
 imageTests :: FilePath -> AcidState CacheMap -> Test
 imageTests top acid =
@@ -84,7 +101,7 @@ imageTests top acid =
     [ test1 top
     , TestCase $ do
         CacheMap{..} <- query' acid LookMap
-        assertEqual "map size" 1 (Map.size _unCacheMap)
+        assertEqual "map size" 2 (Map.size _unCacheMap)
     , TestCase $ do
         CacheMap{..} <- query' acid LookMap
         r <- runReaderT (collectGarbage _unCacheMap) (FileCacheTop "/home/dsf/appraisalscribe3-development/images")
