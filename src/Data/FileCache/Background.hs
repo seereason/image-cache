@@ -124,7 +124,7 @@ checkTask queue key =
 -- a completed task an inexpensive operation.
 queueTasks ::
   forall key r e m.
-  (MonadFromIO e m,
+  (-- MonadFromIO e m,
    MonadReader r m,
    HasTasks key r e m,
    HasCallStack)

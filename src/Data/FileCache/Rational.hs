@@ -22,10 +22,8 @@ module Data.FileCache.Rational
   ) where
 
 import Control.Lens (Iso', iso, preview, Prism', prism', review)
-import Control.Monad.Fail (MonadFail)
 import Data.Fixed (E6, Fixed, showFixed)
 import Data.ListLike (fromString, toString)
-import Data.Monoid ((<>))
 import Data.Ratio (approxRational, denominator, numerator, Ratio)
 import qualified Data.Ratio ((%))
 import Data.Text (pack, Text, strip)

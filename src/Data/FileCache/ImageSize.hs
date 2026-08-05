@@ -21,14 +21,13 @@ module Data.FileCache.ImageSize
   ) where
 
 import Control.Applicative ((<|>))
-import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType, ViewType), pathInstances, Value(..) )
+import Control.Lens.Path ( HOP(FIELDS), HopType(ViewType), pathInstances, Value(..) )
 import Control.Monad (ap)
 import Control.Monad.Except (throwError)
 import Control.Lens ( iso, _Show )
-import Control.Lens.Path ( Value(hops), View(..), viewIso )
+import Control.Lens.Path ( View(..), viewIso )
 import Data.Data ( Data )
 import Data.FileCache.Rational ((%), showRational)
-import Data.Monoid ( (<>) )
 import Data.SafeCopy ( safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( Text, pack, unpack )
@@ -36,7 +35,10 @@ import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+#if MIN_VERSION_template_haskell(2,17,0)
+#else
 import Web.Routes.TH ( derivePathInfo )
+#endif
 
 #if __GHCJS__ || defined(javascript_HOST_ARCH)
 import Control.Lens (ReifiedLens(Lens), ReifiedPrism(Prism))
@@ -112,7 +114,7 @@ data Units
     = Inches
     | Cm
     | Points
-    deriving (Generic, Eq, Ord, Enum, Bounded, Data, Typeable, Read, Show)
+    deriving (Generic, Eq, Ord, Enum, Bounded, Data, Read, Show)
 
 instance View Units where type ViewType Units = Text; _View = viewIso _Show Inches . iso pack unpack
 instance SafeCopy Units where version = 0

@@ -13,7 +13,7 @@ module Data.FileCache.ImageIO
 
 import Codec.Picture.Jpg (decodeJpegWithMetadata)
 import Codec.Picture.Metadata (Keys(Exif), lookup)
-import Codec.Picture.Metadata.Exif (ExifData(..), ExifTag(TagOrientation))
+import Codec.Picture.Metadata.Exif (ExifTag(TagOrientation))
 import Control.Exception ( IOException, SomeException )
 import Control.Lens (preview, _Right, _2, to, _Just)
 import Control.Monad.Catch (MonadCatch{-, MonadMask-})
@@ -32,14 +32,12 @@ import Data.FileCache.ImageRect (ImageRect (_imageRectWidth, _imageRectHeight))
 import Data.FileCache.LogException ( logException )
 import Data.FileCache.Rational (readRationalMaybe)
 import Data.ListLike ( StringLike(show) )
-import Data.Monoid ( (<>) )
 import Data.Ratio (approxRational)
 import Data.String ( fromString )
 import Data.Text as T ( Text, unpack )
 import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Encoding ( decodeUtf8 )
 import qualified SeeReason.Errors as Errors ()
-import GHC.Generics (Generic)
 import GHC.Stack (callStack, HasCallStack)
 import Language.Haskell.TH.Instances ()
 import Network.URI ( URI(..), uriToString )
@@ -326,7 +324,7 @@ vips_resize sc fin fout = proc "vips" ["resize", fin, fout, showFFloat (Just 6) 
 -- moved to another position.
 scaleImage' ::
   forall e.
-  (Member FileError e, Member IOException e, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
+  (Member FileError e, ConvertError SomeException (Either SomeException (OneOf e)), HasCallStack)
   => FilePath
   -> Double
   -> InputOutput

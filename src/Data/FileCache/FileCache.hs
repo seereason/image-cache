@@ -35,7 +35,6 @@ import Data.FileCache.FileError
 import Data.FileCache.ImageFile
 import Data.FileCache.ImageKey
 import Data.List (stripPrefix)
-import Data.Monoid ( (<>) )
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Proxy ( Proxy )

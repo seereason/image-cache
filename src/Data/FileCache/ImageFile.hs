@@ -28,7 +28,6 @@ import Data.FileCache.ImageKey
 import Data.FileCache.ImageRect (HasImageRect(imageRect))
 import Data.FileCache.ImageSize ( HasImageSize(imageSize), ImageSize, SaneSize(SaneSize) )
 import Data.FileCache.Happstack ()
-import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Typeable ( Typeable )

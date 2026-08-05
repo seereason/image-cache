@@ -37,12 +37,12 @@ import Data.SafeCopy (SafeCopy(version, kind), extension, Migrate(MigrateFrom, m
 import Data.Serialize ( Serialize(..) )
 import GHC.Generics ( Generic )
 import GHC.Stack (CallStack, callStack, emptyCallStack, HasCallStack)
+import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), prettyShow, text )
 
 #if !__GHCJS__ && !defined(javascript_HOST_ARCH)
 import Control.Exception (fromException, IOException, SomeException)
 import Control.Lens ( Field1(_1), has, _Left, _Right, over )
 import Control.Monad (foldM, msum, unless, when)
-import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Except ({-ExceptT,-} liftEither, runExceptT)
 import Control.Monad.Reader (ask, liftIO{-, ReaderT, runReaderT-})
 import qualified Data.ByteString.Lazy as BS ( ByteString, length, readFile )
@@ -72,7 +72,6 @@ import Data.Generics.Sum ( _Ctor )
 import Data.Map.Strict as Map ( filter, keysSet, Map, size, toList, union )
 import Data.Map.Strict as Map (fromSet, insert)
 import Data.Maybe (mapMaybe)
-import Data.Monoid ( (<>) )
 import Data.Set as Set ( member, Set, toList )
 import Data.Text as T ( Text, pack )
 -- import GHC.Stack (callStack, HasCallStack)
@@ -84,7 +83,6 @@ import System.FilePath ((</>), takeDirectory)
 import System.FilePath.Extra ( writeFileReadable )
 import System.Log.Logger ( Priority(..) )
 import System.Posix.Files (createLink, removeLink)
-import Text.PrettyPrint.HughesPJClass ( prettyShow )
 #endif
 
 -- * ImageStats
@@ -102,6 +100,7 @@ data ImageStats
 instance Value ImageStats where hops _ = []
 instance SafeCopy ImageStats where version = 1; kind = extension
 instance Serialize ImageStats where get = safeGet; put = safePut
+instance Pretty ImageStats where pPrint = text . show
 
 instance Migrate ImageStats where
   type MigrateFrom ImageStats = ImageStats_0
@@ -389,7 +388,7 @@ cacheImageFileIO a key =
 -- 'ImageFile' and write the image file.  This can be used to repair
 -- missing cache files.
 buildImageFile ::
-  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, {-ConvertError SomeException (Either SomeException (OneOf e)),-} HasCallStack)
+  forall r e m. (MonadFileCacheWriter r e m, {-ConvertError SomeException (Either SomeException (OneOf e)),-} HasCallStack)
   => ImageKey -> ImageShape -> m ImageFile
 buildImageFile key shape = do
   alog DEBUG ("key=" <> show key)
@@ -421,7 +420,7 @@ installCacheFile to (Temporary from) = liftIO $ do
   renameFile from to
 
 repairDamagedCache ::
-  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
   => FilePath -> BS.ByteString -> m ()
 repairDamagedCache path bs = do
   -- The cached file exists.
@@ -441,7 +440,7 @@ repairDamagedCache path bs = do
       alog WARNING ("Cache file for new key already exists: " <> show path)
 
 hardLinkCanonicalImage ::
-  forall r e m. (MonadCatch m, MonadFileCacheWriter r e m, HasCallStack)
+  forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
   => FilePath -> ImageKey -> ImageFile -> BS.ByteString -> m ()
 hardLinkCanonicalImage path key' img bs = do
   path' <- fileCachePathIO (ImageCached key' img) -- the equivalent file
@@ -459,7 +458,7 @@ hardLinkCanonicalImage path key' img bs = do
 
 -- | Retrieve the 'ByteString' associated with an 'ImageKey'.
 buildImageBytes ::
-  forall r e m. (MonadCatch m, MonadFileCache r e m, {-ConvertError SomeException (Either SomeException (OneOf e)),-} HasCallStack)
+  forall r e m. (MonadFileCache r e m, {-ConvertError SomeException (Either SomeException (OneOf e)),-} HasCallStack)
   => Maybe FileSource -- ^ Where the original comes from
   -> ImageKey -- ^ Description of the derived image
   -> m (ImageKey, InputOutput) -- ^ The revised ImageKey and the final image

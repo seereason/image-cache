@@ -66,7 +66,6 @@ import Data.FileCache.ImageRect ( HasImageRect(imageRect), ImageRect, makeImageR
 import Data.FileCache.ImageSize ( HasImageSize(..), ImageSize(..), Dimension(TheHeight, TheWidth, TheArea), Units(Inches, Cm) )
 import Data.FileCache.Rational ( approx, showRational, fromRat )
 import Data.Maybe ( fromMaybe )
-import Data.Monoid ( (<>) )
 import Data.SafeCopy ( SafeCopy(kind), base, extension, Migrate(..), safeGet, safePut, SafeCopy(version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text ( pack, span, Text, unpack )

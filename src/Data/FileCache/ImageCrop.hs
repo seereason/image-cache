@@ -15,21 +15,24 @@ module Data.FileCache.ImageCrop
   ) where
 
 import Control.Applicative ((<|>))
-import Control.Lens.Path ( HOP(FIELDS), HopType(CtorType, RecType), pathInstances, Value(..), CtorConstraints, ConstructorPosTuple )
+import Control.Lens.Path ( HOP(FIELDS), pathInstances, Value(..) )
 import Control.Monad (ap)
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.Default ( Default(def) )
-import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text (pack)
-import Data.Typeable (Typeable, typeRep)
+import Data.Typeable (Typeable)
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
 import "th-lift" Language.Haskell.TH.Lift (Lift)
 import Text.PrettyPrint.HughesPJClass ( Pretty(pPrint), text )
+
+#if MIN_VERSION_template_haskell(2,17,0)
+#else
 import Web.Routes.TH ( derivePathInfo )
+#endif
 
 #if __GHCJS__ || defined(javascript_HOST_ARCH)
 import Control.Lens (ReifiedLens(Lens), ReifiedPrism(Prism))

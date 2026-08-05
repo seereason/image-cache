@@ -23,11 +23,9 @@ import Control.Lens.Path ( HOP(FIELDS, CTOR), pathInstances )
 import Control.Monad.Except (throwError)
 import Data.Data ( Data )
 import Data.FileCache.Happstack ( ContentType(..) )
-import Data.Monoid ( (<>) )
 import Data.SafeCopy ( base, safeGet, safePut, SafeCopy(kind, version) )
 import Data.Serialize ( Serialize(..) )
 import Data.Text (Text, unpack)
-import Data.Typeable ( Typeable )
 import GHC.Generics ( Generic )
 import GHC.Stack (callStack)
 import Language.Haskell.TH.Instances ()
@@ -61,7 +59,6 @@ instance Serialize File where get = safeGet; put = safePut
 deriving instance Show File
 deriving instance Read File
 deriving instance Data File
-deriving instance Typeable File
 deriving instance Lift File
 instance HasFileChecksum File where fileChecksum = _fileChksum
 instance HasFileExtension File where fileExtension = _fileExt
@@ -84,7 +81,6 @@ instance Serialize FileSource where get = safeGet; put = safePut
 deriving instance Show FileSource
 deriving instance Read FileSource
 deriving instance Data FileSource
-deriving instance Typeable FileSource
 deriving instance Lift FileSource
 
 #if ARBITRARY
