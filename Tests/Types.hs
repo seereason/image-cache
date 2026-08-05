@@ -17,6 +17,13 @@ import System.IO (stderr)
 import System.Log.Handler.Simple (streamHandler)
 import System.Log.Logger (rootLoggerName, setHandlers, setLevel, Priority, updateGlobalLogger)
 
+top :: FilePath
+top = "Tests"
+
+cache = top </> "cache"
+files = top </> "data"
+state = top </> "_state"
+
 type ES = '[IOException, FileError, SomeException]
 
 instance ConvertError SomeException (Either SomeException (OneOf ES)) where
@@ -42,7 +49,7 @@ withImageCache cache f =
       (cache </> "_state")
       (CacheMap mempty mempty))
     closeAcidState
-    (f . (, FileCacheTop cache))
+    (f . (, FileCacheTop (cache </> "images")))
 
 -- | Set up logging so it writes to stderr.
 withLogging :: MonadIO m => Priority -> m a -> m a
