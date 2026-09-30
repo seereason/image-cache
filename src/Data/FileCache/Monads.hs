@@ -1,4 +1,4 @@
-#if !__GHCJS__ && !defined(javascript_HOST_ARCH)
+#if !__GHCJS__ && !(defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 {-# LANGUAGE ImplicitParams #-}
 
 module Data.FileCache.Monads
