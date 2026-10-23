@@ -82,7 +82,7 @@ upload path = do
         {_imageFile =
             File {_fileSource = Derived,
                   -- This was "5353b35ca554264eea56f57e3bf1930b" on the older vips, something changed.
-                  _fileChksum = "5b4d88f82c87c5f0ae25474dcb70cb4a"
+                  _fileChksum = "5b4d88f82c87c5f0ae25474dcb70cb4a",
                   _fileMessages = [],
                   _fileExt = ".jpg" -- wrong
                  },
