@@ -136,8 +136,16 @@ scaleImageRect sz dpi rect =
 -- |Given the desired DPI and image dimensions, return the factor by
 -- which an image should be scaled.  Result of Nothing means the scale
 -- is pathological.
+--
+-- The factor is never more than 1.  Enlarging adds pixels but no
+-- detail -- whoever displays the image sizes it anyway -- and a small
+-- PNG blown up to 600 dpi is a file ten times the size that xdvipdfmx
+-- takes seconds apiece to compress.
 scaleFromDPI :: HasCallStack => ImageSize -> Rational -> ImageRect -> Maybe Rational
-scaleFromDPI sz dpi (ImageRect {_imageRectHeight = h, _imageRectWidth = w}) =
+scaleFromDPI sz dpi rect = min 1 <$> scaleFromDPI' sz dpi rect
+
+scaleFromDPI' :: HasCallStack => ImageSize -> Rational -> ImageRect -> Maybe Rational
+scaleFromDPI' sz dpi (ImageRect {_imageRectHeight = h, _imageRectWidth = w}) =
   case _dim sz of
     _ | _size sz < 0.000001 || _size sz > 1000000.0 -> Nothing
     TheHeight | h == 0 -> Nothing
