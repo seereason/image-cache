@@ -18,14 +18,17 @@ import Data.FileCache (CacheMap(CacheMap),
                        HasCacheAcid,
                        HasFileCacheTop(fileCacheTop),
                        ImageFile(ImageFileReady),
-                       ImageKey(ImageOriginal),
+                       ImageKey(ImageOriginal, ImageScaled),
+                       ImageSize(ImageSize), Dimension(TheArea), Units(Inches),
+                       ImageCached(ImageCached),
+                       HasImageRect(imageRect),
                        ImageReady(..),
                        ImageShape(..),
                        makeImageRect,
                        MonadFileCache,
                        Rotation(ZeroHr))
 import Data.FileCache.CacheMap (CacheMap(CacheMap, _unCacheMap, _requested))
-import Data.FileCache.FileCache (cachePut, collectGarbage, FileCacheT, knownDerived, runFileCacheT)
+import Data.FileCache.FileCache (cachePut, collectGarbage, FileCacheT, fileCachePathIO, knownDerived, runFileCacheT)
 import Data.FileCache.FileCacheTop (CacheAcid)
 import Data.FileCache.FileInfo (fileInfoFromBytes)
 import Data.FileCache.ImageKey (thumbKey)
@@ -136,3 +139,34 @@ test1 top = TestCase $ do
     action = catchMember (makeByteString pdf) (\(Proxy :: Proxy ES) (e :: IOException) -> throwMember e) >>= fileInfoFromBytes
     pdf :: FilePath
     pdf = top </> "data/fbddca395b0912cdfa710f84ab09f317.pdf"
+
+-- | A record left from when scaling could enlarge: it says the screen
+-- size of a 240x240 original at 600 dpi is 2400x2400.  Looking it up
+-- has to rebuild it, which now leaves the original's pixels alone.
+enlargedTests :: (AcidState CacheMap, FileCacheTop) -> Test
+enlargedTests r =
+  TestCase $
+    runAcidT_ r $
+      withLogging DEBUG $ do
+        (key, _file) <- cacheOriginalFile (Just (ThePath path)) path
+        let big = ImageScaled (ImageSize TheArea 15 Inches) 600 key
+            stale = ImageFileReady
+                      (ImageReady
+                        { _imageFile = File { _fileSource = Derived
+                                            , _fileChksum = "stale"
+                                            , _fileMessages = []
+                                            , _fileExt = ".png" }
+                        , _imageShape = ImageShape { _imageShapeType = PNG
+                                                   , _imageShapeRect = Right (makeImageRect 2400 2400 ZeroHr) } })
+        stalePath <- fileCachePathIO (ImageCached big stale)
+        liftIO $ writeFile stalePath "stale"
+        cachePut big (Right stale)
+        img <- derive big
+        liftIO $ assertEqual "enlarged record rebuilt at the original size"
+          (Right (makeImageRect 240 240 ZeroHr)) (imageRect img)
+        liftIO $ assertEqual "enlarged record rebuilt from the original's bytes"
+          (Just "a5bf499452b0dcdb203dd67ae0e0cf6e") (fileChksum img)
+  where
+    path = "Tests/data/APR_Logo_Symbol_Black.png"
+    fileChksum (ImageFileReady ImageReady{..}) = Just (_fileChksum _imageFile)
+    fileChksum _ = Nothing

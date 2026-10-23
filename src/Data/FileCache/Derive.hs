@@ -61,7 +61,7 @@ import Data.FileCache.ImageKey
   ( ImageKey(..), ImagePath(ImagePath), originalKey, shapeFromKey,
     HasFileType(imageType), FileType, imageShape, HasImageShapeM(imageShapeM),
     ImageShape(_imageShapeType) )
-import Data.FileCache.ImageRect (HasImageRect(imageRect), scaleFromDPI)
+import Data.FileCache.ImageRect (HasImageRect(imageRect), ImageRect(_imageRectWidth, _imageRectHeight), scaleFromDPI)
 import Data.FileCache.Monads ( MonadFileCache, MonadFileCacheWriter )
 import Data.FileCache.Rational (fromRat)
 import Data.FileCache.Upload ( cacheOriginalFile )
@@ -269,7 +269,7 @@ cacheImageShape _ _ (Just (Right (ImageFileShape shape))) = do
   -- alog DEBUG ("key=" ++ prettyShow key ++ " (shape)")
   -- This value shouldn't be here in normal operation
   return (Right (ImageFileShape shape))
-cacheImageShape _ key (Just (Right (ImageFileReady img@ImageReady{..}))) = do
+cacheImageShape flags key (Just (Right (ImageFileReady img@ImageReady{..}))) = do
   -- Final validation - does the file we are supposed to have
   -- created in the previous case actually exist?
   path <- fileCachePath (ImagePath key)
@@ -279,9 +279,14 @@ cacheImageShape _ key (Just (Right (ImageFileReady img@ImageReady{..}))) = do
       -- Return the shape so the system can regenerate this file
       -- pure $ Left $ MissingDerivedEntry key
       pure $ Right $ ImageFileShape _imageShape
-    True -> do
-      -- alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
-      pure $ Right $ ImageFileReady img
+    True ->
+      enlarged key _imageShape >>= \case
+        True -> do
+          alog NOTICE ("rebuilding enlarged image: " <> prettyShow key)
+          cacheImageShape flags key Nothing
+        False -> do
+          -- alog DEBUG ("cacheImageShape key=" ++ prettyShow key ++ " (hit)")
+          pure $ Right $ ImageFileReady img
 cacheImageShape flags key (Just (Left _))
   | Set.member RetryErrors flags = do
       -- alog DEBUG ("key=" ++ prettyShow key ++ " (retry)")
@@ -293,6 +298,30 @@ cacheImageShape flags key (Just (Left _))
 cacheImageShape flag key (Just (Left _e)) = do
   -- alog DEBUG ("key=" ++ prettyShow key ++ " (e=" <> show e <> ")")
   cacheImageShape flag key Nothing
+
+-- | Was this image built with more pixels than its key now calls for?
+-- Until 'scaleFromDPI' was capped at 1, a small original asked for at
+-- a large size and high DPI was scaled up -- a 574x538 PNG came out
+-- 2400x2250.  Looking such an image up rebuilds it, so the cache
+-- repairs itself one image at a time as they are used.  The pixel
+-- count is compared rather than the sides, which a rotation swaps.
+enlarged ::
+  forall r e m. (MonadFileCache r e m, HasCallStack)
+  => ImageKey
+  -> ImageShape
+  -> m Bool
+enlarged (ImageOriginal _ _) _ = pure False
+enlarged key stored =
+  tryMember @FileError (buildImageShape key) >>= \case
+    Left _ -> pure False
+    Right expected ->
+      pure $ case (area <$> imageRect stored, area <$> imageRect expected) of
+        (Right s, Right e) -> s * 100 > e * 101
+        _ -> False
+  where
+    area :: ImageRect -> Integer
+    area r = toInteger (_imageRectWidth r) * toInteger (_imageRectHeight r)
+    _ = callStack
 
 -- | These are meant to be inexpensive operations that determine the
 -- shape of the desired image, with the actual work of building them
