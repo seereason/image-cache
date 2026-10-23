@@ -43,6 +43,7 @@ main = do
                , Image.tests r
                , Image.imageTests top acid
                , Data.FileCache.Test.tests
+               , Image.enlargedTests r
                ]
 
 dump :: IO ()
