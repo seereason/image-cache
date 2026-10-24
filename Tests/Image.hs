@@ -18,7 +18,7 @@ import Data.FileCache (CacheMap(CacheMap),
                        HasCacheAcid,
                        HasFileCacheTop(fileCacheTop),
                        ImageFile(ImageFileReady),
-                       ImageKey(ImageOriginal, ImageScaled),
+                       ImageKey(ImageOriginal, ImageScaled, ImageUpright),
                        ImageSize(ImageSize), Dimension(TheArea), Units(Inches),
                        ImageCached(ImageCached),
                        HasImageRect(imageRect),
@@ -33,6 +33,8 @@ import Data.FileCache.FileCacheTop (CacheAcid)
 import Data.FileCache.FileInfo (fileInfoFromBytes)
 import Data.FileCache.ImageKey (thumbKey)
 import Data.FileCache.Server (makeByteString, LookMap(LookMap), originalKey, getImageFile)
+import Data.FileCache.Derive (testImageKeys)
+import qualified Data.Map as Map (keys)
 import Data.FileCache.Upload (cacheOriginalFile)
 import Data.Map as Map (size)
 import Data.Proxy (Proxy(Proxy))
@@ -170,3 +172,32 @@ enlargedTests r =
     path = "Tests/data/APR_Logo_Symbol_Black.png"
     fileChksum (ImageFileReady ImageReady{..}) = Just (_fileChksum _imageFile)
     fileChksum _ = Nothing
+
+-- | Once an image is built, looking it up again finds it ready.
+stableTests :: (AcidState CacheMap, FileCacheTop) -> Test
+stableTests r =
+  TestCase $
+    runAcidT_ r $
+      withLogging DEBUG $ do
+        (key, _file) <- cacheOriginalFile (Just (ThePath path)) path
+        let small = ImageScaled (ImageSize TheArea (1/2) Inches) 100 key
+        _built <- derive small
+        (needed, _stats) <- testImageKeys [small]
+        liftIO $ assertEqual "built image stays ready" [] (Map.keys needed)
+  where
+    path = "Tests/data/APR_Logo_Symbol_Black.png"
+
+-- | The same for the kind of key a report's figures use: a JPEG,
+-- uprighted, then scaled down.
+stableJpegTests :: (AcidState CacheMap, FileCacheTop) -> Test
+stableJpegTests r =
+  TestCase $
+    runAcidT_ r $
+      withLogging DEBUG $ do
+        (key, _file) <- cacheOriginalFile (Just (ThePath path)) path
+        let fig = ImageScaled (ImageSize TheArea (1/2) Inches) 100 (ImageUpright key)
+        _built <- derive fig
+        (needed, _stats) <- testImageKeys [fig]
+        liftIO $ assertEqual "built JPEG figure stays ready" [] (Map.keys needed)
+  where
+    path = "Tests/data/APR_Logo_Symbol_Black.jpg"

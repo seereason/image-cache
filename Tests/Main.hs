@@ -46,6 +46,8 @@ main = do
                , Data.FileCache.Test.tests
                , Image.enlargedTests r
                , Queue.queueTests
+               , Image.stableTests r
+               , Image.stableJpegTests r
                ]
 
 dump :: IO ()
