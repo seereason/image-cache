@@ -275,7 +275,7 @@ cacheImageShape flags key (Just (Right (ImageFileReady img@ImageReady{..}))) = d
   path <- fileCachePath (ImagePath key)
   liftIO (doesFileExist path) >>= \case
     False -> do
-      alog WARNING ("missing cache file: " <> prettyShow key <> " -> " <> show path)
+      alog INFO ("missing cache file: " <> prettyShow key <> " -> " <> show path)
       -- Return the shape so the system can regenerate this file
       -- pure $ Left $ MissingDerivedEntry key
       pure $ Right $ ImageFileShape _imageShape
@@ -466,7 +466,7 @@ repairDamagedCache path bs = do
     True ->
       -- The image file already exists and contains what we
       -- expected.  Is this worth a warning?
-      alog WARNING ("Cache file for new key already exists: " <> show path)
+      alog INFO ("Cache file for new key already exists: " <> show path)
 
 hardLinkCanonicalImage ::
   forall r e m. (MonadFileCacheWriter r e m, HasCallStack)
@@ -601,8 +601,14 @@ queueImageTasks ::
 queueImageTasks enq flags keys = do
   -- alog DEBUG ("keys=" <> show keys)
   -- Get the shape in the foreground, then build the final image files in the background.
+  --
+  -- Read each record rather than recomputing it.  Recomputing wrote a
+  -- placeholder and then a bare shape over whatever was there, and a
+  -- caller has just seen a bare shape, so if the worker finished the
+  -- image in between, its ready record was overwritten and the image
+  -- was built again on every request.
   images :: [Either FileError (ImageKey, ImageFile)]
-    <- mapM (\key -> fmap (key,) <$> cacheImageShape flags key Nothing) keys
+    <- mapM (\key -> fmap (key,) <$> getImageShape flags key) keys
   let shapes :: [ImageKey]
       shapes = mapMaybe (\case Right (key, ImageFileShape _) -> Just key
                                Right (_, ImageFileReady _) -> Nothing -- no work to do
