@@ -31,6 +31,7 @@ import Test.HUnit (Test(TestList), runTestTT, Counts(errors, failures))
 
 import qualified LaTeX
 import qualified Image
+import qualified Queue
 import Types
 -- import Speed ()
 
@@ -44,6 +45,7 @@ main = do
                , Image.imageTests top acid
                , Data.FileCache.Test.tests
                , Image.enlargedTests r
+               , Queue.queueTests
                ]
 
 dump :: IO ()

@@ -16,16 +16,19 @@ module Data.FileCache.Background
   , MonadFromIO
   ) where
 
-import Control.Concurrent as IO (ThreadId{-, threadDelay-}, newChan, readChan, writeChan)
-import Control.Concurrent.Chan (Chan)
+import Control.Concurrent as IO (ThreadId{-, threadDelay-})
+import Control.Concurrent.STM (atomically, flushTQueue, newTQueueIO, readTQueue, TQueue, writeTQueue)
 import Control.Concurrent.Thread (forkIO, Result)
 import Control.Exception ({-AsyncException(ThreadKilled),-} catch, throwIO)
 import Control.Lens
-import Control.Monad (forever, unless)
+import Control.Monad (unless)
 import Control.Monad.Catch (MonadCatch, SomeException)
 import Control.Monad.Except (liftIO, MonadError, MonadIO)
 import Control.Monad.Reader (ask, MonadReader)
 import Data.ListLike ( show )
+import qualified Data.Foldable as Foldable (length)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq (ViewL((:<), EmptyL), viewl, (|>))
 import Data.Set as Set (delete, difference, fromList, Set, size, toList, union)
 import GHC.Stack (HasCallStack)
 import Language.Haskell.TH.Instances ()
@@ -42,7 +45,9 @@ type MonadFromIO e m =
    MonadError e m,
    ConvertError SomeException (Either SomeException e))
 
-type TaskChan key = Chan [key]
+-- | Each element is one batch: the tasks a single 'queueTasks' call
+-- asked for.
+type TaskChan key = TQueue [key]
 data TaskQueue key = TaskQueue (TaskChan key) (ThreadId, IO (Result ()))
 
 -- | We need to be able to determine whether a task has successfully
@@ -76,18 +81,38 @@ class DoTask key queue | queue -> key where
 -- | Fork a thread into the background that loops forever reading task
 -- keys from the channel and running the corresponding task.
 startTaskQueue ::
-  forall key queue. (DoTask key queue, HasCallStack)
+  forall key queue. (DoTask key queue, Show key, HasCallStack)
   => queue
   -> IO (TaskQueue key)
 startTaskQueue queue = do
-  (chan :: TaskChan key) <- newChan
+  (chan :: TaskChan key) <- newTQueueIO
   alog INFO "Background task queue starting"
-  TaskQueue <$> pure chan <*> forkIO (task chan `catch` handler)
+  TaskQueue <$> pure chan <*> forkIO (task chan mempty [] `catch` handler)
   where
     -- This is the background task.  It is limited to IO by forkIO.
-    task :: TaskChan key -> IO ()
-    task chan = forever $
-      readChan chan >>= mapM_ (doTask @key queue)
+    --
+    -- Batches take turns, one task each.  Running them in the order
+    -- they arrived let a PDF that needed five hundred images hold up
+    -- someone else's three thumbnails until all five hundred were
+    -- built; now the thumbnails are done after six.  @pending@ is the
+    -- batches waiting their turn and @current@ what is left of the one
+    -- whose turn just ended.  Batches queued in the meantime go ahead
+    -- of @current@, so a newcomer's first task is next.  The worker
+    -- only blocks when it has nothing at all to do.
+    task :: TaskChan key -> Seq [key] -> [key] -> IO ()
+    task chan pending current = do
+      new <- atomically $
+        if null pending && null current
+        then pure <$> readTQueue chan
+        else flushTQueue chan
+      let rotation = foldl (Seq.|>) pending (filter (not . null) (new <> [current]))
+      case Seq.viewl rotation of
+        Seq.EmptyL -> task chan mempty []
+        [] Seq.:< rest -> task chan rest []
+        (k : ks) Seq.:< rest -> do
+          _ <- doTask @key queue k
+          alog INFO ("Completed " <> show k <> ", " <> show (Foldable.length ks + sum (fmap Foldable.length rest)) <> " tasks remaining")
+          task chan rest ks
 #if 1
     handler :: SomeException -> IO ()
     handler e = do
@@ -135,7 +160,7 @@ queueTasks tasks = do
   let newTasks = Set.difference taskSet oldTasks
   unless (null newTasks) $ do
     alog INFO ("Adding " ++ show (Set.size newTasks) ++ " tasks to queue of size " <> show (Set.size oldTasks))
-    liftIO (writeChan chan (Set.toList newTasks))
+    liftIO (atomically (writeTQueue chan (Set.toList newTasks)))
     overTasks (Set.union newTasks)
   where
     taskSet :: Set key
